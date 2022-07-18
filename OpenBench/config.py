@@ -23,66 +23,65 @@ USE_CROSS_APPROVAL = False
 OPENBENCH_CONFIG = {
 
     # Server Client version control
-    'client_version' : '2',
+    'client_version': '2',
 
     # Generic Error Messages useful to those setting up their own instance
-    'error' : {
-        'disabled' : 'Account has not been enabled. Contact andrew@grantnet.us',
-        'fakeuser' : 'This is not a real OpenBench User. Create an OpenBench account',
+    'error': {
+        'disabled': 'Account has not been enabled. Contact andrew@grantnet.us',
+        'fakeuser': 'This is not a real OpenBench User. Create an OpenBench account',
     },
 
     # Link to the repo on the sidebar, as well as the core files
-    'framework' : 'http://github.com/AndyGrant/OpenBench/',
-    'corefiles' : 'https://raw.githubusercontent.com/AndyGrant/OpenBench/master/CoreFiles',
+    'framework': 'http://github.com/AndyGrant/OpenBench/',
+    'corefiles': 'https://raw.githubusercontent.com/AndyGrant/OpenBench/master/CoreFiles',
 
     # Test Configuration. For both SPRT and Fixed Games Tests
 
-    'tests' : {
-        'max_games'  : '20000',        # Default for Fixed Games
-        'confidence' : '[0.05, 0.05]', # SPRT Type I/II Confidence
-        'throughput' : { 'stc' : 1000, 'ltc' : 1000, 'smpstc' : 1000, 'smpltc' : 1000 },
+    'tests': {
+        'max_games': '20000',        # Default for Fixed Games
+        'confidence': '[0.05, 0.05]',  # SPRT Type I/II Confidence
+        'throughput': {'stc': 1000, 'ltc': 1000, 'smpstc': 1000, 'smpltc': 1000},
     },
 
     # Book Configuration. When addding a book, follow the provided template.
-    # The SHA is defined by hashlib.sha256(book.read().encode('utf-8')).hexdigest().
-    # Client.py has this exact code to generate and verify sha256 values, as an example.
+    # The SHA is defined by hashlib.sha256(book).hexdigest(). Client.py has
+    # code to generate and verify sha256 values, as an example.
 
-    'books' : {
+    'books': {
 
-        '2moves_v1.epd' : {
-            'name'    : '2moves_v1.epd',
-            'sha'     : '7bec98239836f219dc41944a768c0506abed950aaec48da69a0782643e90f237',
-            'source'  : 'https://raw.githubusercontent.com/AndyGrant/OpenBench/master/Books/2moves_v1.epd.zip',
+        '2moves_v1.epd': {
+            'name': '2moves_v1.epd',
+            'sha': '7bec98239836f219dc41944a768c0506abed950aaec48da69a0782643e90f237',
+            'source': 'https://raw.githubusercontent.com/AndyGrant/OpenBench/master/Books/2moves_v1.epd.zip',
+            'default': False,
         },
 
-        '8moves_v3.epd' : {
-            'name'    : '8moves_v3.epd',
-            'sha'     : '1f055af431656f09ee6a09d2448e0b876125f78bb7b404fca2031c403a1541e5',
-            'source'  : 'https://raw.githubusercontent.com/AndyGrant/OpenBench/master/Books/8moves_v3.epd.zip',
+        '8moves_v3.epd': {
+            'name': '8moves_v3.epd',
+            'sha': '1f055af431656f09ee6a09d2448e0b876125f78bb7b404fca2031c403a1541e5',
+            'source': 'https://raw.githubusercontent.com/AndyGrant/OpenBench/master/Books/8moves_v3.epd.zip',
+            'default': False,
         },
 
-        '3moves_FRC.epd' : {
-            'name'    : '3moves_FRC.epd',
-            'sha'     : '6bf81e1ada6a3306bbc8356f7bca1e2984a2828d658799992d5443b7179c934d',
-            'source'  : 'https://raw.githubusercontent.com/AndyGrant/OpenBench/master/Books/3moves_FRC.epd.zip',
+        '3moves_FRC.epd': {
+            'name': '3moves_FRC.epd',
+            'sha': '6bf81e1ada6a3306bbc8356f7bca1e2984a2828d658799992d5443b7179c934d',
+            'source': 'https://raw.githubusercontent.com/AndyGrant/OpenBench/master/Books/3moves_FRC.epd.zip',
+            'default': False,
         },
 
-        '4moves_noob.epd' : {
-            'name'    : '4moves_noob.epd',
-            'sha'     : '4be746a91e3f8af0c9344b1e72d611e9fcfe486843867a55760970a4896f284d',
-            'source'  : 'https://raw.githubusercontent.com/AndyGrant/OpenBench/master/Books/4moves_noob.epd.zip',
+        '4moves_noob.epd': {
+            'name': '4moves_noob.epd',
+            'sha': '4be746a91e3f8af0c9344b1e72d611e9fcfe486843867a55760970a4896f284d',
+            'source': 'https://raw.githubusercontent.com/AndyGrant/OpenBench/master/Books/4moves_noob.epd.zip',
+            'default': True,
         },
 
-        'Pohl.epd' : {
-            'name'    : 'Pohl.epd',
-            'sha'     : 'b3e64e0dab84cf451a9ac7ef031f5a2bbcf16c7e21be95298fb03cbf021f5466',
-            'source'  : 'https://raw.githubusercontent.com/AndyGrant/OpenBench/master/Books/Pohl.epd.zip',
-        },
-
-        'DFRC.epd' : {
-            'name'    : 'DFRC.epd',
-            'sha'     : '648c447ef40614a44d13b78911e81470d8ddb0d3b2711c1b180e990871f5db4f',
-            'source'  : 'https://raw.githubusercontent.com/AndyGrant/OpenBench/master/Books/DFRC.epd.zip',
+        'Pohl.epd': {
+            'name': 'Pohl.epd',
+            'sha': 'b3e64e0dab84cf451a9ac7ef031f5a2bbcf16c7e21be95298fb03cbf021f5466',
+            'source': 'https://raw.githubusercontent.com/AndyGrant/OpenBench/master/Books/Pohl.epd.zip',
+            'default': False,
         },
     },
 
@@ -91,358 +90,25 @@ OPENBENCH_CONFIG = {
     # a set of paramaters for each standard test type, as well as a scaled
     # NPS value, which is used to normalize speed across all workers.
 
-    'engines' : {
+    'engines': {
 
-        'Ethereal' : {
+        'Avalanche': {
 
-            'nps'       : 1200000,
-            'base'      : 'master',
-            'book'      : 'Pohl.epd',
-            'bounds'    : '[0.00, 5.00]',
-            'source'    : 'https://github.com/AndyGrant/Ethereal',
+            'nps': 1100000,
+            'base': 'master',
+            'bounds': '[0.00, 5.00]',
+            'source': 'https://github.com/SnowballSH/Avalanche/',
 
-            'build'     : {
-                'path'      : 'src',
-                'compilers' : ['gcc'],
-                'cpuflags'  : ['AVX2', 'AVX', 'FMA', 'POPCNT', 'SSE2', 'SSE'],
+            'build': {
+                'path': '',
+                'compilers': ['zig'],
+                'cpuflags': [],
             },
 
-            'testmodes' : {
-                'stc'     : { 'threads' : 1, 'hash' :   8, 'timecontrol' : '10.0+0.1' },
-                'ltc'     : { 'threads' : 1, 'hash' :  64, 'timecontrol' : '60.0+0.6' },
-                'smpstc'  : { 'threads' : 8, 'hash' :  64, 'timecontrol' : '5.0+0.05' },
-                'smpltc'  : { 'threads' : 8, 'hash' : 256, 'timecontrol' : '20.0+0.2' },
-             },
-        },
-
-        'Laser' : {
-
-            'nps'       : 935000,
-            'base'      : 'master',
-            'book'      : 'Pohl.epd',
-            'bounds'    : '[0.00, 5.00]',
-            'source'    : 'https://github.com/jeffreyan11/uci-chess-engine',
-
-            'build'     : {
-                'path'      : 'src',
-                'compilers' : ['g++'],
-                'cpuflags'  : ['POPCNT'],
+            'testmodes': {
+                'stc': {'threads': 1, 'hash':   8, 'timecontrol': '10.0+0.1'},
+                'ltc': {'threads': 1, 'hash':  64, 'timecontrol': '60.0+0.6'},
             },
-
-            'testmodes' : {
-                'stc'     : { 'threads' : 1, 'hash' :   8, 'timecontrol' : '8.0+0.08' },
-                'ltc'     : { 'threads' : 1, 'hash' :  64, 'timecontrol' : '40.0+0.4' },
-                'smpstc'  : { 'threads' : 8, 'hash' :  64, 'timecontrol' : '5.0+0.05' },
-                'smpltc'  : { 'threads' : 8, 'hash' : 256, 'timecontrol' : '20.0+0.2' },
-             },
-        },
-
-        'Weiss' : {
-
-            'nps'       : 1775000,
-            'base'      : 'master',
-            'book'      : 'Pohl.epd',
-            'bounds'    : '[-1.00, 4.00]',
-            'source'    : 'https://github.com/TerjeKir/weiss',
-
-            'build'     : {
-                'path'      : 'src',
-                'compilers' : ['gcc'],
-                'cpuflags'  : ['POPCNT'],
-            },
-
-            'testmodes' : {
-                'stc'     : { 'threads' : 1, 'hash' :  32, 'timecontrol' : '8.0+0.08' },
-                'ltc'     : { 'threads' : 1, 'hash' : 128, 'timecontrol' : '40.0+0.4' },
-                'smpstc'  : { 'threads' : 8, 'hash' : 128, 'timecontrol' : '5.0+0.05' },
-                'smpltc'  : { 'threads' : 8, 'hash' : 512, 'timecontrol' : '20.0+0.2' },
-            },
-        },
-
-        'Demolito' : {
-
-            'nps'       : 1330000,
-            'base'      : 'master',
-            'book'      : 'Pohl.epd',
-            'bounds'    : '[0.00, 5.00]',
-            'source'    : 'https://github.com/lucasart/Demolito',
-
-            'build'     : {
-                'path'      : 'src',
-                'compilers' : ['clang', 'gcc'],
-                'cpuflags'  : ['POPCNT'],
-            },
-
-            'testmodes' : {
-                'stc'     : { 'threads' : 1, 'hash' :   8, 'timecontrol' : '8.0+0.08' },
-                'ltc'     : { 'threads' : 1, 'hash' :  32, 'timecontrol' : '32.0+0.32'},
-                'smpstc'  : { 'threads' : 8, 'hash' :  32, 'timecontrol' : '4.0+0.04' },
-                'smpltc'  : { 'threads' : 8, 'hash' : 128, 'timecontrol' : '16.0+0.16'},
-            },
-        },
-
-        'RubiChess' : {
-
-            'nps'       : 1085000,
-            'base'      : 'master',
-            'book'      : 'Pohl.epd',
-            'bounds'    : '[0.00, 5.00]',
-            'source'    : 'https://github.com/Matthies/RubiChess',
-
-            'build'     : {
-                'path'      : 'src',
-                'compilers' : ['g++'],
-                'cpuflags'  : ['POPCNT'],
-            },
-
-            'testmodes' : {
-                'stc'     : { 'threads' : 1, 'hash' :   8, 'timecontrol' : '10.0+0.1' },
-                'ltc'     : { 'threads' : 1, 'hash' :  64, 'timecontrol' : '60.0+0.6' },
-                'smpstc'  : { 'threads' : 8, 'hash' :  64, 'timecontrol' : '5.0+0.05' },
-                'smpltc'  : { 'threads' : 8, 'hash' : 256, 'timecontrol' : '20.0+0.2' },
-            },
-        },
-
-        'FabChess' : {
-
-            'nps'       : 1000000,
-            'base'      : 'master',
-            'book'      : 'Pohl.epd',
-            'bounds'    : '[0.00, 5.00]',
-            'source'    : 'https://github.com/fabianvdW/FabChess',
-
-            'build'     : {
-                'path'      : '',
-                'compilers' : ['cargo>=1.41.0'],
-                'cpuflags'  : ['POPCNT'],
-            },
-
-            'testmodes' : {
-                'stc'     : { 'threads' : 1, 'hash' :   8, 'timecontrol' : '8.0+0.08' },
-                'ltc'     : { 'threads' : 1, 'hash' :  64, 'timecontrol' : '40.0+0.4' },
-                'smpstc'  : { 'threads' : 8, 'hash' :  64, 'timecontrol' : '5.0+0.05' },
-                'smpltc'  : { 'threads' : 8, 'hash' : 256, 'timecontrol' : '20.0+0.2' },
-            },
-        },
-
-        'Igel' : {
-
-            'nps'       : 860000,
-            'base'      : 'master',
-            'book'      : 'Pohl.epd',
-            'bounds'    : '[0.00, 5.00]',
-            'source'    : 'https://github.com/vshcherbyna/igel',
-
-            'build'     : {
-                'path'      : 'src',
-                'compilers' : ['g++'],
-                'cpuflags'  : ['POPCNT'],
-            },
-
-            'testmodes' : {
-                'stc'     : { 'threads' : 1, 'hash' :   8, 'timecontrol' : '10.0+0.1' },
-                'ltc'     : { 'threads' : 1, 'hash' :  64, 'timecontrol' : '60.0+0.6' },
-                'smpstc'  : { 'threads' : 8, 'hash' :  64, 'timecontrol' : '5.0+0.05' },
-                'smpltc'  : { 'threads' : 8, 'hash' : 256, 'timecontrol' : '20.0+0.2' },
-            },
-        },
-
-        'Winter' : {
-
-            'nps'       : 650000,
-            'base'      : 'master',
-            'book'      : 'Pohl.epd',
-            'bounds'    : '[0.00, 5.00]',
-            'source'    : 'https://github.com/rosenthj/Winter',
-
-            'build'     : {
-                'path'      : '',
-                'compilers' : ['clang++', 'g++'],
-                'cpuflags'  : ['POPCNT'],
-            },
-
-            'testmodes' : {
-                'stc'     : { 'threads' : 1, 'hash' :   8, 'timecontrol' : '8.0+0.08' },
-                'ltc'     : { 'threads' : 1, 'hash' :  64, 'timecontrol' : '40.0+0.4' },
-                'smpstc'  : { 'threads' : 8, 'hash' :  64, 'timecontrol' : '5.0+0.05' },
-                'smpltc'  : { 'threads' : 8, 'hash' : 256, 'timecontrol' : '20.0+0.2' },
-            },
-        },
-
-        'Halogen' : {
-
-            'nps'       : 1750000,
-            'base'      : 'master',
-            'book'      : 'Pohl.epd',
-            'bounds'    : '[0.00, 5.00]',
-            'source'    : 'https://github.com/KierenP/Halogen',
-
-            'build'     : {
-                'path'      : 'src',
-                'compilers' : ['g++'],
-                'cpuflags'  : ['POPCNT'],
-            },
-
-            'testmodes' : {
-                'stc'     : { 'threads' : 1, 'hash' :   8, 'timecontrol' : '8.0+0.08' },
-                'ltc'     : { 'threads' : 1, 'hash' :  64, 'timecontrol' : '40.0+0.4' },
-                'smpstc'  : { 'threads' : 8, 'hash' :  64, 'timecontrol' : '5.0+0.05' },
-                'smpltc'  : { 'threads' : 8, 'hash' : 256, 'timecontrol' : '20.0+0.2' },
-            },
-        },
-
-        'Stash' : {
-
-            'nps'       : 1585000,
-            'base'      : 'master',
-            'book'      : '4moves_noob.epd',
-            'bounds'    : '[0.00, 5.00]',
-            'source'    : 'https://github.com/mhouppin/stash-bot',
-
-            'build'     : {
-                'path'      : 'src',
-                'compilers' : ['gcc', 'clang'],
-                'cpuflags'  : ['POPCNT'],
-            },
-
-            'testmodes' : {
-                'stc'     : { 'threads' : 1, 'hash' :  16, 'timecontrol' : '8.0+0.08' },
-                'ltc'     : { 'threads' : 1, 'hash' :  64, 'timecontrol' : '40.0+0.4' },
-                'smpstc'  : { 'threads' : 8, 'hash' :  64, 'timecontrol' : '5.0+0.05' },
-                'smpltc'  : { 'threads' : 8, 'hash' : 256, 'timecontrol' : '20.0+0.2' },
-            },
-        },
-
-        'Seer' : {
-
-            'nps'       : 680000,
-            'base'      : 'main',
-            'book'      : 'Pohl.epd',
-            'bounds'    : '[0.00, 5.00]',
-            'source'    : 'https://github.com/connormcmonigle/seer-nnue',
-
-            'build'     : {
-                'path'      : 'build',
-                'compilers' : ['g++>=9.0.0'],
-                'cpuflags'  : ['AVX2', 'AVX', 'FMA', 'POPCNT', 'SSE2', 'SSE'],
-            },
-
-            'testmodes' : {
-                'stc'     : { 'threads' : 1, 'hash' :  32, 'timecontrol' : '8.0+0.08' },
-                'ltc'     : { 'threads' : 1, 'hash' :  64, 'timecontrol' : '40.0+0.4' },
-                'smpstc'  : { 'threads' : 8, 'hash' :  64, 'timecontrol' : '5.0+0.05' },
-                'smpltc'  : { 'threads' : 8, 'hash' : 256, 'timecontrol' : '20.0+0.2' },
-            },
-        },
-
-        'Koivisto' : {
-
-            'nps'       : 1220000,
-            'base'      : 'master',
-            'book'      : 'Pohl.epd',
-            'bounds'    : '[0.00, 2.50]',
-            'source'    : 'https://github.com/Luecx/Koivisto',
-
-            'build'     : {
-                'path'      : 'src_files',
-                'compilers' : ['g++'],
-                'cpuflags'  : ['AVX2', 'AVX', 'FMA', 'POPCNT', 'SSE2', 'SSE'],
-            },
-
-            'testmodes' : {
-                'stc'     : { 'threads' : 1, 'hash' :   8, 'timecontrol' : '8.0+0.08' },
-                'ltc'     : { 'threads' : 1, 'hash' :  64, 'timecontrol' : '40.0+0.4' },
-                'smpstc'  : { 'threads' : 8, 'hash' :  64, 'timecontrol' : '5.0+0.05' },
-                'smpltc'  : { 'threads' : 8, 'hash' : 256, 'timecontrol' : '20.0+0.2' },
-            },
-        },
-
-        'Drofa' : {
-
-            'nps'       : 1300000,
-            'base'      : 'master',
-            'book'      : '4moves_noob.epd',
-            'bounds'    : '[0.00, 5.00]',
-            'source'    : 'https://github.com/justNo4b/Drofa',
-
-            'build'     : {
-                'path'      : '',
-                'compilers' : ['g++'],
-                'cpuflags'  : ['POPCNT'],
-            },
-
-            'testmodes' : {
-                'stc'     : { 'threads' : 1, 'hash' :   8, 'timecontrol' : '8.0+0.08' },
-                'ltc'     : { 'threads' : 1, 'hash' :  64, 'timecontrol' : '40.0+0.4' },
-                'smpstc'  : { 'threads' : 8, 'hash' :  64, 'timecontrol' : '5.0+0.05' },
-                'smpltc'  : { 'threads' : 8, 'hash' : 256, 'timecontrol' : '20.0+0.2' },
-            },
-        },
-
-        'Bit-Genie' : {
-
-            'nps'       : 1820000,
-            'base'      : 'master',
-            'book'      : 'Pohl.epd',
-            'bounds'    : '[0.00, 5.00]',
-            'source'    : 'https://github.com/Aryan1508/Bit-Genie',
-
-            'build'     : {
-                'path'      : 'src',
-                'compilers' : ['g++'],
-                'cpuflags'  : ['POPCNT'],
-            },
-
-            'testmodes' : {
-                'stc'     : { 'threads' : 1, 'hash' :   8, 'timecontrol' : '8.0+0.08' },
-                'ltc'     : { 'threads' : 1, 'hash' :  64, 'timecontrol' : '40.0+0.4' },
-                'smpstc'  : { 'threads' : 8, 'hash' :  64, 'timecontrol' : '5.0+0.05' },
-                'smpltc'  : { 'threads' : 8, 'hash' : 256, 'timecontrol' : '20.0+0.2' },
-            },
-        },
-
-        'Berserk' : {
-
-            'nps'       : 1145000,
-            'base'      : 'main',
-            'book'      : 'Pohl.epd',
-            'bounds'    : '[-1.00, 4.00]',
-            'source'    : 'https://github.com/jhonnold/berserk',
-
-            'build'     : {
-                'path'      : 'src',
-                'compilers' : ['gcc'],
-                'cpuflags'  : ['POPCNT'],
-            },
-
-            'testmodes' : {
-                'stc'     : { 'threads' : 1, 'hash' :   8, 'timecontrol' : '8.0+0.08' },
-                'ltc'     : { 'threads' : 1, 'hash' :  64, 'timecontrol' : '40.0+0.4' },
-                'smpstc'  : { 'threads' : 8, 'hash' :  64, 'timecontrol' : '5.0+0.05' },
-                'smpltc'  : { 'threads' : 8, 'hash' : 256, 'timecontrol' : '20.0+0.2' },
-             },
-        },
-
-        'Zahak' : {
-
-            'nps'       : 860000,
-            'base'      : 'master',
-            'book'      : 'Pohl.epd',
-            'bounds'    : '[0.00, 5.00]',
-            'source'    : 'https://github.com/amanjpro/zahak',
-
-            'build'     : {
-                'path'      : '',
-                'compilers' : ['go'],
-                'cpuflags'  : ['AVX', 'POPCNT'],
-            },
-
-            'testmodes' : {
-                'stc'     : { 'threads' : 1, 'hash' :   8, 'timecontrol' : '8.0+0.08' },
-                'ltc'     : { 'threads' : 1, 'hash' :  64, 'timecontrol' : '40.0+0.4' },
-                'smpstc'  : { 'threads' : 8, 'hash' :  64, 'timecontrol' : '5.0+0.05' },
-                'smpltc'  : { 'threads' : 8, 'hash' : 256, 'timecontrol' : '20.0+0.2' },
-             },
         },
     },
 }

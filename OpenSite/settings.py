@@ -21,18 +21,20 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # SECURITY WARNING: don't run with debug turned on in production!
 SECRET_KEY = '@!zw2l8til1(0eb_nk+1w!(n78gqm&u)s)_v7#k6iseia@g9q0'
 DEBUG = True
+CSRF_TRUSTED_ORIGINS = [
+    'https://snowballsh-openbench-q7qgjg9p4h9gxg-8000.githubpreview.dev']
 
 ALLOWED_HOSTS = ['*']
 HTML_MINIFY = True
 
 # Application definition
 
-SETTINGS_DIR  = os.path.dirname(__file__)
-PROJECT_PATH  = os.path.join(SETTINGS_DIR, os.pardir)
-PROJECT_PATH  = os.path.abspath(PROJECT_PATH)
+SETTINGS_DIR = os.path.dirname(__file__)
+PROJECT_PATH = os.path.join(SETTINGS_DIR, os.pardir)
+PROJECT_PATH = os.path.abspath(PROJECT_PATH)
 TEMPLATE_PATH = os.path.join(PROJECT_PATH, 'Templates')
 
-MEDIA_URL  = '/Media/'
+MEDIA_URL = '/Media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'Media')
 
 INSTALLED_APPS = [

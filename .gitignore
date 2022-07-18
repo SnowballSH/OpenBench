@@ -3,3 +3,5 @@ Client/*
 !Client/cleanup.sh
 OpenBench/migrations/*
 credentials
+zig
+*.sqlite3
