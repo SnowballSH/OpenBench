@@ -93,6 +93,9 @@ urlpatterns = [
     django.urls.path(r'api/spsa/<int:workload_id>/<str:query>/', OpenBench.views.api_spsa),
     django.urls.path(r'api/workload/<int:workload_id>/<str:query>/', OpenBench.views.api_workload),
 
+    # Liveness and database readiness, for the reverse proxy and deployers
+    django.urls.path(r'health/', OpenBench.views.health),
+
     # Redirect anything else to the Index
     django.urls.path(r'', OpenBench.views.index),
 

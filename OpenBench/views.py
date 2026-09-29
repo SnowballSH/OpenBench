@@ -42,7 +42,7 @@ from OpenBench.models import *
 from django.contrib.auth.models import User
 from OpenSite.settings import MEDIA_ROOT
 
-from django.db import transaction
+from django.db import DatabaseError, connection, transaction
 from django.db.models import F, Q
 from django.http import HttpResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
@@ -1134,6 +1134,17 @@ def api_workload(request, workload_id, query):
 
     valid_endpoints = [ 'results', 'info', 'summary' ]
     return api_response({ 'error' : 'Valid /query/ endpoints are: [ %s ]' % (', '.join(valid_endpoints)) })
+
+def health(request):
+
+    # Reveals nothing beyond whether the database answers, so it needs no login
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute('SELECT 1 FROM OpenBench_serverstate LIMIT 1')
+    except DatabaseError:
+        return JsonResponse({ 'status' : 'unavailable' }, status=503)
+
+    return JsonResponse({ 'status' : 'ok' })
 
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 #                                BUSINESS VIEWS                               #

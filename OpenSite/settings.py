@@ -21,13 +21,19 @@ def env_flag(name):
 def env_list(name):
     return [item.strip() for item in os.environ.get(name, '').split(',') if item.strip()]
 
+def env_secret(name):
+    if (path := os.environ.get(name + '_FILE')):
+        with open(path) as fin:
+            return fin.read().strip()
+    return os.environ.get(name)
+
 # Build paths inside the project like this: os.path.join(BASE_DIR, ...)
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # Production is the default. See docs/DEPLOYMENT.md for every OPENBENCH_* variable
 DEBUG = env_flag('OPENBENCH_DEBUG')
 
-SECRET_KEY = os.environ.get('OPENBENCH_SECRET_KEY') or (get_random_secret_key() if DEBUG else None)
+SECRET_KEY = env_secret('OPENBENCH_SECRET_KEY') or (get_random_secret_key() if DEBUG else None)
 if not SECRET_KEY:
     raise ImproperlyConfigured('OPENBENCH_SECRET_KEY must be set unless OPENBENCH_DEBUG is enabled')
 
@@ -55,6 +61,9 @@ DATA_DIR   = os.environ.get('OPENBENCH_DATA_DIR', BASE_DIR)
 MEDIA_URL  = '/Media/'
 MEDIA_ROOT = os.path.join(DATA_DIR, 'Media')
 
+# Uploads over FILE_UPLOAD_MAX_MEMORY_SIZE spool here rather than to a tmpfs /tmp
+FILE_UPLOAD_TEMP_DIR = os.environ.get('OPENBENCH_UPLOAD_TEMP_DIR') or None
+
 INSTALLED_APPS = [
     'OpenBench',
     'OpenBench.templatetags',
@@ -68,6 +77,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -107,6 +117,11 @@ DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
         'NAME': os.path.join(DATA_DIR, 'db.sqlite3'),
+        'OPTIONS': {
+            'timeout'          : 20,
+            'transaction_mode' : 'IMMEDIATE',
+            'init_command'     : 'PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;',
+        },
     }
 }
 
@@ -145,4 +160,5 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/2.0/howto/static-files/
 
-STATIC_URL = '/static/'
+STATIC_URL  = '/static/'
+STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
