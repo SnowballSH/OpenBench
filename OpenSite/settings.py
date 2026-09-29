@@ -12,17 +12,32 @@ https://docs.djangoproject.com/en/2.0/ref/settings/
 
 import os
 
+from django.core.exceptions import ImproperlyConfigured
+from django.core.management.utils import get_random_secret_key
+
+def env_flag(name):
+    return os.environ.get(name, '').strip().lower() in ('1', 'true', 'yes')
+
+def env_list(name):
+    return [item.strip() for item in os.environ.get(name, '').split(',') if item.strip()]
+
 # Build paths inside the project like this: os.path.join(BASE_DIR, ...)
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-# Quick-start development settings - unsuitable for production
-# See https://docs.djangoproject.com/en/2.0/howto/deployment/checklist/
-# SECURITY WARNING: keep the secret key used in production secret!
-# SECURITY WARNING: don't run with debug turned on in production!
-SECRET_KEY = '@!zw2l8til1(0eb_nk+1w!(n78gqm&u)s)_v7#k6iseia@g9q0'
-DEBUG = True
+# Production is the default. See docs/DEPLOYMENT.md for every OPENBENCH_* variable
+DEBUG = env_flag('OPENBENCH_DEBUG')
 
-ALLOWED_HOSTS = ['*']
+SECRET_KEY = os.environ.get('OPENBENCH_SECRET_KEY') or (get_random_secret_key() if DEBUG else None)
+if not SECRET_KEY:
+    raise ImproperlyConfigured('OPENBENCH_SECRET_KEY must be set unless OPENBENCH_DEBUG is enabled')
+
+ALLOWED_HOSTS        = env_list('OPENBENCH_ALLOWED_HOSTS')
+CSRF_TRUSTED_ORIGINS = ['https://%s' % (host) for host in ALLOWED_HOSTS if not host.startswith('.')]
+
+if env_flag('OPENBENCH_BEHIND_TLS_PROXY'):
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+    SESSION_COOKIE_SECURE   = True
+    CSRF_COOKIE_SECURE      = True
 
 HTML_MINIFY   = True
 APPEND_SLASH  = True
@@ -36,8 +51,9 @@ PROJECT_PATH  = os.path.join(SETTINGS_DIR, os.pardir)
 PROJECT_PATH  = os.path.abspath(PROJECT_PATH)
 TEMPLATE_PATH = os.path.join(PROJECT_PATH, 'Templates')
 
+DATA_DIR   = os.environ.get('OPENBENCH_DATA_DIR', BASE_DIR)
 MEDIA_URL  = '/Media/'
-MEDIA_ROOT = os.path.join(BASE_DIR, 'Media')
+MEDIA_ROOT = os.path.join(DATA_DIR, 'Media')
 
 INSTALLED_APPS = [
     'OpenBench',
@@ -90,7 +106,7 @@ WSGI_APPLICATION = 'OpenSite.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': os.path.join(BASE_DIR, 'db.sqlite3'),
+        'NAME': os.path.join(DATA_DIR, 'db.sqlite3'),
     }
 }
 
@@ -122,8 +138,6 @@ LANGUAGE_CODE = 'en-us'
 TIME_ZONE = 'UTC'
 
 USE_I18N = True
-
-USE_L10N = True
 
 USE_TZ = True
 

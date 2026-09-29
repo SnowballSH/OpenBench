@@ -65,9 +65,7 @@ def view_workload(request, workload, workload_type):
 def fetch_results(workload):
 
     # One minute prior to now
-    target = datetime.datetime.utcnow()
-    target = target.replace(tzinfo=timezone.utc)
-    target = target - datetime.timedelta(minutes=1)
+    target = timezone.now() - datetime.timedelta(minutes=1)
 
     # Create `active` field for current machines
     qs = Result.objects.filter(test=workload).select_related('machine__user').annotate(

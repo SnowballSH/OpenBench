@@ -12,6 +12,7 @@ import signal
 import sys
 import threading
 
+from django.apps import apps
 from django.core.wsgi import get_wsgi_application
 
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "OpenSite.settings")
@@ -48,3 +49,5 @@ if threading.current_thread() is threading.main_thread():
     signal.signal(signal.SIGTERM, graceful_exit_on_sigterm)
 
 application = get_wsgi_application()
+
+apps.get_app_config('OpenBench').start_pgn_watcher()
