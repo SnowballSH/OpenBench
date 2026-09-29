@@ -19,15 +19,17 @@
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 
 import atexit
+import os
 import pathlib
 import platform
 import threading
 
 import django.apps
+import django.conf
 
 # No imports of OpenBench.* are allowed here
 
-LOCKFILE_PATH = 'openbench_watchers.lock'
+LOCKFILE_PATH = os.path.join(django.conf.settings.DATA_DIR, 'openbench_watchers.lock')
 CONFIG_LOCK   = threading.Lock()
 IS_WINDOWS    = platform.system() == 'Windows'
 
@@ -70,7 +72,10 @@ class OpenBenchConfig(django.apps.AppConfig):
             if config.OPENBENCH_CONFIG is None:
                 config.OPENBENCH_CONFIG = config.create_openbench_config()
 
-        # Attempt to spawn the PGN Watcher, globally once
+    def start_pgn_watcher(self):
+
+        # Called by the WSGI entrypoint, never by management commands, which may
+        # run before the tables exist. Spawned globally once, via the lockfile
 
         from OpenBench.pgn_watcher import PGNWatcher
 
