@@ -269,7 +269,10 @@ def network_upload(request, engine, name):
 
     # Extract and process the Network file to produce a SHA
     netfile = request.FILES['netfile']
-    sha256  = hashlib.sha256(netfile.file.read()).hexdigest()[:8].upper()
+    digest  = hashlib.sha256()
+    for chunk in netfile.chunks():
+        digest.update(chunk)
+    sha256  = digest.hexdigest()[:8].upper()
 
     # Rejecct Networks with strange characters
     if not re.match(r'^[a-zA-Z0-9_.-]+$', name):
