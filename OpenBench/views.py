@@ -30,7 +30,7 @@ import OpenBench.spsa_utils
 import OpenBench.utils
 
 from OpenBench.workloads.create_workload import create_workload
-from OpenBench.workloads.get_workload import get_workload
+from OpenBench.workloads.get_workload import filter_valid_workloads, get_workload
 from OpenBench.workloads.modify_workload import modify_workload
 from OpenBench.workloads.verify_workload import verify_workload
 from OpenBench.workloads.view_workload import view_workload, fetch_results, fetch_result_summaries
@@ -770,35 +770,41 @@ def client_worker_info(request):
     machine.info['OPENBENCH_CONFIG_CHECKSUM'] = ServerState.checksum()
 
     # Tag engines that the Machine can build and/or run with binaries
-    machine.info['supported'] = []
-    for config in EngineConfig.objects.all():
-
-        build = config.build()
-
-        # Must have all CPU flags, for both Public and Private engines
-        if any([flag not in machine.info['cpu_flags'] for flag in build['cpuflags']]):
-            continue
-
-        # Private engines must have, or think they have, a Git Token
-        if config.private and config.name not in machine.info['tokens'].keys():
-            continue
-
-        # Public engines must have a compiler of a sufficient version
-        if not config.private and config.name not in machine.info['compilers'].keys():
-            continue
-
-        # Must match the Operating Systems supported by the engine
-        if machine.info['os_name'] not in build['systems']:
-            continue
-
-        # All requirements are met, and this Machine can play with the given engine
-        machine.info['supported'].append(config.name)
+    machine.info['supported'] = supported_engines(machine.info)
 
     # Finish up
     machine.save()
 
     # Pass back the Machine Id, and Secret Token for this session
     return JsonResponse({ 'machine_id' : machine.id, 'secret' : machine.secret })
+
+def supported_engines(info):
+
+    supported = []
+    for config in EngineConfig.objects.all():
+
+        build = config.build()
+
+        # Must have all CPU flags, for both Public and Private engines
+        if any([flag not in info['cpu_flags'] for flag in build['cpuflags']]):
+            continue
+
+        # Private engines must have, or think they have, a Git Token
+        if config.private and config.name not in info['tokens'].keys():
+            continue
+
+        # Public engines must have a compiler of a sufficient version
+        if not config.private and config.name not in info['compilers'].keys():
+            continue
+
+        # Must match the Operating Systems supported by the engine
+        if info['os_name'] not in build['systems']:
+            continue
+
+        # All requirements are met, and this Machine can play with the given engine
+        supported.append(config.name)
+
+    return supported
 
 @csrf_exempt
 def client_get_network(request, engine, name):
@@ -929,8 +935,8 @@ def client_submit_pgn(request, machine):
 #                                                                             #
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 
-def api_response(data):
-    return HttpResponse(json.dumps(data, indent=4), content_type='application/json')
+def api_response(data, status=200):
+    return HttpResponse(json.dumps(data, indent=4), content_type='application/json', status=status)
 
 @csrf_exempt
 def api_authenticate(request, require_enabled=False):
@@ -957,6 +963,64 @@ def api_authenticate(request, require_enabled=False):
         import traceback
         traceback.print_exc()
         return False
+
+ACTIVE_INFO_TYPES = {
+    'concurrency'    : int,
+    'physical_cores' : int,
+    'logical_cores'  : int,
+    'ram_total_mb'   : int,
+    'syzygy_max'     : int,
+    'noisy'          : bool,
+    'cpu_flags'      : list,
+    'os_name'        : str,
+    'compilers'      : dict,
+    'tokens'         : dict,
+}
+
+ACTIVE_OPTIONAL_TYPES = { 'focus' : list, 'only' : list }
+
+def parse_active_info(request):
+
+    # Returns the system_info subset a Client would register with, or None
+
+    try: info = json.loads(request.POST['system_info'])
+    except (KeyError, ValueError): return None
+
+    if type(info) != dict:
+        return None
+
+    for key, kind in ACTIVE_INFO_TYPES.items():
+        if type(info.get(key)) != kind:
+            return None
+
+    for key, kind in ACTIVE_OPTIONAL_TYPES.items():
+        if key in info and type(info[key]) != kind:
+            return None
+
+    if not all(x.isascii() and x.isdigit() and len(x) <= 18 for x in request.POST.getlist('blacklist')):
+        return None
+
+    return { key : info[key] for key in (*ACTIVE_INFO_TYPES, *ACTIVE_OPTIONAL_TYPES) if key in info }
+
+@csrf_exempt
+def api_active(request):
+
+    # How many workloads a Client with this system_info and blacklist could be
+    # assigned right now. Uses the same filters as clientGetWorkload, and never
+    # writes: the Machine below is never saved
+
+    if request.method != 'POST':
+        return api_response({ 'error' : 'POST required' }, status=405)
+
+    if not api_authenticate(request, require_enabled=True):
+        return api_response({ 'error' : 'Bad Credentials' }, status=401)
+
+    if not (info := parse_active_info(request)):
+        return api_response({ 'error' : 'Malformed system_info or blacklist' }, status=400)
+
+    machine = Machine(info={ **info, 'supported' : supported_engines(info) })
+    candidates, _ = filter_valid_workloads(request, machine)
+    return api_response({ 'assignable' : len(candidates) })
 
 @csrf_exempt
 def api_configs(request, engine=None):

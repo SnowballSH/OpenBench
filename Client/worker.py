@@ -32,6 +32,7 @@ import requests
 import shlex
 import shutil
 import subprocess
+import signal
 import sys
 import tempfile
 import threading
@@ -67,6 +68,15 @@ TIMEOUT_ERROR    = 60 # Timeout in seconds when any errors are thrown
 TIMEOUT_WORKLOAD = 60 # Timeout in seconds between workload requests
 REPORT_INTERVAL  = 30 # Seconds between reports to the Server
 
+## Exit codes of --single-workload, for supervisors that run one workload at a time
+
+EXIT_WORKLOAD_DONE   = 0 # The workload ran to completion, or the Server stopped it
+EXIT_NO_WORKLOAD     = 3 # The Server had no workload for this Machine
+EXIT_WORKLOAD_FAILED = 4 # The workload itself failed; FAILED_TEST <id> was printed
+EXIT_UNREACHABLE     = 5 # The Server failed or was unreachable mid-workload; retry later
+EXIT_INTERRUPTED     = 130 # SIGINT, or SIGTERM under --single-workload
+EXIT_SETUP_FAILED    = 1 # A required tool, like make or a C++ compiler, is missing
+
 IS_WINDOWS = platform.system() == 'Windows' # Don't touch this
 IS_LINUX   = platform.system() != 'Windows' # Don't touch this
 
@@ -97,6 +107,7 @@ class Configuration:
         self.secret_token   = 'None'
         self.syzygy_max     = 2
         self.blacklist      = []
+        self.fastchess_ver  = None
 
         self.process_args(args)   # Rest of the command line settings
         self.check_requirements() # Checks for Make, and g++ or clang++
@@ -117,6 +128,8 @@ class Configuration:
         self.noisy       = args.noisy    if args.noisy    else False
         self.focus       = args.focus    if args.focus    else []
         self.only        = args.only     if args.only     else []
+        self.blacklist   = args.blacklist if args.blacklist else []
+        self.single      = args.single_workload
         self.cli_options = args.cli_options
 
     def check_requirements(self):
@@ -133,7 +146,7 @@ class Configuration:
         # Cannot build fastchess nor observe CPU flags
         if not self.cxx_comp:
             print ('[Error] Unable to locate C++ Compiler (g++ or clang++)')
-            sys.exit()
+            sys.exit(EXIT_SETUP_FAILED)
 
     def init_client(self):
 
@@ -768,7 +781,7 @@ def locate_utility(util, force_exit=True, report_error=True):
 
     except Exception:
         if report_error: print('[Error] Unable to locate %s' % (util))
-        if force_exit: sys.exit()
+        if force_exit: sys.exit(EXIT_SETUP_FAILED)
 
 def set_runner_permissions():
 
@@ -1002,7 +1015,7 @@ def build_fastchess_in_dir(config, runner_dir):
             print ('> %s' % (line))
         raise OpenBenchMatchRunnerBuildFailedException()
 
-def server_configure_worker(config):
+def scan_system(config):
 
     # Server tells us how to build or obtain binaries
     target = utils.url_join(config.server, 'clientGetBuildInfo')
@@ -1013,6 +1026,8 @@ def server_configure_worker(config):
     config.scan_for_cpu_flags(data)      # For executing binaries
     config.determine_isa()               # Stockfish-style ISA of this machine
     config.machine_id = None             # None, until registration occurs for a session
+
+def registration_info(config):
 
     system_info = {
         'compilers'      : config.compilers,      # Key: Engine, Value: (Compiler, Version)
@@ -1040,6 +1055,13 @@ def server_configure_worker(config):
         'fastchess_ver'  : config.fastchess_ver,  # Fastchess Version, set during server_configure_fastchess()
         'client_ver'     : CLIENT_VERSION,        # Version of the Client, which the server may reject
     }
+
+    return system_info
+
+def server_configure_worker(config):
+
+    scan_system(config)
+    system_info = registration_info(config)
 
     payload = {
         'username'    : config.username,
@@ -1164,6 +1186,31 @@ def complete_workload(config):
         if config.workload['test']['upload_pgns'] != 'FALSE':
             compact = config.workload['test']['upload_pgns'] == 'COMPACT'
             ServerReporter.report_pgn(config, pgn_util.compress_pgn_files(pgn_files, scale_factor, compact))
+
+def complete_single_workload(config):
+
+    if not config.workload:
+        print('No workload assigned')
+        sys.exit(EXIT_NO_WORKLOAD)
+
+    try: complete_workload(config)
+
+    except KeyboardInterrupt:
+        sys.exit(EXIT_INTERRUPTED)
+
+    except BadVersionException:
+        raise
+
+    except (requests.exceptions.RequestException, utils.OpenBenchBadServerResponseException, utils.OpenBenchFatalWorkerException):
+        traceback.print_exc()
+        sys.exit(EXIT_UNREACHABLE)
+
+    except Exception:
+        traceback.print_exc()
+        print('FAILED_TEST %d' % (config.workload['test']['id']), flush=True)
+        sys.exit(EXIT_WORKLOAD_FAILED)
+
+    sys.exit(EXIT_WORKLOAD_DONE)
 
 def safe_download_network_weights(config, branch):
 
@@ -1354,6 +1401,9 @@ def parse_arguments(client_args):
     p.add_argument(      '--noisy'   , help='Reject time-based workloads' , action='store_true')
     p.add_argument(      '--focus'   , help='Prefer certain engine(s)'    , nargs='+'          )
     p.add_argument(      '--only'    , help='Only help certain engine(s)' , nargs='+'          )
+    p.add_argument(      '--blacklist', help='Never accept these test ids', type=parse_id_list      )
+    p.add_argument(      '--single-workload', help='Exit after one workload request', action='store_true')
+    p.add_argument(      '--print-system-info', help='Print the registration system_info, then exit', action='store_true')
 
     # Ignore unknown arguments ( from client )
     worker_args, unknown    = p.parse_known_args()
@@ -1361,6 +1411,13 @@ def parse_arguments(client_args):
 
     # Add the client args (Username, Password, and Server) to the worker args
     return argparse.Namespace(**{ **vars(client_args), **vars(worker_args) })
+
+def raise_keyboard_interrupt(signum, frame):
+    raise KeyboardInterrupt()
+
+def parse_id_list(text):
+    try: return [int(x) for x in text.split(',') if x.strip()]
+    except ValueError: raise argparse.ArgumentTypeError('expected comma-separated test ids, got %r' % (text))
 
 def format_cli_options(worker_args):
 
@@ -1388,6 +1445,16 @@ def run_openbench_worker(client_args):
     args   = parse_arguments(client_args) # Merge client.py and worker.py args
     config = Configuration(args)          # Holds System info, args, and Workload info
 
+    # Exactly what this Machine would register with, for api/active callers
+    if args.print_system_info:
+        try_forever(scan_system, [config], setup_error)
+        print('SYSTEM_INFO %s' % (json.dumps(registration_info(config))), flush=True)
+        sys.exit(0)
+
+    # Supervisors stop a --single-workload Client with SIGTERM; clean up as for SIGINT
+    if config.single:
+        signal.signal(signal.SIGTERM, raise_keyboard_interrupt)
+
     try_forever(server_configure_fastchess, [config], fastchess_error)
     try_forever(server_configure_worker, [config], setup_error)
 
@@ -1411,6 +1478,9 @@ def run_openbench_worker(client_args):
 
             # Keep asking for a workload until we get a response
             try_forever(server_request_workload, [config], connection_error)
+
+            # --single-workload exits here, with a code describing the outcome
+            if config.single: complete_single_workload(config)
 
             # Complete the workload if there was work to be done
             if config.workload: complete_workload(config)
