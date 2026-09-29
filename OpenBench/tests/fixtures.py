@@ -26,13 +26,14 @@ def create_test(author, engine='Avalanche', threads=1, priority=0, **fields):
     dev  = Engine.objects.create(name='dev',  source='https://github.com/SnowballSH/Avalanche', sha='a' * 40, bench=1)
     base = Engine.objects.create(name='base', source='https://github.com/SnowballSH/Avalanche', sha='b' * 40, bench=1)
     options = 'Threads=%d Hash=16' % (threads)
-    return Test.objects.create(
-        author=author.username, book_name='UHO_Lichess_4852_v1.epd',
-        dev=dev,   dev_repo=dev.source,   dev_engine=engine,  dev_options=options,  dev_time_control='8.0+0.08',
-        base=base, base_repo=base.source, base_engine=engine, base_options=options, base_time_control='8.0+0.08',
-        approved=True, priority=priority, throughput=1000, elolower=0.0, eloupper=3.0, alpha=0.05, beta=0.05, lowerllr=-2.94, upperllr=2.94,
+    return Test.objects.create(**{
+        'author' : author.username, 'book_name' : 'UHO_Lichess_4852_v1.epd',
+        'dev'  : dev,  'dev_repo'  : dev.source,  'dev_engine'  : engine, 'dev_options'  : options, 'dev_time_control'  : '8.0+0.08',
+        'base' : base, 'base_repo' : base.source, 'base_engine' : engine, 'base_options' : options, 'base_time_control' : '8.0+0.08',
+        'approved' : True, 'priority' : priority, 'throughput' : 1000,
+        'elolower' : 0.0, 'eloupper' : 3.0, 'alpha' : 0.05, 'beta' : 0.05, 'lowerllr' : -2.94, 'upperllr' : 2.94,
         **fields,
-    )
+    })
 
 def system_info(concurrency=4, physical_cores=4, cpu_flags=('AVX2',), engines=('Avalanche',), **overrides):
     info = {

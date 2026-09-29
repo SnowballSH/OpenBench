@@ -83,6 +83,7 @@ urlpatterns = [
     django.urls.path(r'clientSubmitPGN/', OpenBench.views.client_submit_pgn),
 
     # Nice endpoints, which can be hit from the website or with credentials cleanly
+    django.urls.path(r'api/active/', OpenBench.views.api_active),
     django.urls.path(r'api/config/', OpenBench.views.api_configs),
     django.urls.path(r'api/config/<str:engine>/', OpenBench.views.api_configs),
     django.urls.path(r'api/networks/<str:engine>/', OpenBench.views.api_networks),

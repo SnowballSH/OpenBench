@@ -23,6 +23,7 @@ import importlib
 import os
 import requests
 import shutil
+import sys
 import tempfile
 import time
 import traceback
@@ -186,4 +187,4 @@ if __name__ == '__main__':
             try_forever(download_client_files, [args], 'Failed to download Client files')
 
         except KeyboardInterrupt:
-            break
+            sys.exit(130)
