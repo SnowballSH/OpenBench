@@ -26,8 +26,8 @@
 # A Workload can be a "DATAGEN", which is a FIXED length datagen.
 #
 # This module will either create the workload and return the user to the index,
-# which will display their newly created test. Or it will return them to index,
-# with a list of errors that need to be fixed. A warning may also be displayed,
+# which will display their newly created test. Or it will re-render the form,
+# with the submitted values and a list of errors that need to be fixed. A warning may also be displayed,
 # if the Base branch appears ahead of the Dev branch.
 
 import math
@@ -42,6 +42,7 @@ import OpenBench.views
 
 from OpenBench.config import OPENBENCH_CONFIG
 from OpenBench.models import *
+from OpenBench.workloads.clone import CloneError, load_clone_source, submitted_fields
 from OpenBench.workloads.verify_workload import GITHUB_TIMEOUT_SECONDS, verify_workload
 
 def create_workload(request, workload_type):
@@ -55,43 +56,8 @@ def create_workload(request, workload_type):
         return OpenBench.views.redirect(request, '/login/', error='Only enabled users can create tests')
 
     if request.method == 'GET':
-
-        engines = EngineConfig.objects.filter(enabled=True).order_by('name')
-
-        data = {
-            'networks' : list(Network.objects.all().values()),
-            'books'    : Book.objects.filter(enabled=True).order_by('name'),
-            'engines'  : engines,
-
-            # The presets, nps and source are all applied by create_workload.js
-            'engine_configs' : {
-                engine.name : OpenBench.model_utils.engine_config_to_dict(engine)
-                for engine in engines
-            },
-        }
-
-        if workload_type == 'TEST':
-            data['workload']        = workload_type
-            data['dev_text']        = 'Dev'
-            data['dev_title_text']  = 'Dev'
-            data['submit_text']     = 'Create Engine Test'
-            data['submit_endpoint'] = '/test/new/'
-
-        if workload_type == 'TUNE':
-            data['workload']        = workload_type
-            data['dev_text']        = ''
-            data['dev_title_text']  = 'Engine'
-            data['submit_text']     = 'Create SPSA Tune'
-            data['submit_endpoint'] = '/tune/new/'
-
-        if workload_type == 'DATAGEN':
-            data['workload']        = workload_type
-            data['dev_text']        = 'Dev'
-            data['dev_title_text']  = 'Dev'
-            data['submit_text']     = 'Create Datagen'
-            data['submit_endpoint'] = '/datagen/new/'
-
-        return OpenBench.views.render(request, 'create_workload.html', data)
+        source, warning = find_clone_source(request.GET.get('clone'), workload_type)
+        return render_form(request, workload_type, source, source and source.fields, warning=warning)
 
     if workload_type == 'TEST':
         workload, errors = create_new_test(request)
@@ -102,9 +68,11 @@ def create_workload(request, workload_type):
     elif workload_type == 'DATAGEN':
         workload, errors = create_new_datagen(request)
 
+    # Re-render the rejected submission, so that no input is lost
     if errors != [] and errors != None:
-        paths = { 'TEST' : '/test/new/', 'TUNE' : '/tune/new/', 'DATAGEN' : '/datagen/new/' }
-        return OpenBench.views.redirect(request, paths[workload_type], error='\n'.join(errors))
+        source = find_clone_source(request.POST.get('clone_of'), workload_type)[0]
+        fields = submitted_fields(request.POST, workload_type)
+        return render_form(request, workload_type, source, fields, error='\n'.join(errors))
 
     if warning := branch_is_out_of_date(workload):
         warning = 'Consider Rebasing: Dev (%s) appears behind Base (%s)' % (workload.dev.name, workload.base.name)
@@ -118,6 +86,57 @@ def create_workload(request, workload_type):
         workload.approved = True; workload.save()
 
     return OpenBench.views.redirect(request, '/index/', warning=warning)
+
+def render_form(request, workload_type, clone_source, prefill_fields, error=None, warning=None):
+
+    engines = EngineConfig.objects.filter(enabled=True).order_by('name')
+
+    data = {
+        'networks' : list(Network.objects.all().values()),
+        'books'    : Book.objects.filter(enabled=True).order_by('name'),
+        'engines'  : engines,
+
+        # The presets, nps and source are all applied by create_workload.js
+        'engine_configs' : {
+            engine.name : OpenBench.model_utils.engine_config_to_dict(engine)
+            for engine in engines
+        },
+
+        # Applied by create_workload.js after the presets, so these values win
+        'clone_source'   : clone_source,
+        'prefill_fields' : prefill_fields,
+    }
+
+    if workload_type == 'TEST':
+        data['workload']        = workload_type
+        data['dev_text']        = 'Dev'
+        data['dev_title_text']  = 'Dev'
+        data['submit_text']     = 'Create Engine Test'
+        data['submit_endpoint'] = '/test/new/'
+
+    if workload_type == 'TUNE':
+        data['workload']        = workload_type
+        data['dev_text']        = ''
+        data['dev_title_text']  = 'Engine'
+        data['submit_text']     = 'Create SPSA Tune'
+        data['submit_endpoint'] = '/tune/new/'
+
+    if workload_type == 'DATAGEN':
+        data['workload']        = workload_type
+        data['dev_text']        = 'Dev'
+        data['dev_title_text']  = 'Dev'
+        data['submit_text']     = 'Create Datagen'
+        data['submit_endpoint'] = '/datagen/new/'
+
+    return OpenBench.views.render(request, 'create_workload.html', data, error=error, warning=warning)
+
+def find_clone_source(raw_id, workload_type):
+
+    if raw_id is None:
+        return None, None
+
+    try: return load_clone_source(raw_id, workload_type), None
+    except CloneError as error: return None, str(error)
 
 def create_new_test(request):
 

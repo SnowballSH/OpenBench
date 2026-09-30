@@ -127,6 +127,8 @@
                     <a class="anchorbutton btn-disabled">Delete</a>
                 {% endif %}
             {% endif %}
+
+            <a class="anchorbutton btn-blue" href="/{{type|lower}}/new/?clone={{workload.id}}">Clone</a>
         </div>
 
         <!-- Copy Button: Copy the current results statblock -->

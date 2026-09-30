@@ -1,3 +1,5 @@
+import html
+import re
 from unittest import mock
 
 from django.test import TestCase
@@ -10,6 +12,10 @@ REPO = 'https://github.com/SnowballSH/Avalanche'
 def github_commit(url, **kwargs):
     branch = { 'sha' : 'c' * 40, 'commit' : { 'message' : 'Change things\n\nBench: 1234567' } }
     return mock.Mock(**{ 'json.return_value' : { 'commit' : branch } })
+
+def rendered_error(response):
+    match = re.search(r'class="error-message"[^>]*>\s*<pre>(.*?)</pre>', response.content.decode(), re.DOTALL)
+    return html.unescape(match.group(1)) if match else None
 
 def shared_fields(**overrides):
     return {
@@ -47,6 +53,9 @@ class CreateWorkloadTests(TestCase):
     def create(self, kind, fields):
         with mock.patch('requests.get', side_effect=github_commit):
             response = self.client.post('/%s/new/' % (kind), fields)
+        if response.status_code == 200:
+            self.assertIsNotNone(error := rendered_error(response))
+            return error
         self.assertEqual(response.status_code, 302)
         session = self.client.session
         error   = session.pop('error_message', None)

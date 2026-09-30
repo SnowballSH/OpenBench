@@ -8,6 +8,7 @@
     {{ engine_configs|json_script:"json-engines" }}
     {{ networks|json_script:"json-networks" }}
     {{ profile.repos|json_script:"json-repos" }}
+    {{ prefill_fields|json_script:"json-prefill" }}
 
     <script src="{% static 'create_workload.js' %}?{{ static_version }}"></script>
     <script src="{% static 'default_text.js' %}?{{ static_version }}"></script>
@@ -18,6 +19,7 @@
                 change_engine('{{ profile.engine }}', 'dev', '{{workload}}');
                 enforce_default_text('dev_repo', 'https://github.com/');
                 enforce_default_text('base_repo', 'https://github.com/');
+                apply_prefill('{{workload}}');
             }, false
         );
     </script>
@@ -27,6 +29,13 @@
 
     <form method="POST" action="{{submit_endpoint}}">
         {% csrf_token %}
+
+        {% if clone_source %}
+            <input type="hidden" name="clone_of" value="{{clone_source.id}}">
+            <div class="status-message" role="status" id="clone-notice">
+                <span>Cloned from <a href="{{clone_source.url}}">#{{clone_source.id}} {{clone_source.name}}</a></span>
+            </div>
+        {% endif %}
 
         <div class="form w-100">
             <div class="col">
