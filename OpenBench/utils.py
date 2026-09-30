@@ -45,6 +45,7 @@ from OpenBench.stats import TrinomialSPRT, PentanomialSPRT
 
 import OpenBench.views
 import OpenBench.model_utils
+import OpenBench.insights.recorder
 
 
 class TimeControl(object):
@@ -637,5 +638,7 @@ def update_test(request, machine):
         Machine.objects.filter(id=machine_id).update(
             updated=timezone.now()
         )
+
+        OpenBench.insights.recorder.record_snapshot(test)
 
     return [{}, { 'stop' : True }][test.finished]
