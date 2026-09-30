@@ -1,5 +1,7 @@
+import math
 from dataclasses import dataclass
 from datetime import datetime
+from decimal import ROUND_HALF_UP, Decimal
 from enum import StrEnum
 
 from OpenBench.insights.domain import WorkloadFacts
@@ -52,9 +54,13 @@ class RowTiming:
         return ESTIMATE_NOTE if self.estimate else None
 
 
+def round_half_up(value: float) -> int:
+    return math.floor(value + 0.5)
+
+
 def format_duration(seconds: float) -> str:
 
-    total = max(0, round(seconds))
+    total = max(0, round_half_up(seconds))
     days, hours, minutes = total // 86400, total % 86400 // 3600, total % 3600 // 60
 
     if days:
@@ -67,7 +73,11 @@ def format_duration(seconds: float) -> str:
 
 
 def format_rate(games_per_hour: float) -> str:
-    return f'{round(games_per_hour):,}' if games_per_hour >= 100 else f'{games_per_hour:.1f}'
+    return (
+        f'{round_half_up(games_per_hour):,}'
+        if games_per_hour >= 100
+        else str(Decimal(games_per_hour).quantize(Decimal('0.1'), ROUND_HALF_UP))
+    )
 
 
 def rate_window(rate: Rate, overall: bool) -> str:

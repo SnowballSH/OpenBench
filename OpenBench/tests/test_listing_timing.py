@@ -96,6 +96,9 @@ class FormatTests(SimpleTestCase):
             86400: '1d',
             5 * 86400 + 5 * 3600 + 59: '5d 5h',
             -30: '0s',
+            0.5: '1s',
+            2.5: '3s',
+            90.5: '1m',
         }
         for seconds, text in cases.items():
             with self.subTest(seconds=seconds):
@@ -104,7 +107,10 @@ class FormatTests(SimpleTestCase):
     def test_rates_round_like_the_insights_tiles(self) -> None:
         self.assertEqual(format_rate(25.35), '25.4')
         self.assertEqual(format_rate(99.94), '99.9')
-        self.assertEqual(format_rate(1234.5), '1,234')
+        self.assertEqual(format_rate(1234.5), '1,235')
+        self.assertEqual(format_rate(100.5), '101')
+        self.assertEqual(format_rate(0.25), '0.3')
+        self.assertEqual(format_rate(12.25), '12.3')
 
     def test_reasons_use_the_workload_page_wording(self) -> None:
         source = INSIGHTS_JS.read_text()
@@ -247,6 +253,12 @@ class ListingTimingTests(TestCase):
             finished=True,
             passed=True,
             games=800,
+        )
+        self.assertEqual(listing_row_timing(self.listed(test)).text, 'took 5h 12m')
+
+    def test_stopped_rows_end_at_their_last_report(self) -> None:
+        test = self.workload(
+            [(self.minutes_ago(400), 0), (self.minutes_ago(88), 800)], self.minutes_ago(500), finished=True, games=800
         )
         self.assertEqual(listing_row_timing(self.listed(test)).text, 'took 5h 12m')
 
