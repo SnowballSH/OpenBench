@@ -2,16 +2,11 @@
 
 {% load mytags %}
 
+{% block content_class %}content-wide{% endblock %}
+
 {% block content %}
 
-{% block scripts %}
-<style>
-    #content {
-        max-width: 100%;
-    }
-</style>
-{% endblock %}
-
+    <div class="table-wrap w-100">
     <table class="test-list stripes hoverable">
 
         <!-- Only show Pending tests for the front page of the Index -->
@@ -53,6 +48,7 @@
         {% endfor %}
 
     </table>
+    </div>
 
     {% include "OpenBench/Blocks/pagebrowser.html" %}
 

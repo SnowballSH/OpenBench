@@ -32,6 +32,7 @@
 
 {% block manage %}
 
+    <div class="table-wrap w-100">
     <table class="hoverable w-100">
 
         <tr class="table-header">
@@ -47,17 +48,17 @@
                 <td>{{config.name}}</td>
                 <td><a href="{{config.source}}">{{config.source|removePrefix:"https://github.com/"}}</a></td>
 
-                <td style="text-align: center">
+                <td class="textcenter">
                     {% if config.enabled %}
-                        <i class="fa-solid fa-check" style="color: #308030;"></i>
+                        <i class="fa-solid fa-check icon-ok"></i>
                     {% else %}
-                        <i class="fa-solid fa-xmark" style="color: #A03030;"></i>
+                        <i class="fa-solid fa-xmark icon-danger"></i>
                     {% endif %}
                 </td>
 
                 <td>
                     <a href="/manage/engines/{{config.name}}/">
-                        <i class="fa-solid fa-pen-to-square" style="color: grey;"></i>
+                        <i class="fa-solid fa-pen-to-square icon-muted"></i>
                     </a>
                 </td>
 
@@ -65,13 +66,14 @@
                     {% if can_manage %}
                         <a onclick="return confirm('YOU ARE DELETING THIS ENGINE FOREVER')"
                             href="/manage/engines/{{config.name}}/delete/">
-                        <i class="fa-solid fa-trash-can" style="color: #A03030;"></i></a>
+                        <i class="fa-solid fa-trash-can icon-danger"></i></a>
                     {% endif %}
                 </td>
             </tr>
         {% endfor %}
 
     </table>
+    </div>
 
     {% if can_manage %}
         <form method="POST" id="engine-form" class="mt-4">

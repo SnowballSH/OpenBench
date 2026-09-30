@@ -20,6 +20,7 @@
 
 {% block content %}
 
+    <div class="table-wrap">
     <table id="network-table" class="hoverable">
 
         <tr class="table-header">
@@ -27,7 +28,7 @@
             <th class="cursor" onclick="sort_networks(['engine'])">Engine</th>
             <th class="cursor" onclick="sort_networks(['author'])">Author</th>
             <th class="cursor" onclick="sort_networks(['name'])">Name</th>
-            <th class="cursor" onclick="sort_networks(['sha256'])")>Hash</th>
+            <th class="cursor" onclick="sort_networks(['sha256'])">Hash</th>
             <th></th>
             <th></th>
         </tr>
@@ -47,11 +48,11 @@
                 <td><a href="/networks/{{network.engine}}/">{{network.engine}}</a></td>
                 <td>{{network.author|capfirst}}</td>
                 <td><a href="/networks/{{network.engine}}/DOWNLOAD/{{network.sha256}}">{{network.name}}</a></td>
-                <td>{{network.sha256}}</td>
+                <td class="mono muted">{{network.sha256}}</td>
 
                 <td>
                     <a href="/networks/{{network.engine}}/EDIT/{{network.sha256}}">
-                        <i class="fa-solid fa-pen-to-square" style="color: grey;"></i>
+                        <i class="fa-solid fa-pen-to-square icon-muted"></i>
                     </a>
                 </td>
 
@@ -59,16 +60,17 @@
                     {% if not network.default and not network.was_default %}
                         <a onclick="return confirm('YOU ARE DELETING THIS NETWORK FILE FOREVER')"
                             href="/networks/{{network.engine}}/DELETE/{{network.sha256}}">
-                        <i class="fa-solid fa-trash-can" style="color: #A03030;"></i></a>
+                        <i class="fa-solid fa-trash-can icon-danger"></i></a>
                     {% else %}
                         <a onclick="return alert('You must unset the default and previous-default flags manually before deleting')"
                             href="/networks/{{network.engine}}/EDIT/{{network.sha256}}">
-                        <i class="fa-solid fa-trash-can" style="color: grey;"></i></a>
+                        <i class="fa-solid fa-trash-can icon-muted"></i></a>
                     {% endif %}
                 </td>
             </tr>
         {% endfor %}
 
     </table>
+    </div>
 
 {% endblock %}

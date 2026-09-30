@@ -4,6 +4,7 @@
 
 {% block content %}
 
+    <div class="table-wrap">
     <table class="hoverable">
 
         <tr class="table-header">
@@ -17,7 +18,7 @@
 
         {% for event in events %}
             <tr>
-                <td class="timestamp">{{event.created|date:'U'}}</td>
+                <td class="timestamp muted">{{event.created|date:'U'}}</td>
                 <td><a href="/machines/{{event.machine_id}}">{{event.machine_id}}</a></td>
                 <td>{{event.author|capfirst}}</td>
                 <td><a href="{{event.test_id|workload_url}}">{{event.test_id|testIdToPrettyName}}</a></td>
@@ -26,7 +27,8 @@
             </tr>
         {% endfor %}
 
-    <table>
+    </table>
+    </div>
 
     {% include "OpenBench/Blocks/pagebrowser.html" %}
 
