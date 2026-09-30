@@ -1,13 +1,12 @@
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any, TypedDict, TypeIs
 
 from django.db.models import (
     Case,
     Count,
     DateTimeField,
-    Expression,
     Field,
     IntegerField,
     OuterRef,
@@ -16,6 +15,7 @@ from django.db.models import (
     Value,
     When,
 )
+from django.db.models.expressions import BaseExpression
 from django.db.models.functions import Coalesce
 from django.http import HttpRequest
 from django.utils import timezone
@@ -27,7 +27,19 @@ from OpenBench.insights.timing import RECENT_WINDOW, Mark
 from OpenBench.models import LogEvent, Network, Profile, SPSAParameter, Test, WorkloadSnapshot
 from OpenBench.progress.sources import finish_time
 
+if TYPE_CHECKING:
+    from django_stubs_ext import WithAnnotations
+
 PROFILE_ATTRIBUTE = '_openbench_profile'
+
+
+class ListingTimes(TypedDict):
+    listing_as_of: datetime
+    finished_at: datetime
+    first_snapshot_at: datetime | None
+
+
+type ListedTest = WithAnnotations[Test, ListingTimes]
 
 
 def request_profile(request: HttpRequest) -> Profile | None:
@@ -39,7 +51,8 @@ def request_profile(request: HttpRequest) -> Profile | None:
         profile = Profile.objects.select_related('user').filter(user=request.user).first()
         setattr(request, PROFILE_ATTRIBUTE, profile)
 
-    return getattr(request, PROFILE_ATTRIBUTE)
+    cached: Profile | None = getattr(request, PROFILE_ATTRIBUTE)
+    return cached
 
 
 def dev_network_label() -> Subquery:
@@ -58,18 +71,18 @@ def spsa_parameter_count() -> Coalesce:
 
 def snapshot_pick(
     name: str, snapshots: QuerySet[WorkloadSnapshot], *, newest: bool, running_only: bool
-) -> dict[str, Expression]:
+) -> dict[str, BaseExpression]:
 
     ordered = snapshots.order_by('-created', '-id') if newest else snapshots.order_by('created', 'id')
 
-    def column(field: str, output: Field) -> Expression:
+    def column(field: str, output: Field[Any, Any]) -> BaseExpression:
         value = Subquery(ordered.values(field)[:1], output_field=output)
         return Case(When(finished=False, then=value), output_field=output) if running_only else value
 
     return {f'{name}_at': column('created', DateTimeField()), f'{name}_games': column('games', IntegerField())}
 
 
-def listing_timing(now: datetime) -> dict[str, Expression]:
+def listing_timing(now: datetime) -> dict[str, BaseExpression]:
 
     snapshots = WorkloadSnapshot.objects.filter(test=OuterRef('pk'))
     window_start = now - RECENT_WINDOW
@@ -107,9 +120,13 @@ def annotated_snapshots(test: Test) -> SnapshotMarks:
     )
 
 
+def is_listed(test: Test) -> TypeIs[ListedTest]:
+    return getattr(test, 'listing_as_of', None) is not None
+
+
 def listing_row_timing(test: Test) -> RowTiming | None:
 
-    if (as_of := getattr(test, 'listing_as_of', None)) is None:
+    if not is_listed(test):
         return None
 
     if test.finished:
@@ -118,7 +135,7 @@ def listing_row_timing(test: Test) -> RowTiming | None:
     if not test.approved or test.deleted:
         return None
 
-    return running_row_timing(workload_facts(test), annotated_snapshots(test), as_of)
+    return running_row_timing(workload_facts(test), annotated_snapshots(test), test.listing_as_of)
 
 
 @dataclass(frozen=True)
@@ -153,6 +170,6 @@ def attach_event_workloads(events: Iterable[LogEvent]) -> list[LogEvent]:
     by_id = workloads.in_bulk({event.test_id for event in events})
 
     for event in events:
-        event.workload = by_id.get(event.test_id)
+        event.workload = by_id.get(event.test_id)  # type: ignore[attr-defined]  # attached for the templates to read
 
     return events

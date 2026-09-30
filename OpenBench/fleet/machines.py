@@ -1,7 +1,7 @@
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any, TypedDict
 
 from django.db.models import (
     Count,
@@ -29,7 +29,17 @@ from OpenBench.fleet.status import (
 from OpenBench.insights.server import ACTIVE_MACHINE, GAMES_WINDOW, load_games_since
 from OpenBench.models import Machine, Result, Test
 
+if TYPE_CHECKING:
+    from django_stubs_ext import WithAnnotations
+
 OFFLINE_LISTED = 200
+
+
+class LifetimeGames(TypedDict):
+    lifetime_games: int
+
+
+type ListedMachine = WithAnnotations[Machine, LifetimeGames]
 
 
 @dataclass(frozen=True, slots=True)
@@ -146,8 +156,8 @@ def merge_cpu_groups(
             total[index] += row[key] or 0
 
     for row in games_rows:
-        if total := totals.get(known_text(row['cpu']) or UNKNOWN):
-            total[4] += row['games'] or 0
+        if cpu_total := totals.get(known_text(row['cpu']) or UNKNOWN):
+            cpu_total[4] += row['games'] or 0
 
     groups = [
         CpuGroup(cpu, int(online), int(machines), int(threads), float(mnps), int(games))
@@ -179,7 +189,7 @@ def load_workloads(ids: Iterable[int]) -> dict[int, Test]:
     return Test.objects.select_related('dev').in_bulk([pk for pk in set(ids) if pk])
 
 
-def load_listed_machines(now: datetime, window: OfflineWindow, offline_limit: int) -> list[Machine]:
+def load_listed_machines(now: datetime, window: OfflineWindow, offline_limit: int) -> list[ListedMachine]:
     listed = Machine.objects.select_related('user').annotate(lifetime_games=lifetime_games_of_machine())
     online = list(listed.filter(online_since(now)))
     if window == OfflineWindow.NONE:

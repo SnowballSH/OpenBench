@@ -216,6 +216,7 @@ def datagen_fields(workload: Test) -> FormFields:
 
 
 def clone_fields(workload: Test) -> FormFields:
+    sections: tuple[FormFields, ...]
     match workload_type_of(workload):
         case 'TEST':
             sections = (

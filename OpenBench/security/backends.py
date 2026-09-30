@@ -1,7 +1,7 @@
 from typing import Any
 
 from django.contrib.auth.backends import BaseBackend, ModelBackend
-from django.contrib.auth.base_user import AbstractBaseUser
+from django.contrib.auth.models import User
 from django.contrib.auth.signals import user_login_failed
 from django.core.exceptions import PermissionDenied
 from django.dispatch import receiver
@@ -24,7 +24,7 @@ class LoginThrottleBackend(BaseBackend):
 
         return None
 
-    def get_user(self, user_id: Any) -> AbstractBaseUser | None:
+    def get_user(self, user_id: Any) -> User | None:
 
         # Being first, Django stores this path when login() is given no backend
         return ModelBackend().get_user(user_id)

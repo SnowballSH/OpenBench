@@ -17,11 +17,13 @@ def client_ip(request: HttpRequest) -> str:
 
     # Caddy appends the peer address it saw, so only the right-most hop is trustworthy
     if settings.OPENBENCH_BEHIND_TLS_PROXY:
-        hops = [hop.strip() for hop in request.META.get('HTTP_X_FORWARDED_FOR', '').split(',')]
+        forwarded: str = request.META.get('HTTP_X_FORWARDED_FOR', '')
+        hops = [hop.strip() for hop in forwarded.split(',')]
         if hops[-1]:
             return hops[-1]
 
-    return request.META.get('REMOTE_ADDR', '')
+    peer: str = request.META.get('REMOTE_ADDR', '')
+    return peer
 
 
 def _cache_key(kind: str, *parts: str) -> str:

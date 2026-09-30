@@ -9,16 +9,17 @@
 
 import datetime
 import random
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
+from typing import Any
 
 from django.conf import settings
 from django.contrib.auth.models import User
-from django.core.management.base import BaseCommand, CommandError
+from django.core.management.base import BaseCommand, CommandError, CommandParser
 from django.db import transaction
 from django.db.models import Sum
 from django.utils import timezone
 
-from OpenBench.config import OPENBENCH_CONFIG
 from OpenBench.models import (
     Book,
     Engine,
@@ -32,6 +33,7 @@ from OpenBench.models import (
     WorkloadSnapshot,
 )
 from OpenBench.stats import PentanomialSPRT
+from OpenBench.upstream import openbench_config
 
 DEMO_PASSWORD = 'openbench-demo'
 
@@ -69,7 +71,7 @@ class DemoWorkload:
     state: str
     priority: int = 0
     max_games: int = 0
-    bounds: tuple = (0.0, 3.0)
+    bounds: tuple[float, float] = (0.0, 3.0)
     tc: str = '8.0+0.08'
     threads: int = 1
     book: str = BOOK_NAME
@@ -197,10 +199,10 @@ TUNES = [
 class Command(BaseCommand):
     help = 'Fill an empty DEBUG database with demonstration users, machines and workloads'
 
-    def add_arguments(self, parser):
+    def add_arguments(self, parser: CommandParser) -> None:
         parser.add_argument('--seed', type=int, default=20260929, help='Seed for the pseudo-random results')
 
-    def handle(self, *args, **options):
+    def handle(self, *args: Any, **options: Any) -> None:
 
         if not settings.DEBUG:
             raise CommandError('seed_demo only runs with OPENBENCH_DEBUG enabled')
@@ -229,9 +231,9 @@ class Command(BaseCommand):
         )
 
 
-def create_users():
+def create_users() -> list[User]:
     specs = [('admin', True), ('lab-worker', False), ('home-worker', False)]
-    users = []
+    users: list[User] = []
     for username, is_admin in specs:
         user = User.objects.create_user(username, '', DEMO_PASSWORD, is_staff=is_admin, is_superuser=is_admin)
         Profile.objects.create(user=user, enabled=True, approver=is_admin, superuser=is_admin)
@@ -239,15 +241,19 @@ def create_users():
     return users
 
 
-def credit_profiles(users):
+def credit_profiles(users: Iterable[User]) -> None:
     for user in users:
         games = Result.objects.filter(machine__user=user).aggregate(total=Sum('games'))['total'] or 0
         tests = Test.objects.filter(author=user.username).count()
         Profile.objects.filter(user=user).update(games=games, tests=tests)
 
 
-def create_engine_config():
-    presets = {'test_presets': {'default': {}}, 'tune_presets': {'default': {}}, 'datagen_presets': {'default': {}}}
+def create_engine_config() -> None:
+    presets: dict[str, dict[str, dict[str, Any]]] = {
+        'test_presets': {'default': {}},
+        'tune_presets': {'default': {}},
+        'datagen_presets': {'default': {}},
+    }
     EngineConfig.objects.get_or_create(
         name='Avalanche',
         defaults={
@@ -262,12 +268,12 @@ def create_engine_config():
     )
 
 
-def create_book():
+def create_book() -> None:
     Book.objects.get_or_create(name=BOOK_NAME, defaults={'source': 'https://example.invalid/book.zip', 'sha': '0' * 64})
 
 
-def create_machines(users):
-    machines = []
+def create_machines(users: Sequence[User]) -> list[Machine]:
+    machines: list[Machine] = []
     for index, (cpu_name, isa_name, os_name, threads, _) in enumerate(CPUS):
         owner = users[1 + index % 2]
         info = {
@@ -286,7 +292,7 @@ def create_machines(users):
             'noisy': False,
             'sockets': 1,
             'machine_name': f'demo-{index + 1}',
-            'client_ver': OPENBENCH_CONFIG['client_version'],
+            'client_ver': openbench_config()['client_version'],
             'supported': ['Avalanche'],
         }
         mnps = round(1.2 + 0.4 * index, 2)
@@ -303,7 +309,7 @@ def assign_online_machines(machines: list[Machine]) -> None:
         Machine.objects.filter(id=machine.id).update(workload=active[index % len(active)], updated=timezone.now())
 
 
-def age_offline_machines(machines):
+def age_offline_machines(machines: Iterable[Machine]) -> None:
     now = timezone.now()
     for machine, (*_, hours_ago) in zip(machines, CPUS, strict=True):
         if not hours_ago:
@@ -316,11 +322,11 @@ def age_offline_machines(machines):
         Machine.objects.filter(id=machine.id).update(updated=seen, workload=last or 0)
 
 
-def simulate_pairs(elo, pairs, rng):
+def simulate_pairs(elo: float, pairs: int, rng: random.Random) -> list[int]:
     score = 1 / (1 + 10 ** (-elo / 400))
     draw = 0.55
     win_pair = (1 - draw) * score
-    outcomes = []
+    outcomes: list[int] = []
     for _ in range(pairs):
         first = 1.0 if rng.random() < win_pair else (0.5 if rng.random() < draw / (1 - win_pair) else 0.0)
         second = 1.0 if rng.random() < win_pair else (0.5 if rng.random() < draw / (1 - win_pair) else 0.0)
@@ -328,14 +334,14 @@ def simulate_pairs(elo, pairs, rng):
     return outcomes
 
 
-def tally(outcomes):
+def tally(outcomes: Iterable[int]) -> list[int]:
     penta = [0, 0, 0, 0, 0]
     for bucket in outcomes:
         penta[bucket] += 1
     return penta
 
 
-def split_pairs(penta, parts, rng):
+def split_pairs(penta: Sequence[int], parts: int, rng: random.Random) -> list[list[int]]:
     weights = [rng.uniform(0.5, 2.0) for _ in range(parts)]
     shares = [[0] * 5 for _ in range(parts)]
     for bucket, count in enumerate(penta):
@@ -374,7 +380,7 @@ def create_engine(name: str, rng: random.Random) -> Engine:
     return Engine.objects.create(name=name, source=source, sha=sha, bench=rng.randint(2_000_000, 4_000_000))
 
 
-def create_workload(spec, author, machines, rng):
+def create_workload(spec: DemoWorkload, author: User, machines: list[Machine], rng: random.Random) -> None:
 
     dev = create_engine(spec.name, rng)
     base = create_engine('master', rng)
@@ -614,7 +620,14 @@ def verdict(mode: str, finished: bool, llr: float, wins: int, losses: int) -> tu
             return False, False
 
 
-def create_history(test, bounds, outcomes, started, ended, rng):
+def create_history(
+    test: Test,
+    bounds: tuple[float, float] | None,
+    outcomes: list[int],
+    started: datetime.datetime,
+    ended: datetime.datetime,
+    rng: random.Random,
+) -> None:
 
     # Pairs arrive at a jittered, roughly steady rate between started and ended,
     # sampled at evenly spaced snapshot times like the live recorder would keep
@@ -623,7 +636,8 @@ def create_history(test, bounds, outcomes, started, ended, rng):
     weights = [rng.uniform(0.6, 1.4) for _ in range(points)]
     total = sum(weights)
 
-    snapshots, cumulative, counted, penta = [], 0.0, 0, [0, 0, 0, 0, 0]
+    snapshots: list[WorkloadSnapshot] = []
+    cumulative, counted, penta = 0.0, 0, [0, 0, 0, 0, 0]
     for index, weight in enumerate(weights, start=1):
         cumulative += weight
         played = len(outcomes) if index == points else round(len(outcomes) * cumulative / total)
@@ -650,13 +664,13 @@ def create_history(test, bounds, outcomes, started, ended, rng):
     WorkloadSnapshot.objects.bulk_create(snapshots)
 
 
-def trinomial(penta):
+def trinomial(penta: Sequence[int]) -> tuple[int, int, int]:
     wins = 2 * penta[4] + penta[3]
     losses = 2 * penta[0] + penta[1]
     return wins, losses, 2 * sum(penta) - wins - losses
 
 
-def create_result(test, machine, penta, rng):
+def create_result(test: Test, machine: Machine, penta: Sequence[int], rng: random.Random) -> None:
     pairs = sum(penta)
     wins, losses, draws = trinomial(penta)
     time = pairs * rng.randint(9_000, 11_000)
