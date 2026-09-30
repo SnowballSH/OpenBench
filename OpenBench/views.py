@@ -686,15 +686,22 @@ def manage_engines(request, name=None, action=None):
 @csrf_exempt
 def scripts(request):
 
-    login(request) # All requests are attached to a User
+    # Exempt from CSRF, so the request must carry its own credentials
+    try: user = authenticate(request, requireEnabled=True)
+    except UnableToAuthenticate:
+        return redirect(request, '/login/', error=authentication_error(request))
 
-    if request.POST['action'] == 'UPLOAD_NETWORK':
+    django.contrib.auth.login(request, user)
+
+    if request.POST.get('action') == 'UPLOAD_NETWORK':
         engine = request.POST['engine']
         name   = request.POST['name']
         return networks(request, engine, 'upload', name)
 
-    if request.POST['action'] == 'CREATE_TEST':
+    if request.POST.get('action') == 'CREATE_TEST':
         return new_workload(request, "TEST")
+
+    return redirect(request, '/index/', error='Unknown scripts action')
 
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 #                              CLIENT HOOK VIEWS                              #

@@ -41,6 +41,44 @@ class EngineOptionsPopupTests(TestCase):
         self.assertNotIn('innerHTML', content)
         self.assertIn('createTextNode(option)', content)
 
+class ScriptsTests(TestCase):
+
+    def setUp(self):
+        clear_throttle(self)
+        self.media = tempfile.TemporaryDirectory()
+        self.enterContext(override_settings(MEDIA_ROOT=self.media.name))
+        self.enterContext(mock.patch('OpenBench.utils.MEDIA_ROOT', self.media.name))
+        self.addCleanup(self.media.cleanup)
+        create_engine_config()
+        self.approver = create_user('approver', approver=True)
+
+    def upload(self, **auth):
+        return self.client.post('/scripts/', {
+            **auth, 'action' : 'UPLOAD_NETWORK', 'engine' : 'Avalanche', 'name' : 'r1',
+            'netfile' : SimpleUploadedFile('net.nnue', b'weights'),
+        })
+
+    def test_bad_credentials_do_not_fall_back_to_the_session(self):
+        self.client.force_login(self.approver)
+        response = self.upload(username='approver', password='wrong')
+        self.assertRedirects(response, '/login/', fetch_redirect_response=False)
+        self.assertFalse(Network.objects.exists())
+
+    def test_missing_credentials_do_not_fall_back_to_the_session(self):
+        self.client.force_login(self.approver)
+        self.upload()
+        self.assertFalse(Network.objects.exists())
+
+    def test_valid_credentials_act_as_that_user(self):
+        response = self.upload(**credentials(self.approver))
+        self.assertRedirects(response, '/networks/Avalanche/', fetch_redirect_response=False)
+        self.assertEqual(Network.objects.get().author, 'approver')
+
+    def test_credentials_of_a_non_approver_cannot_upload(self):
+        self.client.force_login(self.approver)
+        self.upload(**credentials(create_user('worker')))
+        self.assertFalse(Network.objects.exists())
+
 class ApiAuthenticationLoggingTests(TestCase):
 
     def setUp(self):
