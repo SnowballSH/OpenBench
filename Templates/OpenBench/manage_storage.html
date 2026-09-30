@@ -17,7 +17,7 @@
                     <span class="stat-value">{{tile.value}}</span>
                     <span class="stat-meta">{{tile.meta}}</span>
                     {% if tile.fraction %}
-                        <span class="insight-meter insight-meter-fill" style="--fraction: {{tile.fraction}}" role="img" aria-label="{{tile.meta}}"></span>
+                        <span class="insight-meter insight-meter-fill" data-fraction="{{tile.fraction}}" role="img" aria-label="{{tile.meta}}"></span>
                     {% endif %}
                 </div>
             {% endfor %}
@@ -46,7 +46,7 @@
                     <td>{{row.label}}</td>
                     <td class="numeric">{{row.files}}</td>
                     <td class="numeric">{{row.size}}</td>
-                    <td class="share-cell"><span class="share-bar" style="--share: {{row.share}}" aria-hidden="true"></span>{{row.percent}}</td>
+                    <td class="share-cell"><span class="share-bar" data-share="{{row.share}}" aria-hidden="true"></span>{{row.percent}}</td>
                 </tr>
             {% endfor %}
         </table>

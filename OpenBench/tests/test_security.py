@@ -2,8 +2,10 @@ import copy
 import json
 import tempfile
 
+from pathlib import Path
 from unittest import mock
 
+from django.conf import settings
 from django.contrib.sessions.middleware import SessionMiddleware
 from django.core.cache import cache
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -38,8 +40,10 @@ class EngineOptionsPopupTests(TestCase):
 
         self.assertNotIn(payload, content)
         self.assertIn('&lt;img/src=x/onerror=alert(1)&gt;', content)
-        self.assertNotIn('innerHTML', content)
-        self.assertIn('createTextNode(option)', content)
+
+        site_js = (Path(settings.BASE_DIR) / 'OpenBench' / 'static' / 'site.js').read_text()
+        self.assertNotIn('innerHTML', site_js)
+        self.assertIn('createTextNode(option)', site_js)
 
 class LogoutTests(TestCase):
 

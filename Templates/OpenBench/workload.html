@@ -7,21 +7,15 @@
 
 {% block scripts %}
 
-    <script src="{% static 'workload_utils.js' %}?{{ static_version }}"></script>
+    <script src="{% static 'workload_utils.js' %}?{{ static_version }}" defer></script>
     <script src="{% static 'vendor/chartjs-4.5.1/chart.umd.min.js' %}" defer></script>
     <script src="{% static 'insights.js' %}?{{ static_version }}" defer></script>
-
-    <script>
-        document.addEventListener('DOMContentLoaded', function() {
-            fetch_summary({{workload.id}});
-        });
-    </script>
 
 {% endblock %}
 
 {% block content %}
 
-    <div class="workload-container">
+    <div class="workload-container" data-workload-id="{{workload.id}}">
 
     <div id="config" class="table-wrap">
         <table class="test-config wrappable">
@@ -120,7 +114,7 @@
                 {% if workload.deleted %}
                     <button class="anchorbutton btn-preset" form="workload-actions" formaction="/{{type|lower}}/{{workload.id}}/RESTORE/">Restore</button>
                 {% else %}
-                    <button class="anchorbutton btn-red" form="workload-actions" formaction="/{{type|lower}}/{{workload.id}}/DELETE/" onclick="return confirm('Delete this Workload?')">Delete</button>
+                    <button class="anchorbutton btn-red" form="workload-actions" formaction="/{{type|lower}}/{{workload.id}}/DELETE/" data-confirm="Delete this Workload?">Delete</button>
                 {% endif %}
             {% else %}
                 {% if workload.deleted %}
@@ -140,7 +134,7 @@
         <!-- Copy Button: Copy the current results statblock -->
         {% if type == "TEST" or type == "DATAGEN" %}
             <div class="anchor-container">
-                <a class="mt-1 anchorbutton btn-blue" onclick="copy_text_from_element('long-statblock', true)">Copy Stat Block</a>
+                <a class="mt-1 anchorbutton btn-blue" data-workload-action="copy-statblock">Copy Stat Block</a>
             </div>
         {% endif %}
 
@@ -154,14 +148,14 @@
         <!-- Copies Raw SPSA Input from /api/spsa/{{workload.id}}/inputs/ -->
         {% if type == "TUNE" %}
             <div class="anchor-container">
-                <a class="mt-1 anchorbutton btn-blue" onclick="copy_spsa_inputs({{workload.id}})">Copy SPSA Inputs</a>
+                <a class="mt-1 anchorbutton btn-blue" data-workload-action="copy-spsa-inputs">Copy SPSA Inputs</a>
             </div>
         {% endif %}
 
         <!-- Copies Optimal Values from /api/spsa/{{workload.id}}/outputs/ -->
         {% if type == "TUNE" %}
             <div class="anchor-container">
-                <a class="mt-1 anchorbutton btn-blue" onclick="copy_spsa_outputs({{workload.id}})">Copy SPSA Outputs</a>
+                <a class="mt-1 anchorbutton btn-blue" data-workload-action="copy-spsa-outputs">Copy SPSA Outputs</a>
             </div>
         {% endif %}
 
@@ -244,11 +238,11 @@
                 <tbody id="spsa-digest-button-container">
                     <tr>
                         <td colspan="9">
-                            <button class="w-100 anchorbutton btn-blue" type="submit" onclick="fetch_spsa_digest({{workload.id}})">Show SPSA Digest</button>
+                            <button class="w-100 anchorbutton btn-blue" type="submit" data-workload-action="show-spsa-digest">Show SPSA Digest</button>
                         </td>
                     </tr>
                 </tbody>
-                <tbody id="spsa-digest-body-container" style="display: none;">
+                <tbody id="spsa-digest-body-container" hidden>
                     <!-- Dynamically created -->
                 </tbody>
             </table>
@@ -278,7 +272,7 @@
         </div>
 
         <!-- Individual per-machine results are only ever fetched on demand -->
-        <button class="w-100 anchorbutton btn-blue" type="submit" onclick="fetch_results({{workload.id}})">Fetch Individual Results</button>
+        <button class="w-100 anchorbutton btn-blue" type="submit" data-workload-action="fetch-results">Fetch Individual Results</button>
     </div>
 
     </div>

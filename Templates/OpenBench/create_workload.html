@@ -10,24 +10,14 @@
     {{ profile.repos|json_script:"json-repos" }}
     {{ prefill_fields|json_script:"json-prefill" }}
 
-    <script src="{% static 'create_workload.js' %}?{{ static_version }}"></script>
-    <script src="{% static 'default_text.js' %}?{{ static_version }}"></script>
+    <script src="{% static 'create_workload.js' %}?{{ static_version }}" defer></script>
+    <script src="{% static 'default_text.js' %}?{{ static_version }}" defer></script>
 
-    <script>
-        document.addEventListener(
-            'DOMContentLoaded', function () {
-                change_engine('{{ profile.engine }}', 'dev', '{{workload}}');
-                enforce_default_text('dev_repo', 'https://github.com/');
-                enforce_default_text('base_repo', 'https://github.com/');
-                apply_prefill('{{workload}}');
-            }, false
-        );
-    </script>
 {% endblock %}
 
 {% block content %}
 
-    <form id="workload-form" method="POST" action="{{submit_endpoint}}">
+    <form id="workload-form" method="POST" action="{{submit_endpoint}}" data-workload-type="{{workload}}" data-profile-engine="{{ profile.engine }}">
         {% csrf_token %}
 
         {% if clone_source %}
@@ -44,7 +34,7 @@
 
                 <div class="row">
                     <label for="dev_engine"> {{dev_text}} Engine </label>
-                    <select id="dev_engine" name="dev_engine" onchange="change_engine(value, 'dev', '{{workload}}');">
+                    <select id="dev_engine" name="dev_engine" data-engine-target="dev">
                         {% for engine in engines %}
                             <option value="{{ engine.name }}">{{ engine.name }}</option>
                         {% endfor %}
@@ -52,13 +42,13 @@
                 </div>
 
                 <div class="row">
-                    <label for="dev_repo"> {{dev_text}} Source </label> <input id="dev_repo" name="dev_repo">
+                    <label for="dev_repo"> {{dev_text}} Source </label> <input id="dev_repo" name="dev_repo" data-default-text="https://github.com/">
                 </div>
 
                 {% if workload == "TEST" or workload == "DATAGEN" %}
                     <div class="row">
                         <label for="base_engine"> Base Engine </label>
-                        <select id="base_engine" name="base_engine" onchange="change_engine(value, 'base', '{{workload}}');">
+                        <select id="base_engine" name="base_engine" data-engine-target="base">
                             {% for engine in engines %}
                                 <option value="{{ engine.name }}">{{ engine.name }}</option>
                             {% endfor %}
@@ -66,7 +56,7 @@
                     </div>
 
                     <div class="row">
-                        <label for="base_repo"> Base Source </label> <input id="base_repo" name="base_repo">
+                        <label for="base_repo"> Base Source </label> <input id="base_repo" name="base_repo" data-default-text="https://github.com/">
                     </div>
                 {% endif %}
 
@@ -158,7 +148,7 @@
 
                     <div class="row">
                         <label for="test_mode"> Test Mode </label>
-                        <select onchange='set_test_type()' id="test_mode" name="test_mode">
+                        <select id="test_mode" name="test_mode">
                             <option selected value="SPRT"> SPRT</option>
                             <option value="GAMES"> Fixed Games</option>
                         </select>

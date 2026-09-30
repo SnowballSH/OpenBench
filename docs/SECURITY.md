@@ -102,6 +102,70 @@ A genuine Client never triggers either.
 
 Django sets `X-Frame-Options: DENY`, `Referrer-Policy: same-origin`,
 `Cross-Origin-Opener-Policy: same-origin` and `X-Content-Type-Options: nosniff`.
-HSTS is left to the TLS proxy. There is no Content-Security-Policy yet, since
-the Templates rely on inline scripts. Session and CSRF cookies are `HttpOnly`
+HSTS is left to the TLS proxy. Session and CSRF cookies are `HttpOnly`
 and `SameSite=Lax`, and sessions last 7 days.
+
+## Content-Security-Policy
+
+`OpenBench.security.csp.ContentSecurityPolicyMiddleware` sets an enforcing
+`Content-Security-Policy` on every response Django produces: pages, JSON,
+redirects and downloads. In production static files carry it too, because
+WhiteNoise serves them from middleware that sits inside this one. Under
+`OPENBENCH_DEBUG` with `runserver`, `django.contrib.staticfiles` serves them
+before any middleware runs, so they arrive without the header there. A response
+that already carries the header keeps its own. Django 5.2 has no built-in CSP,
+so the policies are plain settings in `OpenSite/settings.py`:
+
+- `OPENBENCH_CSP`, for everything outside `/admin/`:
+
+  | Directive | Sources | Why |
+  |---|---|---|
+  | `default-src` | `'self'` | Anything not listed below stays same-origin |
+  | `script-src` | `'self'` | Only files under `/static/`: no inline code, no `eval` |
+  | `style-src` | `'self'`, `https://cdnjs.cloudflare.com`, `https://fonts.googleapis.com` | `style.css`, Font Awesome, the IBM Plex stylesheet |
+  | `font-src` | `'self'`, `https://cdnjs.cloudflare.com`, `https://fonts.gstatic.com` | Font Awesome and IBM Plex font files |
+  | `img-src` | `'self'`, `data:` | The logo, and `data:` images in stylesheets |
+  | `connect-src` | `'self'` | `fetch` only reaches this site's `/api/` |
+  | `object-src` | `'none'` | No plugins |
+  | `base-uri` | `'self'` | A `<base>` tag cannot redirect relative URLs |
+  | `form-action` | `'self'` | Forms only submit to this site |
+  | `frame-ancestors` | `'none'` | No framing, matching `X-Frame-Options: DENY` |
+
+- `OPENBENCH_CSP_ADMIN`, for `/admin/`: the same policy without the two CDNs,
+  since the Django admin loads only its own static files. Django 5.2's admin
+  runs no inline scripts and sets styles only through the CSSOM, so it needs
+  no relaxation.
+
+Neither policy is relaxed: no `'unsafe-inline'`, `'unsafe-eval'`, nonce or
+hash. For the Templates and static scripts that means:
+
+- No `<script>` without `src`. Data a script needs goes in a `json_script`
+  island (`type="application/json"` is never executed) or a `data-*`
+  attribute. The theme bootstrap is `static/theme-init.js`, loaded without
+  `defer` at the top of `<head>`, so the stored theme still applies before the
+  stylesheet.
+- No `on*=` attributes and no `javascript:` URLs. Scripts attach behaviour
+  with `addEventListener`, keyed by an id or a `data-*` attribute. `site.js`
+  handles the shared ones on every page: `data-confirm="<question>"` cancels
+  a click unless confirmed, `data-alert="<text>"` shows a notice first,
+  `data-submit-form="<form id>"` submits that form, and a form's
+  `data-action-template` (such as `/manage/books/{book-name}/create/`) replaces
+  each `{field id}` with that field's URL-encoded value before submitting.
+- No `style="..."` attributes and no `<style>` elements. Per-element values go
+  through the CSSOM, which CSP allows: `site.js` copies `data-fraction` and
+  `data-share` into the `--fraction` and `--share` custom properties the
+  progress and share bars read, and scripts use `style.setProperty` or
+  `hidden`.
+- Django's default CSRF failure page carries an inline `<style>`, so
+  `CSRF_FAILURE_VIEW` points at `OpenBench.security.csrf.csrf_failure`. It
+  renders `csrf_failure.html` in the site layout with status 403 and Django's
+  reason text.
+- A new third-party resource needs a new source in `OPENBENCH_CSP`. Prefer
+  vendoring it under `static/vendor/`, as Chart.js is.
+
+To add a script, put it in `OpenBench/static/`, include it in the page's
+`scripts` block as
+`<script src="{% static 'name.js' %}?{{ static_version }}" defer></script>`,
+and bump `OPENBENCH_STATIC_VERSION`. `OpenBench/tests/test_csp.py` fails when a
+Template, `mytags.py` or a static script reintroduces an inline handler,
+script or style, and it renders the main pages to check their output as well.

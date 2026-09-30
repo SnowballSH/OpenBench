@@ -122,7 +122,7 @@ class WorkloadActionTests(CsrfClientMixin, TestCase):
                 content,
             )
         self.assertNotRegex(content, r'href="/test/%d/[A-Z]+' % (workload.id))
-        self.assertIn("onclick=\"return confirm('Delete this Workload?')\"", content)
+        self.assertIn('data-confirm="Delete this Workload?"', content)
 
 
 class NetworkActionTests(CsrfClientMixin, TestCase):
@@ -200,7 +200,7 @@ class NetworkActionTests(CsrfClientMixin, TestCase):
         )
         self.assertRegex(
             content,
-            r'formaction="/networks/Avalanche/DELETE/BBBBBBBB/"\s+onclick="return confirm\(',
+            r'formaction="/networks/Avalanche/DELETE/BBBBBBBB/"\s+data-confirm="',
         )
         self.assertNotRegex(content, r'href="/networks/[^"]+/(DEFAULT|DELETE)/')
 

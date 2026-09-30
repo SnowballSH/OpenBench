@@ -56,9 +56,9 @@ function create_preset_buttons(engine, workload_type) {
             continue;
 
         // Create a new button for the test mode
-        var btn       = document.createElement('button')
-        btn.innerHTML = mode;
-        btn.onclick   = function() { apply_preset(mode, workload_type); };
+        var btn         = document.createElement('button')
+        btn.textContent = mode;
+        btn.addEventListener('click', () => apply_preset(mode, workload_type));
 
         // Apply all of our CSS bootstrapping
         btn.classList.add('anchorbutton');
@@ -342,3 +342,18 @@ function apply_prefill(workload_type) {
     if (unrestored.length)
         report_unrestored(unrestored);
 }
+
+document.addEventListener('DOMContentLoaded', () => {
+
+    const form = document.getElementById('workload-form');
+    const workload_type = form.dataset.workloadType;
+
+    document.querySelectorAll('select[data-engine-target]').forEach(select => {
+        select.addEventListener('change', () => change_engine(select.value, select.dataset.engineTarget, workload_type));
+    });
+
+    document.getElementById('test_mode')?.addEventListener('change', set_test_type);
+
+    change_engine(form.dataset.profileEngine, 'dev', workload_type);
+    apply_prefill(workload_type);
+});

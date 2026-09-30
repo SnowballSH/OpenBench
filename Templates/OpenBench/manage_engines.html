@@ -2,34 +2,6 @@
 
 {% load mytags %}
 
-{% block scripts %}
-
-    <script>
-
-        document.addEventListener(
-            'DOMContentLoaded', function () {
-
-                var form = document.getElementById("engine-form");
-                if (!form) return; // Only Managers are served the form
-
-                form.addEventListener("submit", function(event) {
-
-                    event.preventDefault(); // Stop event from hitting the wrong URL
-
-                    // Adjust the Form endpoint based on the new Engine's name
-                    var engine_name = encodeURIComponent(document.getElementById("engine-name").value);
-
-                    // OpenBench Endpoint: manage/engines/name/create/
-                    form.action = '/manage/engines/' + engine_name + '/create/'
-                    form.submit()
-                });
-            }, false
-        );
-
-    </script>
-
-{% endblock %}
-
 {% block manage %}
 
     {% if can_manage %}
@@ -70,7 +42,7 @@
                     {% if can_manage %}
                         <button class="link-button" form="manage-actions" aria-label="Delete"
                             formaction="/manage/engines/{{config.name}}/delete/"
-                            onclick="return confirm('YOU ARE DELETING THIS ENGINE FOREVER')">
+                            data-confirm="YOU ARE DELETING THIS ENGINE FOREVER">
                         <i class="fa-solid fa-trash-can icon-danger"></i></button>
                     {% endif %}
                 </td>
@@ -81,7 +53,7 @@
     </div>
 
     {% if can_manage %}
-        <form method="POST" id="engine-form" class="mt-4">
+        <form method="POST" id="engine-form" class="mt-4" data-action-template="/manage/engines/{engine-name}/create/">
             {% csrf_token %}
             <div class="form">
                 <div class="col">
@@ -90,7 +62,7 @@
 
                     <div class="row">
                         <label for="engine-name"> Name </label>
-                        <input id="engine-name" required pattern="[a-zA-Z0-9_.-]{1,64}">
+                        <input id="engine-name" required pattern="[a-zA-Z0-9_.\-]{1,64}">
                     </div>
 
                     <div class="row">
