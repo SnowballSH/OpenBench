@@ -1,5 +1,9 @@
 {% extends "OpenBench/manage.html" %}
 
+{% block title %}Book {{book.name}} · OpenBench{% endblock %}
+
+{% block heading %}Book {{book.name}}{% endblock %}
+
 {% block manage %}
 
     <form method="POST" action="/manage/books/{{book.name}}/edit/">

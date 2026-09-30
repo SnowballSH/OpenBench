@@ -1,5 +1,9 @@
 {% extends "OpenBench/base.html" %}
 
+{% block title %}Machines · OpenBench{% endblock %}
+
+{% block heading %}Machines{% endblock %}
+
 {% load static mytags %}
 
 {% block scripts %}
@@ -99,7 +103,7 @@
 
             <section class="card fleet-section" aria-labelledby="fleet-cpus-title">
                 <div class="card-header">
-                    <h3 class="card-title" id="fleet-cpus-title">By CPU model</h3>
+                    <h2 class="card-title" id="fleet-cpus-title">By CPU model</h2>
                     <span class="muted">Threads and MNPS count online machines</span>
                 </div>
                 <div class="table-wrap w-100">

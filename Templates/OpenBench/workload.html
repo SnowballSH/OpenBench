@@ -2,6 +2,8 @@
 
 {% block title %}{{ workload }}{% endblock %}
 
+{% block heading %}{{ workload }}{% endblock %}
+
 {% load mytags %}
 {% load static %}
 
@@ -17,57 +19,57 @@
 
     <div class="workload-container" data-workload-id="{{workload.id}}">
 
-    <div id="config" class="table-wrap">
+    <div id="config" class="table-wrap" data-region-label="Configuration">
         <table class="test-config wrappable">
 
-            <tr><td class="td-label">Author</td><td>{{workload.author|capfirst}}</td></tr>
-            <tr><td class="td-label">Creation</td><td class="timestamp">{{workload.creation|date:'U'}}</td></tr>
+            <tr><th scope="row" class="td-label">Author</th><td>{{workload.author|capfirst}}</td></tr>
+            <tr><th scope="row" class="td-label">Creation</th><td class="timestamp">{{workload.creation|date:'U'}}</td></tr>
 
             <!-- All of the Dev Engine ( or Sole Engine ) information -->
-            <tr><td class="td-label">{{dev_text}} Source</td><td><a href="{{workload.dev_repo}}">{{workload.dev_repo}}</a></td></tr>
-            <tr><td class="td-label">{{dev_text}} Sha</td><td class="mono">{{workload.dev.sha}}</td></tr>
-            <tr><td class="td-label">{{dev_text}} Branch</td><td class="branch_name">{{workload.dev.name|prettyName}}</td></tr>
-            <tr><td class="td-label">{{dev_text}} Bench</td><td class="mono">{{workload.dev.bench}}</td></tr>
-            <tr><td class="td-label">{{dev_text}} Network</td><td><a href="{{workload|network_download_link:'dev'}}">{{workload.dev_netname}}</a></td></tr>
-            <tr><td class="td-label">{{dev_text}} Options</td><td class="engine-options mono">{{workload.dev_options}}</td></tr>
-            <tr><td class="td-label">{{dev_text}} Time</td><td class="mono">{{workload.dev_time_control}}</td></tr>
+            <tr><th scope="row" class="td-label">{{dev_text}} Source</th><td><a href="{{workload.dev_repo}}">{{workload.dev_repo}}</a></td></tr>
+            <tr><th scope="row" class="td-label">{{dev_text}} Sha</th><td class="mono">{{workload.dev.sha}}</td></tr>
+            <tr><th scope="row" class="td-label">{{dev_text}} Branch</th><td class="branch_name">{{workload.dev.name|prettyName}}</td></tr>
+            <tr><th scope="row" class="td-label">{{dev_text}} Bench</th><td class="mono">{{workload.dev.bench}}</td></tr>
+            <tr><th scope="row" class="td-label">{{dev_text}} Network</th><td><a href="{{workload|network_download_link:'dev'}}">{{workload.dev_netname|default:"None"}}</a></td></tr>
+            <tr><th scope="row" class="td-label">{{dev_text}} Options</th><td class="engine-options mono">{{workload.dev_options}}</td></tr>
+            <tr><th scope="row" class="td-label">{{dev_text}} Time</th><td class="mono">{{workload.dev_time_control}}</td></tr>
 
             <!-- All of the Base Engine information, which only exists for TESTs -->
             {% if type == "TEST" or type == "DATAGEN" %}
-                <tr><td class="td-label">Base Source</td><td><a href="{{workload.base_repo}}">{{workload.base_repo}}</a></td></tr>
-                <tr><td class="td-label">Base Sha</td><td class="mono">{{workload.base.sha}}</td></tr>
-                <tr><td class="td-label">Base Branch</td><td class="branch_name">{{workload.base.name|prettyName}}</td></tr>
-                <tr><td class="td-label">Base Bench</td><td class="mono">{{workload.base.bench}}</td></tr>
-                <tr><td class="td-label">Base Network</td><td><a href="{{workload|network_download_link:'base'}}">{{workload.base_netname}}</a></td></tr>
-                <tr><td class="td-label">Base Options</td><td class="engine-options mono">{{workload.base_options}}</td></tr>
-                <tr><td class="td-label">Base Time</td><td class="mono">{{workload.base_time_control}}</td></tr>
+                <tr><th scope="row" class="td-label">Base Source</th><td><a href="{{workload.base_repo}}">{{workload.base_repo}}</a></td></tr>
+                <tr><th scope="row" class="td-label">Base Sha</th><td class="mono">{{workload.base.sha}}</td></tr>
+                <tr><th scope="row" class="td-label">Base Branch</th><td class="branch_name">{{workload.base.name|prettyName}}</td></tr>
+                <tr><th scope="row" class="td-label">Base Bench</th><td class="mono">{{workload.base.bench}}</td></tr>
+                <tr><th scope="row" class="td-label">Base Network</th><td><a href="{{workload|network_download_link:'base'}}">{{workload.base_netname|default:"None"}}</a></td></tr>
+                <tr><th scope="row" class="td-label">Base Options</th><td class="engine-options mono">{{workload.base_options}}</td></tr>
+                <tr><th scope="row" class="td-label">Base Time</th><td class="mono">{{workload.base_time_control}}</td></tr>
             {% endif %}
 
             {% with book_link=workload|book_download_link %}
                 {% if book_link %}
-                    <tr><td class="td-label">Opening Book</td><td><a href="{{book_link}}">{{workload.book_name}}</a></td></tr>
+                    <tr><th scope="row" class="td-label">Opening Book</th><td><a href="{{book_link}}">{{workload.book_name}}</a></td></tr>
                 {% else %}
-                    <tr><td class="td-label">Opening Book</td><td>{{workload.book_name}}</td></tr>
+                    <tr><th scope="row" class="td-label">Opening Book</th><td>{{workload.book_name}}</td></tr>
                 {% endif %}
             {% endwith %}
 
-            <tr><td class="td-label">Upload PGNs</td><td>{{workload.upload_pgns}}</td></tr>
-            <tr><td class="td-label">Syzygy WDL</td><td>{{workload.syzygy_wdl}}</td></tr>
-            <tr><td class="td-label">Syzygy ADJ.</td><td>{{workload.syzygy_adj}}</td></tr>
-            <tr><td class="td-label">Win ADJ.</td><td>{{workload.win_adj}}</td></tr>
-            <tr><td class="td-label">Draw ADJ.</td><td>{{workload.draw_adj}}</td></tr>
-            <tr><td class="td-label">Scaling</td><td>{{workload.scale_method}} {{workload.scale_nps}} NPS</td></tr>
+            <tr><th scope="row" class="td-label">Upload PGNs</th><td>{{workload.upload_pgns}}</td></tr>
+            <tr><th scope="row" class="td-label">Syzygy WDL</th><td>{{workload.syzygy_wdl}}</td></tr>
+            <tr><th scope="row" class="td-label">Syzygy ADJ.</th><td>{{workload.syzygy_adj}}</td></tr>
+            <tr><th scope="row" class="td-label">Win ADJ.</th><td>{{workload.win_adj}}</td></tr>
+            <tr><th scope="row" class="td-label">Draw ADJ.</th><td>{{workload.draw_adj}}</td></tr>
+            <tr><th scope="row" class="td-label">Scaling</th><td>{{workload.scale_method}} {{workload.scale_nps}} NPS</td></tr>
 
             {% if type == "TUNE" %}
-                <tr><td class="td-label">Alpha</td><td>{{workload.spsa_run.alpha}}</td></tr>
-                <tr><td class="td-label">Gamma</td><td>{{workload.spsa_run.gamma}}</td></tr>
-                <tr><td class="td-label">A-Ratio</td><td>{{workload.spsa_run.a_ratio}}</td></tr>
-                <tr><td class="td-label">Reporting</td><td>{{workload.spsa_run.reporting_type}}</td></tr>
-                <tr><td class="td-label">Distribution</td><td>{{workload.spsa_run.distribution_type}}</td></tr>
-                <tr><td class="td-label">Pairs Per Point</td><td>{{workload.workload_size}}</td></tr>
+                <tr><th scope="row" class="td-label">Alpha</th><td>{{workload.spsa_run.alpha}}</td></tr>
+                <tr><th scope="row" class="td-label">Gamma</th><td>{{workload.spsa_run.gamma}}</td></tr>
+                <tr><th scope="row" class="td-label">A-Ratio</th><td>{{workload.spsa_run.a_ratio}}</td></tr>
+                <tr><th scope="row" class="td-label">Reporting</th><td>{{workload.spsa_run.reporting_type}}</td></tr>
+                <tr><th scope="row" class="td-label">Distribution</th><td>{{workload.spsa_run.distribution_type}}</td></tr>
+                <tr><th scope="row" class="td-label">Pairs Per Point</th><td>{{workload.workload_size}}</td></tr>
             {% elif type == "DATAGEN" %}
-                <tr><td class="td-label">Genfens Args</td><td>{{workload.genfens_args}}</td></tr>
-                <tr><td class="td-label">Play Reverses</td><td>{{workload.play_reverses}}</td></tr>
+                <tr><th scope="row" class="td-label">Genfens Args</th><td>{{workload.genfens_args}}</td></tr>
+                <tr><th scope="row" class="td-label">Play Reverses</th><td>{{workload.play_reverses}}</td></tr>
             {% endif %}
 
         </table>
@@ -76,7 +78,7 @@
     <div id="actions">
 
         <!-- Dev vs Base [Git Diff Link] -->
-        <h4><a href="{{workload|gitDiffLink}}">{{workload|git_diff_text}}</a></h4>
+        <h2><a href="{{workload|gitDiffLink}}">{{workload|git_diff_text}}</a></h2>
 
         <form id="workload-actions" method="post" hidden>{% csrf_token %}</form>
 
@@ -131,10 +133,12 @@
             {% endif %}
         </div>
 
+        <p class="visually-hidden" role="status" data-workload-announcer></p>
+
         <!-- Copy Button: Copy the current results statblock -->
         {% if type == "TEST" or type == "DATAGEN" %}
             <div class="anchor-container">
-                <a class="mt-1 anchorbutton btn-blue" data-workload-action="copy-statblock">Copy Stat Block</a>
+                <button type="button" class="mt-1 anchorbutton btn-blue" data-workload-action="copy-statblock">Copy Stat Block</button>
             </div>
         {% endif %}
 
@@ -148,18 +152,19 @@
         <!-- Copies Raw SPSA Input from /api/spsa/{{workload.id}}/inputs/ -->
         {% if type == "TUNE" %}
             <div class="anchor-container">
-                <a class="mt-1 anchorbutton btn-blue" data-workload-action="copy-spsa-inputs">Copy SPSA Inputs</a>
+                <button type="button" class="mt-1 anchorbutton btn-blue" data-workload-action="copy-spsa-inputs">Copy SPSA Inputs</button>
             </div>
         {% endif %}
 
         <!-- Copies Optimal Values from /api/spsa/{{workload.id}}/outputs/ -->
         {% if type == "TUNE" %}
             <div class="anchor-container">
-                <a class="mt-1 anchorbutton btn-blue" data-workload-action="copy-spsa-outputs">Copy SPSA Outputs</a>
+                <button type="button" class="mt-1 anchorbutton btn-blue" data-workload-action="copy-spsa-outputs">Copy SPSA Outputs</button>
             </div>
         {% endif %}
 
         <!-- Elo, (SPRT/LRR if SPRT, otherwise CONF), Games -->
+        <p class="visually-hidden">Result: {% include "OpenBench/Blocks/result_text.html" with test=workload %}</p>
         {% if type == "TEST" %}
             <pre class="long-statblock long-statblock-{{workload|testResultColour}}" id="long-statblock">{{workload|longStatBlock|linebreaksbr}}</pre>
         {% elif type == "TUNE" %}
@@ -209,7 +214,7 @@
 
     <section id="insights" class="insights" data-workload-insights data-workload-id="{{workload.id}}" aria-labelledby="insights-title">
         <div class="insights-header">
-            <h3 id="insights-title" class="insights-title">Insights</h3>
+            <h2 id="insights-title" class="insights-title">Insights</h2>
             <p class="insights-status" data-insights-status role="status">Loading&hellip;</p>
         </div>
         <p class="insights-error" data-insights-error role="alert" hidden></p>
@@ -220,7 +225,7 @@
 
     <!-- SPSA Paramater Summary, for Tunes -->
     {% if type == "TUNE" %}
-        <div id="parameters" class="table-wrap">
+        <div id="parameters" class="table-wrap" data-region-label="SPSA parameters">
             <table class="stripes wrappable">
                 <thead>
                     <tr class="table-header">
@@ -238,7 +243,7 @@
                 <tbody id="spsa-digest-button-container">
                     <tr>
                         <td colspan="9">
-                            <button class="w-100 anchorbutton btn-blue" type="submit" data-workload-action="show-spsa-digest">Show SPSA Digest</button>
+                            <button class="w-100 anchorbutton btn-blue" type="button" data-workload-action="show-spsa-digest">Show SPSA Digest</button>
                         </td>
                     </tr>
                 </tbody>
@@ -250,20 +255,23 @@
     {% endif %}
 
     <!-- Aggregate pentanomial summary; fetched automatically on page load -->
-    <div id="summary-container" class="table-wrap"></div>
+    <div id="summary-container" class="table-wrap" data-region-label="Results summary"></div>
 
     <div id="results">
         <div class="table-wrap">
         <table class="stripes wrappable">
-            <tr class="table-header">
-                <th>#</th>
-                <th>User</th>
-                <th class="numeric">Games</th>
-                <th>Penta</th>
-                <th class="numeric">Pairs</th>
-                <th class="numeric">Time</th>
-                <th class="numeric">Crash</th>
-            </tr>
+            <caption class="visually-hidden">Individual results</caption>
+            <thead>
+                <tr class="table-header">
+                    <th>#</th>
+                    <th>User</th>
+                    <th class="numeric">Games</th>
+                    <th>Penta</th>
+                    <th class="numeric">Pairs</th>
+                    <th class="numeric">Time</th>
+                    <th class="numeric">Crash</th>
+                </tr>
+            </thead>
 
             <tbody id="results-container">
                 <!-- Dynamically created -->
@@ -272,7 +280,7 @@
         </div>
 
         <!-- Individual per-machine results are only ever fetched on demand -->
-        <button class="w-100 anchorbutton btn-blue" type="submit" data-workload-action="fetch-results">Fetch Individual Results</button>
+        <button class="w-100 anchorbutton btn-blue" type="button" data-workload-action="fetch-results">Fetch Individual Results</button>
     </div>
 
     </div>

@@ -3,17 +3,17 @@
 <td>{{test.dev_engine}}</td>
 <td>
     <a href="{{test|workload_url}}">{{test|prettyDevName}}</a>
-    {% if test.error %} <span class="flag flag-error" title="Crash or illegal move">*</span> {% endif %}
-    {% if test|test_is_fischer %} <span class="flag flag-fischer" title="Fischer random chess">*</span> {% endif %}
+    {% if test.error %} <span class="flag flag-error" title="Crash or illegal move"><span aria-hidden="true">*</span><span class="visually-hidden">(Crash or illegal move)</span></span> {% endif %}
+    {% if test|test_is_fischer %} <span class="flag flag-fischer" title="Fischer random chess"><span aria-hidden="true">*</span><span class="visually-hidden">(Fischer random chess)</span></span> {% endif %}
 </td>
-<td class="textcenter"><a href="{{test|gitDiffLink}}">diff</a></td>
+<td class="textcenter"><a href="{{test|gitDiffLink}}">diff<span class="visually-hidden"> for {{test|prettyDevName}}</span></a></td>
 <td>
     {{test.dev_time_control}}
-    {% if test|test_is_time_odds %} <span class="flag flag-time-odds" title="Time odds">*</span> {% endif %}
-    {% if test|test_is_smp_odds %} <span class="flag flag-smp-odds" title="Thread odds">*</span> {% endif %}
+    {% if test|test_is_time_odds %} <span class="flag flag-time-odds" title="Time odds"><span aria-hidden="true">*</span><span class="visually-hidden">(Time odds)</span></span> {% endif %}
+    {% if test|test_is_smp_odds %} <span class="flag flag-smp-odds" title="Thread odds"><span aria-hidden="true">*</span><span class="visually-hidden">(Thread odds)</span></span> {% endif %}
 </td>
 <td class="statblock-cell">
-    <div class="statblock statblock-{{test|testResultColour}}">{{test|shortStatBlock|linebreaksbr}}</div>
+    <div class="statblock statblock-{{test|testResultColour}}">{% include "OpenBench/Blocks/result_text.html" %}{{test|shortStatBlock|linebreaksbr}}</div>
     {% if show_progress %}{% with progress=test|workload_progress %}{% if progress %}
         <div class="row-progress row-progress-{{progress.kind}}" role="meter" aria-valuemin="0" aria-valuemax="1" aria-valuenow="{{progress.fraction|stringformat:'.3f'}}" aria-valuetext="{{progress.label}}" title="{{progress.label}}" data-fraction="{{progress.fraction|stringformat:'.4f'}}"></div>
     {% endif %}{% endwith %}{% endif %}

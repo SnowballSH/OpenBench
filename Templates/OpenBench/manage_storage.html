@@ -1,5 +1,9 @@
 {% extends "OpenBench/manage.html" %}
 
+{% block title %}Storage · OpenBench{% endblock %}
+
+{% block heading %}Storage{% endblock %}
+
 {% block manage %}
 
     {% if storage.low_disk %}
@@ -8,8 +12,8 @@
         </div>
     {% endif %}
 
-    <section class="insights-group" aria-label="Storage summary">
-        <h4 class="insights-group-title">Data directory</h4>
+    <section class="insights-group" aria-labelledby="storage-summary-title">
+        <h2 class="insights-group-title" id="storage-summary-title">Data directory</h2>
         <div class="stat-tiles">
             {% for tile in storage.tiles %}
                 <div class="stat-tile{% if tile.tone %} stat-tile-{{tile.tone}}{% endif %}">
@@ -31,8 +35,8 @@
         </p>
     </section>
 
-    <section class="insights-group mt-4" aria-label="Media by category">
-        <h4 class="insights-group-title">Media by category</h4>
+    <section class="insights-group mt-4" aria-labelledby="storage-media-title">
+        <h2 class="insights-group-title" id="storage-media-title">Media by category</h2>
         <div class="table-wrap w-100">
         <table class="stripes w-100">
             <tr class="table-header">
@@ -53,8 +57,8 @@
         </div>
     </section>
 
-    <section class="insights-group mt-4" aria-label="Networks by engine">
-        <h4 class="insights-group-title">Networks by engine</h4>
+    <section class="insights-group mt-4" aria-labelledby="storage-networks-title">
+        <h2 class="insights-group-title" id="storage-networks-title">Networks by engine</h2>
         <div class="table-wrap w-100">
         <table class="stripes hoverable w-100">
             <tr class="table-header">
@@ -81,8 +85,8 @@
     </section>
 
     {% if storage.largest %}
-        <section class="insights-group mt-4" aria-label="Largest items">
-            <h4 class="insights-group-title">Largest items</h4>
+        <section class="insights-group mt-4" aria-labelledby="storage-largest-title">
+            <h2 class="insights-group-title" id="storage-largest-title">Largest items</h2>
             <div class="contribution-grid">
                 {% for table in storage.largest %}
                     <div class="table-wrap contribution-table">

@@ -2,13 +2,17 @@
 
 {% load mytags %}
 
+{% block title %}{{ detail.row.name|default:"Machine" }} #{{ detail.row.id }} · OpenBench{% endblock %}
+
+{% block page_heading %}{% endblock %}
+
 {% block content %}
 
     {% with row=detail.row %}
     <div class="fleet">
 
         <header class="fleet-heading">
-            <h3>{{row.name|default:"Machine"}} <span class="muted mono">#{{row.id}}</span></h3>
+            <h1>{{row.name|default:"Machine"}} <span class="muted mono">#{{row.id}}</span></h1>
             {% if row.online %}
                 <span class="badge badge-pass">Online</span>
             {% else %}
@@ -47,7 +51,7 @@
         <div class="fleet-columns">
 
             <section class="card fleet-section" aria-labelledby="machine-hardware-title">
-                <div class="card-header"><h3 class="card-title" id="machine-hardware-title">Hardware</h3></div>
+                <div class="card-header"><h2 class="card-title" id="machine-hardware-title">Hardware</h2></div>
                 <dl class="fleet-facts">
                     <dt>Owner</dt><dd><a href="/user/{{row.owner|urlencode:''}}/">{{row.owner}}</a></dd>
                     <dt>CPU</dt><dd>{{row.cpu_name}}</dd>
@@ -62,7 +66,7 @@
             </section>
 
             <section class="card fleet-section" aria-labelledby="machine-software-title">
-                <div class="card-header"><h3 class="card-title" id="machine-software-title">Software</h3></div>
+                <div class="card-header"><h2 class="card-title" id="machine-software-title">Software</h2></div>
                 <dl class="fleet-facts">
                     <dt>System</dt><dd>{{row.os_name|default:"—"}} {{machine.info.os_ver}}</dd>
                     <dt>Client</dt><dd class="mono">{{machine.info.client_ver|default:"—"}}</dd>
@@ -78,7 +82,7 @@
 
         <section class="fleet-section" aria-labelledby="machine-workloads-title">
             <div class="card-header">
-                <h3 class="card-title" id="machine-workloads-title">Workloads</h3>
+                <h2 class="card-title" id="machine-workloads-title">Workloads</h2>
                 {% if detail.truncated %}<span class="muted">Newest {{detail.contributions|length}} of {{detail.workloads_total|insertCommas}}</span>{% endif %}
             </div>
             {% if detail.contributions %}
