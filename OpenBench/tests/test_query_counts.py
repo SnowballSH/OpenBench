@@ -220,6 +220,12 @@ class MachineStatusTests(TestCase):
     def test_nothing_online(self) -> None:
         self.assertEqual(getMachineStatus(), ": 0 Machines / 0 Threads / 0 MNPS ")
 
+    def test_online_machines_without_nps_yet(self) -> None:
+        Machine.objects.create(
+            user=create_user("owner"), info=system_info(concurrency=4)
+        )
+        self.assertEqual(getMachineStatus(), ": 1 Machines / 4 Threads / 0.0 MNPS ")
+
 
 class ClientEndpointBudgetTests(TestCase):
     def setUp(self) -> None:

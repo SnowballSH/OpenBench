@@ -605,7 +605,7 @@ def network_form(request):
 # within the Templates, by way of the can_manage flag.
 
 def has_manage_permissions(request):
-    profile = Profile.objects.filter(user=request.user).first() if request.user.is_authenticated else None
+    profile = OpenBench.page_queries.request_profile(request)
     return bool(profile and (profile.superuser or profile.user.is_superuser))
 
 def manage(request):

@@ -228,7 +228,7 @@ def getMachineStatus(username=None):
 
     return ": {0} Machines / ".format(totals['count']) + \
            "{0} Threads / ".format(totals['threads'] or 0) + \
-           "{0} MNPS ".format(round(totals['mnps'] or 0, 2))
+           "{0} MNPS ".format(0 if totals['mnps'] is None else round(totals['mnps'], 2))
 
 def getPaging(content, page, url, pagelen=25):
 
