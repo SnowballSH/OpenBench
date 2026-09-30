@@ -266,3 +266,38 @@ class ManageActionTests(CsrfClientMixin, TestCase):
         content = self.client.get("/manage/books/").content.decode()
         self.assertIn('form="manage-actions"', content)
         self.assertNotIn('href="/manage/books/unused.epd/delete/"', content)
+
+
+class ApiNetworkDeleteSessionTests(CsrfClientMixin, TestCase):
+    def setUp(self):
+        create_engine_config()
+        self.approver = create_user("admin", approver=True)
+        self.network = Network.objects.create(
+            sha256="ABCDEF01", name="r1", engine="Avalanche", author="admin"
+        )
+
+    def test_session_without_a_csrf_token_is_refused(self):
+        response = self.csrf_client(self.approver).post(
+            "/api/networks/Avalanche/r1/delete/"
+        )
+        self.assertEqual(response.status_code, 403)
+        self.assertTrue(Network.objects.filter(id=self.network.id).exists())
+
+    def test_session_with_a_csrf_token_deletes(self):
+        client = self.csrf_client(self.approver)
+        token = self.form_token(client, "/networks/")
+        self.assertIn(
+            "success",
+            client.post(
+                "/api/networks/Avalanche/r1/delete/", {"csrfmiddlewaretoken": token}
+            ).json(),
+        )
+
+    def test_credentials_without_a_session_need_no_token(self):
+        client = self.client_class(enforce_csrf_checks=True)
+        self.assertIn(
+            "success",
+            client.post(
+                "/api/networks/Avalanche/r1/delete/", credentials(self.approver)
+            ).json(),
+        )

@@ -38,6 +38,7 @@ from OpenBench.insights.api import workload_payload
 
 from OpenBench.config import OPENBENCH_CONFIG, OPENBENCH_STATIC_VERSION
 from OpenBench.security import throttle
+from OpenBench.security.csrf import fails_session_csrf
 from OpenBench.security.fetch_metadata import is_cross_site
 from OpenSite.settings import PROJECT_PATH
 
@@ -1160,6 +1161,9 @@ def api_network_delete(request, engine, identifier):
     # Exempt from CSRF, so refuse a foreign page riding on a browser session
     if is_cross_site(request):
         return api_response({ 'error' : 'Cross-site requests are refused' }, status=403)
+
+    if fails_session_csrf(request):
+        return api_response({ 'error' : 'Browser sessions must send a CSRF token' }, status=403)
 
     # Matches the website, where only Approvers may delete Networks
     if not (user := api_user(request)) or not Profile.objects.filter(user=user, approver=True).exists():
