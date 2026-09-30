@@ -40,7 +40,7 @@ CPUS = [
     ('Intel(R) Xeon(R) Gold 6338 CPU @ 2.00GHz', 'x86-64-avx512', 'Linux', 32, 240),
 ]
 
-FINISHED_STATES = ('passed', 'failed', 'finished')
+FINISHED_STATES = ('passed', 'failed', 'finished', 'stopped')
 
 LLR_BOUND = 2.94
 
@@ -64,6 +64,8 @@ class DemoWorkload:
     upload_pgns   : str = 'FALSE'
     genfens_args  : str = ''
     play_reverses : bool = False
+    days_ago      : float = 0.0
+    author        : int = 0
 
 @dataclass(frozen=True)
 class DemoParameter:
@@ -104,6 +106,28 @@ WORKLOADS = [
                  upload_pgns='COMPACT', genfens_args='-randmoves 8'),
     DemoWorkload('nezha-v2-data',    'DATAGEN', 0.0, 3000, 'finished', max_games=6000, tc='N=5000', book='NONE',
                  upload_pgns='COMPACT', play_reverses=True),
+]
+
+# Finished SPRT tests spread over the last six months, for the progress page
+PAST_SPRTS = [
+    DemoWorkload('see-pruning',   'SPRT',  16.0,    0, 'passed',   days_ago=176, author=0),
+    DemoWorkload('tt-aging',      'SPRT', -10.0,    0, 'failed',   days_ago=168, author=1),
+    DemoWorkload('nmp-verify',    'SPRT',  18.0,    0, 'passed',   days_ago=160, author=2, bounds=(0.0, 5.0)),
+    DemoWorkload('razoring',      'SPRT',   1.0, 1200, 'stopped', days_ago=151, author=0),
+    DemoWorkload('killer-two',    'SPRT',  -9.0,    0, 'failed',   days_ago=143, author=1),
+    DemoWorkload('singular-ext',  'SPRT',  20.0,    0, 'passed',   days_ago=131, author=0),
+    DemoWorkload('cont-history',  'SPRT',  14.0,    0, 'passed',   days_ago=122, author=2),
+    DemoWorkload('probcut',       'SPRT', -12.0,    0, 'failed',   days_ago=110, author=0),
+    DemoWorkload('simplify-eval', 'SPRT',   8.0,    0, 'passed',   days_ago=101, author=1, bounds=(-3.0, 0.0)),
+    DemoWorkload('lmp-table',     'SPRT',  15.0,    0, 'passed',   days_ago=92,  author=0),
+    DemoWorkload('iir',           'SPRT',  -8.0,    0, 'failed',   days_ago=80,  author=2),
+    DemoWorkload('corr-history',  'SPRT',  16.0,    0, 'passed',   days_ago=71,  author=0),
+    DemoWorkload('qs-futility',   'SPRT',   0.5,  900, 'stopped', days_ago=60,  author=1),
+    DemoWorkload('nezha-v1',      'SPRT',  22.0,    0, 'passed',   days_ago=48,  author=0, bounds=(0.0, 5.0)),
+    DemoWorkload('capture-hist',  'SPRT', -11.0,    0, 'failed',   days_ago=37,  author=2),
+    DemoWorkload('pv-lmr',        'SPRT',  13.0,    0, 'passed',   days_ago=26,  author=1),
+    DemoWorkload('eval-cache',    'SPRT',  14.0,    0, 'passed',   days_ago=15,  author=0),
+    DemoWorkload('mate-distance', 'SPRT',  -9.0,    0, 'failed',   days_ago=8,   author=2),
 ]
 
 SEARCH_PARAMETERS = (
@@ -150,8 +174,8 @@ class Command(BaseCommand):
             create_engine_config()
             create_book()
             machines = create_machines(users)
-            for spec in WORKLOADS:
-                create_workload(spec, users[0], machines, rng)
+            for spec in WORKLOADS + PAST_SPRTS:
+                create_workload(spec, users[spec.author], machines, rng)
             for tune in TUNES:
                 create_tune(tune, users[0], machines, rng)
             credit_profiles(users)
@@ -159,7 +183,7 @@ class Command(BaseCommand):
             age_offline_machines(machines)
 
         self.stdout.write('Seeded %d workloads on %d machines. Log in as admin / %s' % (
-            len(WORKLOADS) + len(TUNES), len(machines), DEMO_PASSWORD))
+            len(WORKLOADS) + len(PAST_SPRTS) + len(TUNES), len(machines), DEMO_PASSWORD))
 
 def create_users():
     specs = [('admin', True), ('lab-worker', False), ('home-worker', False)]
@@ -249,11 +273,19 @@ class Schedule:
     started : datetime.datetime
     ended   : datetime.datetime
 
-def schedule(state: str, rng: random.Random) -> Schedule:
+def schedule(state: str, rng: random.Random, days_ago: float = 0.0) -> Schedule:
+    if days_ago:
+        return past_schedule(days_ago, rng)
     now     = timezone.now()
     created = now - datetime.timedelta(hours=rng.uniform(1, 72))
     started = created + datetime.timedelta(minutes=rng.uniform(2, 10))
     ended   = started + (now - started) * (rng.uniform(0.3, 0.9) if state in FINISHED_STATES else 1.0)
+    return Schedule(created, started, ended)
+
+def past_schedule(days_ago: float, rng: random.Random) -> Schedule:
+    created = timezone.now() - datetime.timedelta(days=days_ago, hours=rng.uniform(0, 12))
+    started = created + datetime.timedelta(minutes=rng.uniform(2, 10))
+    ended   = started + datetime.timedelta(hours=rng.uniform(2, 18))
     return Schedule(created, started, ended)
 
 def create_engine(name: str, rng: random.Random) -> Engine:
@@ -266,7 +298,7 @@ def create_workload(spec, author, machines, rng):
     dev     = create_engine(spec.name, rng)
     base    = create_engine('master', rng)
     options = 'Threads=%d Hash=%d' % (spec.threads, 16 * spec.threads)
-    times   = schedule(spec.state, rng)
+    times   = schedule(spec.state, rng, spec.days_ago)
     is_sprt = spec.mode == 'SPRT'
     is_data = spec.mode == 'DATAGEN'
     sprt    = {
@@ -289,21 +321,26 @@ def create_workload(spec, author, machines, rng):
 
     bounds   = spec.bounds if is_sprt else None
     finished = spec.state in FINISHED_STATES
-    outcomes = sprt_to_verdict(spec, rng) if is_sprt and finished else simulate_pairs(spec.elo, spec.pairs, rng)
+    decided  = is_sprt and spec.state in ('passed', 'failed')
+    outcomes = sprt_to_verdict(spec, rng) if decided else simulate_pairs(spec.elo, spec.pairs, rng)
     record_outcomes(test, outcomes, finished, bounds, times, machines, rng)
 
     test.refresh_from_db()
-    if is_sprt and finished and spec.state != ('passed' if test.passed else 'failed'):
+    reached = 'passed' if test.passed else 'failed' if test.failed else 'stopped'
+    if is_sprt and finished and spec.state != reached:
         raise CommandError(f'{spec.name} was meant to have {spec.state}; choose another elo')
 
 def sprt_to_verdict(spec: DemoWorkload, rng: random.Random) -> list[int]:
 
     # Plays until the LLR leaves the bounds, like update_test would stop it
     outcomes: list[int] = []
-    while abs(PentanomialSPRT(tally(outcomes), *spec.bounds) if outcomes else 0.0) <= LLR_BOUND:
+    penta = [0, 0, 0, 0, 0]
+    while abs(PentanomialSPRT(penta, *spec.bounds) if outcomes else 0.0) <= LLR_BOUND:
         if len(outcomes) >= SPRT_MAX_PAIRS:
             raise CommandError(f'{spec.name} did not reach a verdict in {SPRT_MAX_PAIRS} pairs; choose another elo')
-        outcomes.extend(simulate_pairs(spec.elo, SPRT_BATCH, rng))
+        batch = simulate_pairs(spec.elo, SPRT_BATCH, rng)
+        penta = [total + added for total, added in zip(penta, tally(batch))]
+        outcomes.extend(batch)
     return outcomes
 
 def create_tune(spec: DemoTune, author: User, machines: list[Machine], rng: random.Random) -> None:
@@ -422,11 +459,12 @@ def create_history(test, bounds, outcomes, started, ended, rng):
     weights = [rng.uniform(0.6, 1.4) for _ in range(points)]
     total   = sum(weights)
 
-    snapshots, cumulative = [], 0.0
+    snapshots, cumulative, counted, penta = [], 0.0, 0, [0, 0, 0, 0, 0]
     for index, weight in enumerate(weights, start=1):
         cumulative += weight
         played = len(outcomes) if index == points else round(len(outcomes) * cumulative / total)
-        penta  = tally(outcomes[:played])
+        penta  = [so_far + added for so_far, added in zip(penta, tally(outcomes[counted:played]))]
+        counted = played
         wins, losses, draws = trinomial(penta)
         snapshots.append(WorkloadSnapshot(
             test=test, created=started + (ended - started) * (index / points),

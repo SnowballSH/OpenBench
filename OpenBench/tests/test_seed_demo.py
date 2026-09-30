@@ -8,7 +8,7 @@ from django.test import TestCase, override_settings
 from django.utils import timezone
 
 from OpenBench.models import Engine, Machine, Profile, Result, Test, WorkloadSnapshot
-from OpenBench.management.commands.seed_demo import TUNES, WORKLOADS
+from OpenBench.management.commands.seed_demo import PAST_SPRTS, TUNES, WORKLOADS
 
 class SeedDemoTests(TestCase):
 
@@ -21,7 +21,7 @@ class SeedDemoTests(TestCase):
     def test_fills_an_empty_database_consistently(self):
         call_command('seed_demo', stdout=io.StringIO())
 
-        self.assertEqual(Test.objects.count(), len(WORKLOADS) + len(TUNES))
+        self.assertEqual(Test.objects.count(), len(WORKLOADS) + len(PAST_SPRTS) + len(TUNES))
         self.assertTrue(Machine.objects.exists())
 
         for engine in Engine.objects.all():
@@ -84,13 +84,28 @@ class SeedDemoTests(TestCase):
 
         for test in Test.objects.filter(test_mode='SPRT', approved=True):
             self.assertEqual((test.passed, test.failed), (test.currentllr > test.upperllr, test.currentllr < test.lowerllr))
-            self.assertEqual(test.finished, test.passed or test.failed)
+            self.assertTrue(test.finished or not (test.passed or test.failed))
+
+        stopped = Test.objects.filter(test_mode='SPRT', finished=True, passed=False, failed=False)
+        self.assertEqual(stopped.count(), sum(spec.state == 'stopped' for spec in PAST_SPRTS))
 
         for test in Test.objects.filter(test_mode='GAMES', finished=True):
             self.assertEqual((test.passed, test.failed), (test.wins >= test.losses, test.wins < test.losses))
 
         self.assertTrue(Test.objects.filter(test_mode='SPRT', passed=True).exists())
         self.assertTrue(Test.objects.filter(test_mode='SPRT', failed=True).exists())
+
+    @override_settings(DEBUG=True)
+    def test_past_sprts_spread_over_six_months(self):
+        call_command('seed_demo', stdout=io.StringIO())
+
+        now  = timezone.now()
+        past = Test.objects.filter(test_mode='SPRT', finished=True, updated__lt=now - timedelta(days=7))
+        self.assertEqual(past.count(), len(PAST_SPRTS))
+        self.assertLess(min(past.values_list('creation', flat=True)), now - timedelta(days=150))
+        self.assertEqual(set(past.values_list('author', flat=True)), {'admin', 'lab-worker', 'home-worker'})
+        for test in past:
+            self.assertEqual(WorkloadSnapshot.objects.filter(test=test).latest('created').created, test.updated)
 
     @override_settings(DEBUG=True)
     def test_histories_end_at_the_workload_counters(self):
