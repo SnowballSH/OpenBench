@@ -145,9 +145,11 @@ this check cannot break them.
   with the error "Search at most 20 keywords" (or authors) instead of a 500.
 - Page numbers in `/index/`, `/greens/`, `/search/`, `/events/`, `/errors/`
   and `/user/<name>/` have at most 10 digits, and ids in `/machines/<id>/`,
-  `/test/<id>/`, `/tune/<id>/` and `/datagen/<id>/` at most 18; longer numbers
-  are a 404, so they never reach `int()`'s 4,300-digit limit or overflow
-  SQLite's 64-bit integers.
+  `/test/<id>/`, `/tune/<id>/`, `/datagen/<id>/`, `/event/<id>/`,
+  `/api/pgns/<id>/`, `/api/spsa/<id>/…`, `/api/workload/<id>/…` and the
+  history CSV at most 18 ASCII digits; longer numbers do not match a route and
+  are the site's 404 page (HTML, even under `/api/`), so they never reach
+  `int()`'s 4,300-digit limit or overflow SQLite's 64-bit integers.
 
 ## Response headers and cookies
 
