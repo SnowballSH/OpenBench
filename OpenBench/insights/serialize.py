@@ -1,6 +1,6 @@
 import math
 from dataclasses import fields, is_dataclass
-from datetime import datetime
+from datetime import date, datetime
 from enum import Enum
 
 type Json = None | bool | int | float | str | list[Json] | dict[str, Json]
@@ -14,7 +14,7 @@ def to_json(value: object) -> Json:
             return value
         case float():
             return value if math.isfinite(value) else None
-        case datetime():
+        case datetime() | date():
             return value.isoformat()
         case list() | tuple():
             return [to_json(item) for item in value]

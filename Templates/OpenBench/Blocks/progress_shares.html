@@ -1,0 +1,24 @@
+{% if rows %}
+    <div class="table-wrap w-100">
+        <table class="stripes w-100">
+            <thead>
+                <tr class="table-header">
+                    <th>{{heading}}</th>
+                    <th>Share</th>
+                    <th class="numeric">{{unit}}</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in rows %}
+                    <tr>
+                        <td>{% if row.url %}<a href="{{row.url}}">{{row.name}}</a>{% else %}{{row.name}}{% endif %}</td>
+                        <td class="share-cell"><span class="share-bar" data-share="{{row.share}}" aria-hidden="true"></span>{{row.percent}}</td>
+                        <td class="numeric">{{row.value}}</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+{% else %}
+    <p class="insights-empty">{{empty}}</p>
+{% endif %}

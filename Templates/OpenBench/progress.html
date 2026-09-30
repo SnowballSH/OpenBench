@@ -1,0 +1,197 @@
+{% extends "OpenBench/base.html" %}
+
+{% load static %}
+
+{% block title %}{{page.title}} · OpenBench{% endblock %}
+
+{% block scripts %}
+    <script src="{% static 'vendor/chartjs-4.5.1/chart.umd.min.js' %}" defer></script>
+    <script src="{% static 'progress.js' %}?{{ static_version }}" defer></script>
+{% endblock %}
+
+{% block content %}
+
+    <div class="progress-page" data-progress>
+
+        <header class="progress-heading">
+            <div class="progress-heading-text">
+                <h3>{{page.title}}</h3>
+                <p class="muted">{{page.start|date:"M j, Y"}} to {{page.end|date:"M j, Y"}}, UTC days</p>
+            </div>
+
+            <div class="progress-filters">
+                <nav class="fleet-filter" aria-label="Time window">
+                    {% for option in page.windows %}
+                        <a href="{{option.url}}" class="fleet-filter-option"{% if option.current %} aria-current="true"{% endif %}>{{option.label}}</a>
+                    {% endfor %}
+                </nav>
+
+                <form class="progress-engine-form" method="get" action="/progress/" data-progress-engine-form>
+                    <label for="progress-engine">Engine</label>
+                    <select id="progress-engine" name="engine" data-progress-engine>
+                        <option value=""{% if not page.engine %} selected{% endif %}>All engines</option>
+                        {% for name in page.engines %}
+                            <option value="{{name}}"{% if name == page.engine %} selected{% endif %}>{{name}}</option>
+                        {% endfor %}
+                    </select>
+                    <input type="hidden" name="window" value="{{page.window.value}}">
+                    <button type="submit" class="anchorbutton btn-blue" data-progress-engine-submit>Show</button>
+                </form>
+            </div>
+        </header>
+
+        <section class="stat-tiles" aria-label="Window summary">
+            {% for tile in page.tiles %}
+                <div class="stat-tile{% if tile.tone %} stat-tile-{{tile.tone}}{% endif %}">
+                    <span class="stat-label">{{tile.label}}</span>
+                    <span class="stat-value">{{tile.value}}</span>
+                    <span class="stat-meta">{{tile.meta}}</span>
+                </div>
+            {% endfor %}
+        </section>
+
+        <div class="progress-charts">
+
+            <figure class="card chart-card progress-chart-wide">
+                <figcaption class="chart-caption">
+                    <span class="card-title">Cumulative Elo from greens</span>
+                    <span class="chart-subtitle">Each passed SPRT with non-negative bounds adds its own Elo point estimate, at the time it finished. Summed estimates overstate real progress: greens are selected for looking good, and each estimate is measured against its own base, not a fixed reference.</span>
+                </figcaption>
+                <div class="chart-box" data-progress-chart="elo">
+                    <canvas role="img" aria-label="Cumulative Elo chart"></canvas>
+                </div>
+                <p class="chart-empty" hidden></p>
+            </figure>
+
+            <figure class="card chart-card">
+                <figcaption class="chart-caption">
+                    <span class="card-title">SPRT outcomes per week</span>
+                    <span class="chart-subtitle">Finished SPRT tests by the UTC week (from Monday) they finished in. Stopped means finished without passing or failing.</span>
+                </figcaption>
+                <div class="chart-box" data-progress-chart="outcomes">
+                    <canvas role="img" aria-label="SPRT outcomes per week chart"></canvas>
+                </div>
+                <p class="chart-empty" hidden></p>
+                <details class="progress-data-table">
+                    <summary>Table</summary>
+                    <div class="table-wrap w-100">
+                        <table class="stripes w-100">
+                            <thead>
+                                <tr class="table-header">
+                                    <th>Week of</th>
+                                    <th class="numeric">Passed</th>
+                                    <th class="numeric">Failed</th>
+                                    <th class="numeric">Stopped</th>
+                                    <th class="numeric">Pass rate</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for week in page.weekly %}
+                                    <tr>
+                                        <td>{{week.week_start|date:"M j, Y"}}</td>
+                                        <td class="numeric">{{week.passed}}</td>
+                                        <td class="numeric">{{week.failed}}</td>
+                                        <td class="numeric">{{week.stopped}}</td>
+                                        <td class="numeric">{{week.pass_rate}}</td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </details>
+            </figure>
+
+            <figure class="card chart-card">
+                <figcaption class="chart-caption">
+                    <span class="card-title">Games per day</span>
+                    <span class="chart-subtitle">Across the fleet, from workload history by UTC day. Games reported before a workload's history began count on the day of its first recorded report.</span>
+                </figcaption>
+                <div class="chart-box" data-progress-chart="games">
+                    <canvas role="img" aria-label="Games per day chart"></canvas>
+                </div>
+                <p class="chart-empty" hidden></p>
+                <details class="progress-data-table">
+                    <summary>Table</summary>
+                    <div class="table-wrap w-100">
+                        <table class="stripes w-100">
+                            <thead>
+                                <tr class="table-header">
+                                    <th>Day</th>
+                                    <th class="numeric">Games</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for day in page.daily %}
+                                    <tr>
+                                        <td>{{day.day|date:"D, M j, Y"}}</td>
+                                        <td class="numeric">{{day.games}}</td>
+                                    </tr>
+                                {% empty %}
+                                    <tr><td colspan="2" class="muted">No games in this window.</td></tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </details>
+            </figure>
+        </div>
+
+        <section class="card progress-section" aria-labelledby="progress-greens-title">
+            <div class="card-header">
+                <h4 id="progress-greens-title" class="card-title">Contributing greens</h4>
+                <span class="muted">Newest first{% if page.greens_hidden %}; the {{page.greens_hidden}} oldest are left out of this table but counted in the sum{% endif %}</span>
+            </div>
+            {% if page.greens %}
+                <div class="table-wrap w-100">
+                    <table class="stripes hoverable w-100">
+                        <thead>
+                            <tr class="table-header">
+                                <th>Test</th>
+                                <th>Finished</th>
+                                <th class="numeric">Elo (95%)</th>
+                                <th class="numeric">Bounds</th>
+                                <th class="numeric">Games</th>
+                                <th class="numeric">Running sum</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for green in page.greens %}
+                                <tr>
+                                    <td class="progress-test-name"><a href="{{green.url}}">{{green.name}}</a></td>
+                                    <td>{{green.finished_on|date:"M j, Y"}}</td>
+                                    <td class="numeric mono">{{green.elo}}</td>
+                                    <td class="numeric mono">{{green.bounds}}</td>
+                                    <td class="numeric">{{green.games}}</td>
+                                    <td class="numeric mono">{{green.cumulative}}</td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% else %}
+                <p class="insights-empty">No SPRT with non-negative bounds passed in this window.</p>
+            {% endif %}
+        </section>
+
+        <div class="fleet-columns">
+            <section class="card progress-section" aria-labelledby="progress-contributors-title">
+                <div class="card-header">
+                    <h4 id="progress-contributors-title" class="card-title">Top contributors</h4>
+                    <span class="muted">Games in results last reported in the window</span>
+                </div>
+                {% include "OpenBench/Blocks/progress_shares.html" with rows=page.contributors heading="User" unit="Games" empty="No games were reported in this window." %}
+            </section>
+
+            <section class="card progress-section" aria-labelledby="progress-authors-title">
+                <div class="card-header">
+                    <h4 id="progress-authors-title" class="card-title">Top authors</h4>
+                    <span class="muted">Workloads created in the window</span>
+                </div>
+                {% include "OpenBench/Blocks/progress_shares.html" with rows=page.authors heading="Author" unit="Tests" empty="No workloads were created in this window." %}
+            </section>
+        </div>
+    </div>
+
+    {{ payload|json_script:"progress-data" }}
+
+{% endblock %}
