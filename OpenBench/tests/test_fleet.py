@@ -356,7 +356,7 @@ class FleetPageTests(TestCase):
             )
             add_result(self.test, host)
 
-        with self.assertNumQueries(13):
+        with self.assertNumQueries(10):
             self.client.get("/machines/?show=7d")
 
         for index in range(8):
@@ -364,7 +364,7 @@ class FleetPageTests(TestCase):
                 self.reader, f"more-{index}", workload=create_test(self.reader).id
             )
 
-        self.assertEqual(query_count(self.client, "/machines/?show=7d"), 13)
+        self.assertEqual(query_count(self.client, "/machines/?show=7d"), 10)
 
     def test_machine_detail(self):
         self.login()
@@ -446,7 +446,7 @@ class FleetPageTests(TestCase):
             Profile.objects.filter(user=owner).update(games=index + 1)
             make_machine(owner, f"box-{index}")
 
-        with self.assertNumQueries(10):
+        with self.assertNumQueries(7):
             self.client.get("/users/")
 
         for index in range(6, 12):
@@ -454,4 +454,4 @@ class FleetPageTests(TestCase):
             Profile.objects.filter(user=owner).update(games=index + 1)
             make_machine(owner, f"box-{index}", seen=timedelta(hours=1))
 
-        self.assertEqual(query_count(self.client, "/users/"), 10)
+        self.assertEqual(query_count(self.client, "/users/"), 7)
