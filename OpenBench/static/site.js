@@ -166,8 +166,12 @@
     function init_delegated_actions() {
         document.addEventListener('click', event => {
             const confirming = event.target.closest('[data-confirm]');
-            if (confirming && !window.confirm(confirming.dataset.confirm))
+            if (confirming && !window.confirm(confirming.dataset.confirm)) {
                 event.preventDefault();
+                return;
+            }
+
+            if (event.defaultPrevented) return;
 
             const alerting = event.target.closest('[data-alert]');
             if (alerting)
