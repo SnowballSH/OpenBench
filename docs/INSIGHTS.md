@@ -482,9 +482,12 @@ engine. The window is the `window` query parameter: `30d`, `90d` (the default),
 to the default, and `/progress/?engine=X` redirects to `/progress/X/`. An
 engine name containing `/` cannot travel in the path, so its links keep the
 query form (`/progress/?engine=A%2FB`) and it is not redirected; a blank engine
-in the path (`/progress/%20/`) redirects to `/progress/`. Reports are cached
-for 60 seconds per engine and window (the default local-memory cache, so per
-process), which bounds the cost of repeated loads and of the API.
+in the path (`/progress/%20/`) redirects to `/progress/`. An engine with no
+Engine configuration (enabled or not) is a 404, before any report is built or
+cached. Reports are cached for 60 seconds per engine and window (the default
+local-memory cache, so per process), which bounds the cost of repeated loads
+and of the API; since only configured engines reach the cache, a caller cannot
+fill it with arbitrary names.
 
 Code lives in `OpenBench/progress/`:
 
@@ -595,7 +598,8 @@ when authentication fails, and status 400 with `{ "error": "..." }` for a
 `window` other than `30d`, `90d`, `1y` or `all`. The value is matched ignoring
 case and surrounding whitespace, and an empty or omitted `window` means `90d`.
 An empty or missing `engine` means every engine; names are trimmed and cut to
-64 characters. Days are
+64 characters, and a name with no Engine configuration is status 404 with
+`{ "error": "..." }`. Days are
 `YYYY-MM-DD` (UTC) and timestamps ISO-8601 with a UTC offset.
 
 ```jsonc

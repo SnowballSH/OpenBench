@@ -40,7 +40,9 @@ the admin login, and a `user_login_failed` receiver counts the failures.
   appended. Never set that flag when clients can reach gunicorn directly.
 - Counters live in their own per-process local-memory cache, the `throttle`
   alias in `CACHES` (up to 10,000 entries), which nothing else writes to.
-  Filling the `default` cache, as report caches can, never culls them. Each
+  Filling the `default` cache never culls them; the progress reports cached
+  there are keyed only by configured engine names, never by an arbitrary
+  `engine` parameter. Each
   gunicorn process counts on its own, so the effective limits are up to
   `OPENBENCH_WORKERS` times higher. Restarting the container clears every
   counter.
