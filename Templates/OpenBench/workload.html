@@ -133,8 +133,6 @@
             {% endif %}
         </div>
 
-        <p class="visually-hidden" role="status" data-workload-announcer></p>
-
         <!-- Copy Button: Copy the current results statblock -->
         {% if type == "TEST" or type == "DATAGEN" %}
             <div class="anchor-container">
@@ -210,14 +208,17 @@
                 </div>
             </div>
         </form>
+
+        <p class="visually-hidden" role="status" data-workload-announcer></p>
     </div>
 
     <section id="insights" class="insights" data-workload-insights data-workload-id="{{workload.id}}" aria-labelledby="insights-title">
         <div class="insights-header">
             <h2 id="insights-title" class="insights-title">Insights</h2>
-            <p class="insights-status" data-insights-status role="status">Loading&hellip;</p>
+            <p class="insights-status" data-insights-status>Loading&hellip;</p>
         </div>
         <p class="insights-error" data-insights-error role="alert" hidden></p>
+        <p class="visually-hidden" role="status" data-insights-announcer></p>
         <div class="insights-tiles" data-insights-tiles></div>
         <div class="insights-charts" data-insights-charts></div>
         <div data-insights-contributions></div>

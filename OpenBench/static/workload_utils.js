@@ -1,19 +1,37 @@
-function copy_text(text) {
+function copy_with_textarea(text) {
 
-    var area = document.createElement("textarea");
+    const focused = document.activeElement;
+    const area = document.createElement('textarea');
     area.value = text;
+    area.setAttribute('readonly', '');
+    area.classList.add('visually-hidden');
     document.body.append(area);
     area.select();
 
     try {
-        document.execCommand("copy");
-        document.body.removeChild(area);
+        return document.execCommand('copy');
+    }
+    catch (err) {
+        return false;
+    }
+    finally {
+        area.remove();
+        if (focused instanceof HTMLElement) focused.focus();
+    }
+}
+
+async function copy_text(text) {
+
+    if (navigator.clipboard && window.isSecureContext) {
+        try {
+            await navigator.clipboard.writeText(text);
+            return;
+        }
+        catch (err) {}
     }
 
-    catch (err) {
-        document.body.removeChild(area);
-        console.error("Unable to copy to Clipboard");
-    }
+    if (!copy_with_textarea(text))
+        throw new Error('Unable to copy to the clipboard');
 }
 
 function copy_text_from_element(element_id, keep_url) {
@@ -24,7 +42,7 @@ function copy_text_from_element(element_id, keep_url) {
     if (keep_url)
         text += "\n" + window.location.href;
 
-    copy_text(text);
+    return copy_text(text);
 }
 
 
@@ -179,13 +197,13 @@ async function fetch_summary(workload_id) {
 async function copy_spsa_inputs(workload_id) {
     const resp = await fetch(`/api/spsa/${workload_id}/inputs/`)
     const text = await resp.text()
-    copy_text(text)
+    await copy_text(text)
 }
 
 async function copy_spsa_outputs(workload_id) {
     const resp = await fetch(`/api/spsa/${workload_id}/outputs/`)
     const text = await resp.text()
-    copy_text(text)
+    await copy_text(text)
 }
 
 async function fetch_spsa_digest(workload_id) {

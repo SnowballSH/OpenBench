@@ -702,6 +702,8 @@
             this.section = section;
             this.url = `/api/workload/${encodeURIComponent(section.dataset.workloadId)}/insights/`;
             this.status = section.querySelector('[data-insights-status]');
+            this.announcer = section.querySelector('[data-insights-announcer]');
+            this.announced_status = null;
             this.error = section.querySelector('[data-insights-error]');
             this.tiles = section.querySelector('[data-insights-tiles]');
             this.charts = section.querySelector('[data-insights-charts]');
@@ -772,6 +774,16 @@
 
             const refreshing = this.polled ? ' · refreshes every minute' : '';
             this.status.textContent = `Updated ${time_format.format(new Date())}${refreshing}`;
+            this.announce_status_change();
+        }
+
+        announce_status_change() {
+            const status = this.latest.workload.status;
+            if (!this.announcer || status === this.announced_status) return;
+            this.announcer.textContent = this.announced_status === null
+                ? 'Insights loaded'
+                : `Workload is now ${status}`;
+            this.announced_status = status;
         }
 
         render_history() {

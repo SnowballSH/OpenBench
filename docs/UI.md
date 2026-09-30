@@ -168,9 +168,15 @@ for contrast and anything dynamic.
   repeated as `.visually-hidden` text (`Blocks/result_text.html`). Links
   inside a `<p>` are underlined, since colour alone does not set them apart.
 - **Live regions**: session banners use `role="alert"` (errors) or
-  `role="status"`; the insights status and error lines, and the workload
-  page's hidden `data-workload-announcer`, announce refreshes and completed
-  actions (copy, fetch).
+  `role="status"`. The insights error line is `role="alert"`; the visible
+  "Updated ..." line is not live, so the minute refresh stays quiet, and the
+  hidden `data-insights-announcer` speaks only on first load and when the
+  workload's status changes. The workload page's hidden
+  `data-workload-announcer` reports completed actions (copy, fetch), and a
+  copy announces success only when the clipboard write succeeded.
+- **Focus**: an action never leaves focus on `<body>`: copying restores focus
+  to its button, and removing a profile repo row moves focus to the next
+  row's remove button or the new-engine select.
 - **Scrolling tables**: `site.js` makes a `.table-wrap` that overflows
   focusable (`tabindex="0"`, `role="region"`) so keyboard users can scroll it,
   and names it from its caption, its section heading, or `data-region-label`.
