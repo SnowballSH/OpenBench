@@ -1,13 +1,13 @@
 import math
 import re
-from bisect import bisect_left
+from bisect import bisect_right
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
 from OpenBench.insights.series import SeriesPoint
 from OpenBench.insights.strength import EloInterval
 
-WORKLOAD_ID = re.compile(r'\d{1,18}')
+WORKLOAD_ID = re.compile(r'[0-9]{1,18}')
 
 
 @dataclass(frozen=True, slots=True)
@@ -95,11 +95,13 @@ def elo_track(points: Sequence[SeriesPoint]) -> list[EloSample]:
 
 
 def sample_at(track: Sequence[EloSample], games: int) -> EloSample:
-    index = bisect_left([sample.games for sample in track], games)
+    index = bisect_right([sample.games for sample in track], games)
+    if index > 0 and track[index - 1].games == games:
+        return track[index - 1]
     if index == len(track):
         return track[-1]
     after = track[index]
-    if after.games == games or index == 0:
+    if index == 0:
         return after
     before = track[index - 1]
     share = (games - before.games) / (after.games - before.games)

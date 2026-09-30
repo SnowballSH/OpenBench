@@ -9,10 +9,12 @@ from django.test import SimpleTestCase, TestCase
 from django.utils import timezone
 
 from OpenBench.compare.analysis import (
+    EloSample,
     difference_series,
     elo_difference,
     parse_query,
     parse_workload_id,
+    sample_at,
 )
 from OpenBench.insights.export import HISTORY_COLUMNS, cell_text, history_csv
 from OpenBench.insights.series import SeriesPoint
@@ -70,7 +72,7 @@ def record_history(test: Test, points: int) -> None:
 class ParseQueryTests(SimpleTestCase):
     def test_workload_ids(self) -> None:
         self.assertEqual(parse_workload_id('42'), 42)
-        for raw in ('', '0', '-1', '1.5', 'x', '1' * 19, ' 7'):
+        for raw in ('', '0', '-1', '1.5', 'x', '1' * 19, ' 7', '\u0661', '\uff11'):
             with self.subTest(raw=raw):
                 self.assertIsNone(parse_workload_id(raw))
 
@@ -115,6 +117,11 @@ class DifferenceTests(SimpleTestCase):
         self.assertAlmostEqual(series[0].value, 20.0)
         self.assertAlmostEqual(series[0].upper - series[0].value, (3.0**2 + 3.0**2) ** 0.5)
         self.assertAlmostEqual(series[1].value, 30.0 - 10.0)
+
+    def test_repeated_game_counts_use_the_newest_sample(self) -> None:
+        track = [EloSample(10, 1.0, 5.0), EloSample(20, 2.0, 4.0), EloSample(20, 3.0, 3.0), EloSample(30, 4.0, 2.0)]
+        self.assertEqual(sample_at(track, 20), EloSample(20, 3.0, 3.0))
+        self.assertEqual(sample_at(track, 25), EloSample(25, 3.5, 2.5))
 
     def test_disjoint_or_missing_histories_have_no_difference(self) -> None:
         self.assertEqual(difference_series([point(10, 1.0), point(20, 2.0)], [point(30, 1.0)]), [])
@@ -263,6 +270,10 @@ class HistoryCsvViewTests(TestCase):
         response = self.client.get(self.url)
         self.assertEqual(response.status_code, 401)
         self.assertIn('error', response.json())
+
+    def test_non_ascii_digits_do_not_resolve(self) -> None:
+        self.client.force_login(self.user)
+        self.assertEqual(self.client.get('/api/workload/\u0661/history.csv').status_code, 404)
 
     def test_unknown_workload(self) -> None:
         self.client.force_login(self.user)
