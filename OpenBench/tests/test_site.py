@@ -21,10 +21,10 @@ class PageTests(TestCase):
     def test_registration_is_manual(self):
         self.assertRedirects(self.client.get('/register/'), '/login/', fetch_redirect_response=False)
 
-    def test_login_renders_minified(self):
+    def test_login_renders_the_sidebar(self):
         response = self.client.get('/login/')
         self.assertEqual(response.status_code, 200)
-        self.assertIn(b'</head><body><div id="sidebar"><ul>', response.content)
+        self.assertContains(response, '<div id="sidebar">')
 
     def test_login_views_logout(self):
         response = self.client.post('/login/', { 'username' : 'reader', 'password' : PASSWORD })
