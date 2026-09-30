@@ -1924,3 +1924,105 @@ th[aria-sort="descending"] .sort-button::after {
         margin-bottom: var(--space-2);
     }
 }
+
+/* ==========================================================================
+   Pages: engine progress
+   ========================================================================== */
+
+.progress-page {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+    min-width: 0;
+}
+
+.progress-heading {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: var(--space-3);
+}
+
+.progress-heading h3 {
+    margin: 0;
+    font-size: var(--text-xl);
+    overflow-wrap: anywhere;
+}
+
+.progress-heading-text p {
+    margin: var(--space-1) 0 0;
+    font-size: var(--text-sm);
+}
+
+.progress-filters {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-3);
+    min-width: 0;
+}
+
+.progress-engine-form {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-width: 0;
+}
+
+.progress-engine-form label {
+    color: var(--text-muted);
+    font-size: var(--text-sm);
+}
+
+.progress-engine-form select {
+    width: auto;
+    max-width: 14rem;
+}
+
+.progress-engine-form [hidden] {
+    display: none;
+}
+
+.progress-charts {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 24rem), 1fr));
+    gap: var(--space-4);
+}
+
+.progress-chart-wide {
+    grid-column: 1 / -1;
+}
+
+.progress-chart-wide .chart-box {
+    height: 16rem;
+}
+
+.progress-data-table > summary {
+    color: var(--text-muted);
+    font-size: var(--text-sm);
+    cursor: pointer;
+}
+
+.progress-data-table[open] > summary {
+    margin-bottom: var(--space-2);
+}
+
+.progress-data-table .table-wrap {
+    max-height: 20rem;
+    overflow-y: auto;
+}
+
+.progress-section {
+    min-width: 0;
+}
+
+.progress-section > .card-header {
+    flex-wrap: wrap;
+}
+
+td.progress-test-name {
+    max-width: 22rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}

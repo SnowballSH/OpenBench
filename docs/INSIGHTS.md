@@ -435,3 +435,218 @@ hidden optimum plays slightly stronger, so the parameters drift towards it.
 
 Each page runs a fixed number of queries whatever the row count
 (`OpenBench/tests/test_fleet.py` asserts it).
+
+## Engine progress
+
+`/progress/` shows how the testing effort as a whole moved over a window of
+time; `/progress/<engine>/` limits it to Workloads whose `dev_engine` is that
+engine. The window is the `window` query parameter: `30d`, `90d` (the default),
+`1y` or `all`. The page goes through `render()`, so it follows
+`require_login_to_view` like every other page; an unknown `window` falls back
+to the default, and `/progress/?engine=X` redirects to `/progress/X/`. An
+engine name containing `/` cannot travel in the path, so its links keep the
+query form (`/progress/?engine=A%2FB`) and it is not redirected; a blank engine
+in the path (`/progress/%20/`) redirects to `/progress/`. Reports are cached
+for 60 seconds per engine and window (the default local-memory cache, so per
+process), which bounds the cost of repeated loads and of the API.
+
+Code lives in `OpenBench/progress/`:
+
+| Module | Role |
+|---|---|
+| `domain.py` | `Window`, the source rows and the frozen report dataclasses. |
+| `analysis.py` | Pure functions: parsing, the window scope, cumulative Elo, games per day, weekly series, rankings, the summary. |
+| `sources.py` | The six aggregate queries below. |
+| `report.py` | Runs the queries and assembles a `ProgressReport`. |
+| `present.py` | Formats the report for the template (tiles, table rows, links). |
+| `views.py` | The page and the JSON endpoint. |
+
+`OpenBench/tests/test_progress.py` covers the pure functions without a
+database, the queries against a small fixture, the page and the API.
+
+### Window
+
+A window of `n` days covers the last `n` UTC calendar days including today,
+from midnight UTC `n − 1` days ago. `all` starts at the earliest day with data:
+the first day with recorded games, the first green, or the Monday of the first
+week with a finished SPRT test. Every series is bucketed by UTC day or UTC week
+(weeks start on Monday), and the first week of a window is usually partial.
+
+### Finish time
+
+`Test` has no finish timestamp. For a test that passed or failed, the finish
+time is its newest snapshot's `created`: `update_test` always records the report
+that finishes a Workload. A stopped test (or one without snapshots) uses
+`Test.updated`, which also moves when a finished test is edited later.
+The query first narrows on `updated ≥ since − 1 h` (the `test_completed_updated`
+index; the finish time is never later than `updated` plus the moment between
+saving the Test and recording its snapshot), then filters on the finish time.
+
+### Metrics
+
+- **Greens** are the index's definition: finished, not deleted, SPRT,
+  `passed`, and `elolower + eloupper ≥ 0`. Blue (non-regression) passes are
+  left out. With an engine selected, `dev_engine` must match; cross-engine
+  tests are not excluded otherwise.
+- **Cumulative Elo** is `Σ elo_i` over the greens in finish order, where
+  `elo_i` is the point estimate of `OpenBench.stats.Elo` on the test's
+  pentanomial counts (trinomial when `use_tri`), the same number the test page
+  shows. Tests with fewer than two pairs (or trinomial games) have no
+  estimate, add nothing and are counted in the "without an estimate" part of
+  the tile. This sum is an estimate and
+  overstates progress: an SPRT stops when its LLR crosses the upper bound, so
+  the estimate of a passed test is biased upwards (selection bias), and each
+  test measures a patch against its own base, so the terms are not measured
+  against a common reference. Treat the line as a trend of accepted work, not
+  as a rating.
+- **SPRT outcomes per week**: finished, non-deleted SPRT tests, by the week of
+  their finish time. `passed` and `failed` are the flags; `stopped` is
+  finished with neither. Tunes, GAMES and DATAGEN Workloads are not SPRT, so
+  they never count. The pass rate is `passed / (passed + failed)`, `null`
+  without a decided test.
+- **Games per day** comes from `WorkloadSnapshot`. For each Workload and UTC
+  day, the day's largest cumulative `games` is taken; the games played on a day
+  are that value minus the Workload's previous value, which for the first day in
+  the window is the largest value before the window (zero if none). Deleted
+  Workloads count, since their games were played. Caveats: a snapshot's games
+  land on the day of that snapshot, so the games between the last snapshot
+  before midnight and the first after it all count on the later day (thinned
+  histories keep one snapshot per `span / 200`, so up to a few hours for long
+  Workloads); a Workload that was running when history recording was deployed
+  has an origin snapshot with zero games at its creation, so its earlier games
+  all land on the day of its first recorded report; Workloads that finished
+  before history recording have no snapshots and are not counted; a report
+  within the last minute that has not been snapshotted yet is missing.
+- **Top contributors**: `Result.games` summed by Machine owner over Results
+  whose `updated` is in the window. A Result is cumulative per Machine and
+  Workload, so a Result that started before the window counts in full; for
+  short windows over long Workloads this overstates. The ten largest are
+  listed, with their share of the window's total.
+- **Top authors**: Workloads of any mode created in the window (not deleted),
+  counted by `author`; the ten largest are listed with their share.
+- **Tiles**: the Elo sum and the number of greens; SPRT tests finished with
+  passed / failed / stopped; the pass rate; games played and the mean per day
+  over the window's days; Workloads created and their distinct authors; users
+  whose Machines reported games.
+
+### Cost
+
+Six queries whatever the data size (five for `all`, which needs no baseline),
+each an aggregate or a bounded row set: the greens (one row per green, with a
+correlated newest-snapshot subquery served by the `(test, created)` index), the
+weekly outcome counts (grouped in SQL), the daily snapshot maxima (grouped by
+Workload and day in SQL), the per-Workload baseline before the window (grouped
+in SQL), games grouped by owner, and Workloads grouped by author. The daily
+grouping uses SQLite's built-in `date(created)` rather than `TruncDate`, whose
+SQLite implementation calls a Python function per row (about four times slower
+on a 1.7M-snapshot history); with `USE_TZ` and `TIME_ZONE = 'UTC'` the stored
+text is UTC, so both give the same day (a test checks this around midnight).
+Other databases use `TruncDate(..., tzinfo=UTC)`. No Result or
+snapshot row is loaded individually. The page adds the enabled engine names
+and the queries `render()` always makes. `test_progress.py` asserts the counts
+at two data sizes.
+
+### `GET|POST /api/progress/?engine=&window=`
+
+Authenticated with `api_authenticate`, like the other `api/` endpoints: a
+logged-in browser session, or `username` and `password` in a POST body (the
+query parameters stay in the URL). Returns status 401 with `{ "error": "..." }`
+when authentication fails, and status 400 with `{ "error": "..." }` for a
+`window` other than `30d`, `90d`, `1y` or `all`. The value is matched ignoring
+case and surrounding whitespace, and an empty or omitted `window` means `90d`.
+An empty or missing `engine` means every engine; names are trimmed and cut to
+64 characters. Days are
+`YYYY-MM-DD` (UTC) and timestamps ISO-8601 with a UTC offset.
+
+```jsonc
+{
+  "progress": {
+    "generated_at": "2026-09-30T12:00:00+00:00",
+    "engine": "Avalanche",            // or null for every engine
+    "window": "90d",                  // 30d | 90d | 1y | all
+    "start": "2026-07-03",            // first day of every series
+    "end": "2026-09-30",              // today, UTC
+    "summary": {
+      "elo_gained": 41.7,             // Σ of the greens' Elo point estimates
+      "greens": 7,
+      "greens_without_elo": 0,        // greens that added nothing
+      "sprt": { "passed": 8, "failed": 5, "stopped": 1 },
+      "sprt_pass_rate": 0.615,        // or null
+      "games": 612430,
+      "games_per_day": 6804.8,        // games / days, or null
+      "days": 90,
+      "tests_created": 16,
+      "authors": 3,
+      "contributors": 2
+    },
+    "elo_steps": [                    // the cumulative line, oldest first
+      { "finished_at": "2026-07-01T09:12:44+00:00",
+        "cumulative_elo": 5.2,
+        "greens": 1 }                 // how many greens the sum covers
+    ],
+    "greens": [                       // the newest 500 greens, oldest first
+      { "id": 42, "name": "lmp-table",
+        "finished_at": "2026-07-01T09:12:44+00:00",
+        "games": 24300,
+        "elo_bounds": [0.0, 3.0],     // [elolower, eloupper]
+        "elo": { "lower": 1.9, "value": 5.2, "upper": 8.5 },   // or null
+        "cumulative_elo": 5.2 }       // running sum including this test
+    ],
+    "greens_omitted": 0,              // older greens left out of "greens"
+    "weekly_outcomes": [              // every week from start's Monday, zeros included
+      { "week_start": "2026-06-29", "passed": 1, "failed": 0, "stopped": 0 }
+    ],
+    "daily_games": [                  // every day from start to end, zeros included
+      { "day": "2026-07-03", "games": 0 }
+    ],
+    "top_contributors": [             // at most 10, most games first
+      { "username": "lab-worker", "games": 402110, "share": 0.657 }
+    ],
+    "top_authors": [                  // at most 10, most Workloads first
+      { "username": "admin", "tests": 9, "share": 0.5625 }
+    ]
+  }
+}
+```
+
+`share` is `null` when the window's total is zero. Long windows on a busy
+server can hold thousands of greens, so `greens` carries only the newest 500
+(every one of them is still in the summary and the sum) and `elo_steps` is
+thinned to at most 500 points: with more greens than that, it keeps evenly
+spaced greens by rank, always the first and the last, each with its exact
+running sum, so the line keeps its shape at a coarser step. The page embeds
+this same object (without the `progress` wrapper) as a `json_script` data island.
+
+### The page
+
+`Templates/OpenBench/progress.html` renders the tiles and every table on the
+server; `OpenBench/static/progress.js` only draws the charts from the data
+island and submits the engine form when the selection changes (its button
+stays for visitors without scripts). The share bars carry `data-share`, which
+`site.js` copies into `--share` like every other page. The page follows the
+site's Content-Security-Policy (`docs/SECURITY.md`): its only inline `<script>`
+is the `application/json` data island, which is never executed, and it has no
+inline event handler or `style` attribute. `OpenBench/tests/test_csp.py` scans
+the template and the rendered `/progress/` pages.
+
+- **Cumulative Elo from greens**: a stepped line over time from `elo_steps`
+  (linear axis in milliseconds with ticks on UTC day multiples), one marker per
+  step, a zero line, and a caption stating that the sum is an estimate that
+  overstates. The tooltip names the test, its Elo interval, games and date when
+  the step's green is among those sent, and always the running sum.
+- **SPRT outcomes per week**: stacked columns, `--pass` for passed, `--fail`
+  for failed and `--neutral-edge` for stopped (result colours, as on the test
+  lists), with a legend, a 2 px surface gap between segments and the pass rate
+  in the tooltip. The pass rate for the window is a tile rather than a second
+  axis.
+- **Games per day**: columns in `--series-1`.
+- Both bar charts have a table view in a `<details>` below them. The greens
+  table lists the newest 100 greens with their Elo, bounds, games and the
+  running sum; the contributors and authors tables show share bars.
+- Charts follow the rules in `docs/UI.md`: colours from tokens at render time,
+  re-rendered on theme change, no animation under reduced motion, `role="img"`
+  canvases whose `aria-label` states the totals.
+
+`seed_demo` adds eighteen finished SPRT tests spread over the last six months
+(passed, failed, stopped and one non-regression pass, from all three demo
+authors), so every window of the page has data.

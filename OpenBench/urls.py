@@ -18,7 +18,7 @@
 #                                                                             #
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 
-import django.urls, OpenBench.views, OpenBench.insights.views, OpenBench.storage.views
+import django.urls, OpenBench.views, OpenBench.insights.views, OpenBench.progress.views, OpenBench.storage.views
 
 urlpatterns = [
 
@@ -35,6 +35,10 @@ urlpatterns = [
     django.urls.re_path(r'^greens(?:/(?P<page>\d+))?/$', OpenBench.views.greens),
 
     django.urls.re_path(r'^search(?:/(?P<page>\d+))?/$', OpenBench.views.search),
+
+    # Engine progress over time, for every engine or one
+    django.urls.path(r'progress/', OpenBench.progress.views.progress),
+    django.urls.path(r'progress/<str:engine>/', OpenBench.progress.views.progress),
 
     # Links for viewing general information tables
     django.urls.path(r'users/', OpenBench.views.users),
@@ -97,6 +101,7 @@ urlpatterns = [
     django.urls.path(r'api/workload/<int:workload_id>/<str:query>/', OpenBench.views.api_workload),
     django.urls.path(r'api/insights/server/', OpenBench.insights.views.api_server_insights),
     django.urls.path(r'api/storage/', OpenBench.storage.views.api_storage),
+    django.urls.path(r'api/progress/', OpenBench.progress.views.api_progress),
 
     # Liveness and database readiness, for the reverse proxy and deployers
     django.urls.path(r'health/', OpenBench.views.health),

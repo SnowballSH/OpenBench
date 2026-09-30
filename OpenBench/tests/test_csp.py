@@ -295,6 +295,8 @@ class RenderedPageTests(TestCase):
             "/manage/engines/",
             "/manage/engines/Avalanche/",
             "/manage/storage/",
+            "/progress/",
+            "/progress/Avalanche/?window=all",
         ]
         for page in pages:
             with self.subTest(page=page):
