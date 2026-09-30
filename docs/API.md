@@ -29,13 +29,23 @@ The examples below were captured from a local server filled by
   slash, but not a `POST`: that is a 500 with `OPENBENCH_DEBUG` on, and
   otherwise a 301 that the client follows as a `GET` without the body. Always
   send the slash.
-- JSON bodies are indented with four spaces, except
-  `api/workload/<id>/results/`, which is compact. Content type is
+- JSON bodies are indented with four spaces. Content type is
   `application/json`.
-- Errors are `{"error": "<message>"}`. Many endpoints keep upstream
-  OpenBench's habit of answering an error with **status 200**; the tables
-  below give the status of every error. Check for an `error` key, not only the
-  status code.
+- Errors are `{"error": "<message>"}` with a status that says what went wrong:
+
+  | Status | Meaning |
+  |---|---|
+  | 400 | Malformed request fields (`api/active/`) |
+  | 401 | No usable credentials: none sent, wrong password, or account not enabled |
+  | 403 | Authenticated but not permitted (a non-Approver deleting a network), or a CSRF or cross-site refusal |
+  | 404 | Unknown engine, network, workload, query or PGN archive |
+  | 405 | Wrong method |
+  | 409 | Refused because of the resource's state: deleting a default network, or a PGN archive that is not ready |
+  | 429 | Throttled after failed logins |
+
+  Upstream OpenBench answers most of these with status 200; this fork does
+  not. `/scripts/` is the exception: it is a form endpoint and reports through
+  redirects and HTML banners.
 - The Host header must be one of `OPENBENCH_ALLOWED_HOSTS`; any other host
   gets Django's 400.
 
@@ -75,17 +85,23 @@ is not counted by the throttle.
 
 ### Failed authentication
 
-What a failed login returns depends on the endpoint:
+Every `/api/` endpoint answers a failed login with 401. The message differs:
 
-| Endpoints | Status | Body |
-|---|---|---|
-| `api/config/…`, `api/buildinfo/`, `api/networks/<engine>/`, `api/workload/…`, `api/spsa/…`, `api/pgns/…` | **200** | `{"error": "API requires authentication for this server"}` |
-| `api/networks/<engine>/<id>/` (download) | **200** | `{"error": "API requires authentication for this endpoint"}` |
-| `api/insights/server/` | 401 | `{"error": "API requires authentication for this server"}` |
-| `api/storage/` | 401 | `{"error": "API requires authentication for this endpoint"}` |
-| `api/active/` | 401 | `{"error": "Bad Credentials"}` |
-| `api/networks/<engine>/<id>/delete/` | **200** | `{"error": "Only Approvers may delete Networks"}` (also for a valid non-Approver) |
-| `/scripts/` | 302 | Redirect to `/login/` with "Unable to authenticate user" in the session banner |
+| Endpoints | Body |
+|---|---|
+| `api/config/…`, `api/buildinfo/`, `api/networks/<engine>/`, `api/workload/…`, `api/spsa/…`, `api/pgns/…`, `api/insights/server/` | `{"error": "API requires authentication for this server"}` |
+| `api/networks/<engine>/<id>/` (download), `api/networks/<engine>/<id>/delete/`, `api/storage/` | `{"error": "API requires authentication for this endpoint"}` |
+| `api/active/` | `{"error": "Bad Credentials"}` |
+
+An enabled user who is not an Approver gets 403
+`{"error": "Only Approvers may delete Networks"}` from the delete endpoint.
+`/scripts/` redirects to `/login/` with "Unable to authenticate user" in the
+session banner.
+
+The Client only calls the network download endpoint. It writes whatever body
+comes back to the network file and then checks its SHA, so an error fails the
+same way whatever its status (see
+[SECURITY.md](SECURITY.md#failed-login-throttle)).
 
 ### Throttling
 
@@ -219,7 +235,7 @@ replaced. Unlike `/api/config/`, it also answers for disabled engines.
 
 | Error | Status | Body |
 |---|---|---|
-| Unknown engine | 200 | `{"error": "Engine not found. Check /api/config/ for a full list"}` |
+| Unknown engine | 404 | `{"error": "Engine not found. Check /api/config/ for a full list"}` |
 
 ### `GET|POST /api/buildinfo/`
 
@@ -252,7 +268,10 @@ An engine that has a default network also gets a `network` object.
 
 A network is identified per engine by its `name` or its `sha256`, which is
 the first eight hex digits of the file's SHA-256, upper-case (for example
-`AE0B26BB`). `created` is `str()` of a UTC datetime,
+`AE0B26BB`). Where a path takes an `<identifier>`, it is matched against
+`sha256` first and then `name`, so a network named like another network's SHA
+is reached by its SHA. The website's network pages resolve identifiers the
+same way. `created` is `str()` of a UTC datetime,
 `YYYY-MM-DD HH:MM:SS.ffffff+00:00`, which `datetime.fromisoformat` parses.
 
 ### `GET|POST /api/networks/<engine>/`
@@ -296,43 +315,44 @@ every network of the engine, the default included.
 
 | Error | Status | Body |
 |---|---|---|
-| Unknown engine | 200 | `{"error": "Engine not found. Check /api/config/ for a full list"}` |
+| Unknown engine | 404 | `{"error": "Engine not found. Check /api/config/ for a full list"}` |
 
 ### `GET|POST /api/networks/<engine>/<identifier>/`
 
 Downloads the network file. Always needs an enabled user, whatever
 `require_login_to_view` says; any enabled user may download, not only
-Approvers. `<identifier>` is matched against `sha256` first, then `name`.
+Approvers.
 
 ```
 HTTP/1.1 200 OK
 Content-Type: application/octet-stream
 Content-Length: 4096
-Expires: Wed Oct  7 06:48:11 2026
-Content-Disposition: attachment; filename=AE0B26BB
+Expires: Wed, 07 Oct 2026 07:16:16 GMT
+Cache-Control: max-age=604800, private
+Content-Disposition: attachment; filename=66174A29
 
 <file bytes>
 ```
 
-The filename is the network's `sha256`, not its name. When the server sets
+The filename is the network's `sha256`, not its name. A network's content
+never changes under its SHA, so the browser may keep it for a week; shared
+caches may not, since the download needs a login. When the server sets
 `use_x_accel_redirect`, the body is served by the reverse proxy and the
 response carries `X-Accel-Redirect` instead; the client sees the same result.
 
-Errors come back as JSON with status 200, so check `Content-Type` before
-writing the body to disk (the Client does not, see
-[SECURITY.md](SECURITY.md#failed-login-throttle)):
+Errors come back as JSON, so check the status before writing the body to
+disk:
 
 | Error | Status | Body |
 |---|---|---|
-| Not logged in, bad credentials, account not enabled | 200 | `{"error": "API requires authentication for this endpoint"}` |
-| Unknown engine, or no network with that sha or name | 200 | `{"error": "Engine not found. Check /api/config/ for a full list"}` |
+| Not logged in, bad credentials, account not enabled | 401 | `{"error": "API requires authentication for this endpoint"}` |
+| No network with that SHA or name, engine configured | 404 | `{"error": "Network nope for Engine Avalanche not found"}` |
+| No such network, engine not configured | 404 | `{"error": "Engine not found. Check /api/config/ for a full list"}` |
 | Throttled | 429 | `{"error": "Too many failed logins"}` |
 
 ### `POST /api/networks/<engine>/<identifier>/delete/`
 
 Deletes a network. Only for enabled Approvers, as on the website.
-`<identifier>` is matched against `name` first, then `sha256` (the reverse of
-the download endpoint).
 
 ```json
 {
@@ -349,9 +369,10 @@ the network can no longer fetch it.
 | Not `POST` | 405 | `{"error": "POST required"}` |
 | `Sec-Fetch-Site: cross-site` or `same-site` | 403 | `{"error": "Cross-site requests are refused"}` |
 | Logged-in session without a valid CSRF token | 403 | `{"error": "Browser sessions must send a CSRF token"}` |
-| Not logged in, bad credentials, not enabled, not an Approver | 200 | `{"error": "Only Approvers may delete Networks"}` |
-| No such network (or engine) | 200 | `{"error": "Network nope for Engine Avalanche not found"}` |
-| Default or previous default network | 200 | `{"error": "You may not delete Default, or previous Default networks"}` |
+| Not logged in, bad credentials, account not enabled | 401 | `{"error": "API requires authentication for this endpoint"}` |
+| Enabled, but not an Approver | 403 | `{"error": "Only Approvers may delete Networks"}` |
+| No such network (or engine) | 404 | `{"error": "Network nope for Engine Avalanche not found"}` |
+| Default or previous default network | 409 | `{"error": "You may not delete Default, or previous Default networks"}` |
 | Throttled | 429 | `{"error": "Too many failed logins"}` |
 
 `Scripts/delete_networks.py` uses this endpoint.
@@ -365,14 +386,14 @@ Errors shared by every workload endpoint:
 
 | Error | Status | Body |
 |---|---|---|
-| Authentication failed | 200 | `{"error": "API requires authentication for this server"}` |
-| No workload with that id | 200 | `{"error": "Requested Workload Id does not exist"}` |
+| Authentication failed | 401 | `{"error": "API requires authentication for this server"}` |
+| No workload with that id | 404 | `{"error": "Requested Workload Id does not exist"}` |
 | Throttled | 429 | `{"error": "Too many failed logins"}` |
 
 ### `GET|POST /api/workload/<id>/<query>/`
 
 `<query>` is one of `results`, `info`, `summary`, `insights`. Any other value
-answers 200 `{"error": "Valid /query/ endpoints are: [ results, info, summary, insights ]"}`.
+answers 404 `{"error": "Valid /query/ endpoints are: [ results, info, summary, insights ]"}`.
 
 #### `info`
 
@@ -415,12 +436,12 @@ Every field of the `Test` row, with `dev` and `base` as nested engine objects,
         "alpha": 0.05,
         "beta": 0.05,
         "lowerllr": -2.94,
-        "currentllr": -0.19240262646888878,
+        "currentllr": 2.945188892528937,
         "upperllr": 2.94,
         "max_games": 0,
         "genfens_args": "",
         "play_reverses": false,
-        "games": 6200,
+        "games": 16800,
         "use_tri": false,
         "use_penta": true,
         "passed": true,
@@ -432,47 +453,55 @@ Every field of the `Test` row, with `dev` and `base` as nested engine objects,
         "dev": {
             "id": 5,
             "name": "nezha-v2",
-            "source": "https://github.com/SnowballSH/Avalanche",
+            "source": "https://api.github.com/repos/SnowballSH/Avalanche/zipball/07c49c6391d600f8d71c68c0d16c70a8d139a0fb",
             "sha": "07c49c6391d600f8d71c68c0d16c70a8d139a0fb",
             "bench": 3053036
         },
         "base": {
             "id": 6,
             "name": "master",
-            "source": "https://github.com/SnowballSH/Avalanche",
+            "source": "https://api.github.com/repos/SnowballSH/Avalanche/zipball/02e1ed217916472d3565e5f3cbdecf01ccc5a6c5",
             "sha": "02e1ed217916472d3565e5f3cbdecf01ccc5a6c5",
             "bench": 2853115
         },
-        "tri": [1074, 4031, 1095],
-        "penta": [166, 742, 1248, 793, 151],
-        "creation": "2026-09-27 20:22:49.276633+00:00",
-        "updated": "2026-09-29 05:10:39.568122+00:00"
+        "tri": [2835, 10911, 3054],
+        "penta": [417, 2001, 3367, 2176, 439],
+        "creation": "2026-09-27 20:51:03.498705+00:00",
+        "updated": "2026-09-29 05:38:53.790194+00:00"
     }
 }
 ```
 
 `test_mode` is `SPRT`, `GAMES`, `SPSA` or `DATAGEN`. A workload is running
-while `approved` is true and `finished` and `deleted` are false. (The seeded
-demo data sets `passed` independently of `currentllr`.)
+while `approved` is true and `finished` and `deleted` are false.
 
 #### `results`
 
 One entry per machine that played games for the workload, or is on it now.
 `active` is true when the machine reported within the last minute and is
-still assigned this workload. Sent compact, not indented.
+still assigned this workload.
 
 ```json
-{"results": [
-  {"machine__id": 1, "machine__user__username": "lab-worker", "games": 714,
-   "LL": 15, "LD": 74, "DD": 168, "DW": 83, "WW": 17,
-   "timeloss": 0, "crashes": 0, "active": false},
-  {"machine__id": 2, "machine__user__username": "home-worker", "games": 1236,
-   "LL": 31, "LD": 152, "DD": 255, "DW": 149, "WW": 31,
-   "timeloss": 0, "crashes": 0, "active": false}
-]}
+{
+    "results": [
+        {
+            "machine__id": 1,
+            "machine__user__username": "lab-worker",
+            "games": 2682,
+            "LL": 60,
+            "LD": 327,
+            "DD": 542,
+            "DW": 337,
+            "WW": 75,
+            "timeloss": 0,
+            "crashes": 0,
+            "active": false
+        }
+    ]
+}
 ```
 
-(Trimmed from 5 entries, and wrapped for reading.)
+(Trimmed to the first entry.)
 
 #### `summary`
 
@@ -619,11 +648,13 @@ numbers. The full schema, including every `eta.kind` and `reason`, is in
 ### `GET|POST /api/spsa/<id>/<query>/`
 
 Parameters of an SPSA tune. `inputs`, `outputs` and `digest` are
-`text/plain`; `perturbation` is JSON. Any other `<query>` answers 200
-`{"error": "Valid /query/ endpoints are: [ inputs, outputs, digest, perturbation ]"}`.
+`text/plain`; `perturbation` is JSON. The examples come from the seeded
+`search-tune`.
 
-`<id>` must be an SPSA tune. For any other workload, `perturbation` answers
-`{"perturbation": null}` and the three text queries fail with a 500.
+| Error | Status | Body |
+|---|---|---|
+| The workload is not an SPSA tune | 404 | `{"error": "Requested Workload is not an SPSA tune"}` |
+| Any other `<query>` | 404 | `{"error": "Valid /query/ endpoints are: [ inputs, outputs, digest, perturbation ]"}` |
 
 #### `inputs`
 
@@ -632,9 +663,12 @@ format `name, type, start, min, max, c_end, r_end`. Numbers are printed as
 floats, even for `int` parameters.
 
 ```
-LmrBase, float, 0.75, 0.25, 1.5, 0.075, 0.002
-LmrDivisor, int, 225.0, 150.0, 300.0, 8.0, 0.002
-FutilityMargin, int, 90.0, 40.0, 160.0, 6.0, 0.002
+LmrBase, float, 0.75, 0.25, 1.5, 0.08, 0.002
+LmrDivisor, float, 2.25, 1.5, 3.5, 0.15, 0.002
+RfpMargin, int, 75.0, 30.0, 150.0, 8.0, 0.002
+NmpBaseReduction, int, 3.0, 1.0, 6.0, 0.5, 0.002
+AspirationWindow, int, 12.0, 5.0, 40.0, 3.0, 0.002
+HistoryDivisor, int, 8192.0, 2048.0, 16384.0, 600.0, 0.002
 ```
 
 #### `outputs`
@@ -642,9 +676,12 @@ FutilityMargin, int, 90.0, 40.0, 160.0, 6.0, 0.002
 The current values, `int` parameters rounded to integers.
 
 ```
-LmrBase, 0.75
-LmrDivisor, 225
-FutilityMargin, 90
+LmrBase, 0.8405858306125237
+LmrDivisor, 2.090755051326147
+RfpMargin, 66
+NmpBaseReduction, 4
+AspirationWindow, 14
+HistoryDivisor, 9046
 ```
 
 #### `digest`
@@ -654,9 +691,12 @@ worker would be assigned now, beside their end values.
 
 ```
 Name,Curr,Start,Min,Max,C,C_end,R,R_end
-LmrBase,0.7500,0.7500,0.2500,1.5000,0.1167,0.0750,0.0033,0.0020
-LmrDivisor,225.0000,225,150,300,12.4438,8.0000,0.0033,0.0020
-FutilityMargin,90.0000,90,40,160,9.3328,6.0000,0.0033,0.0020
+LmrBase,0.8406,0.7500,0.2500,1.5000,0.0887,0.0800,0.0027,0.0020
+LmrDivisor,2.0908,2.2500,1.5000,3.5000,0.1663,0.1500,0.0027,0.0020
+RfpMargin,66.2473,75,30,150,8.8686,8.0000,0.0027,0.0020
+NmpBaseReduction,3.7927,3,1,6,0.5543,0.5000,0.0027,0.0020
+AspirationWindow,14.4807,12,5,40,3.3257,3.0000,0.0027,0.0020
+HistoryDivisor,9046.3813,8192,2048,16384,665.1445,600.0000,0.0027,0.0020
 ```
 
 #### `perturbation`
@@ -671,26 +711,27 @@ signs. It is computed only; nothing is stored or assigned.
     "perturbation": {
         "LmrBase": {
             "index": 0,
-            "dev": [0.6333394986901008, 0.6333394986901008, 0.6333394986901008, 0.6333394986901008],
-            "base": [0.8666605013098992, 0.8666605013098992, 0.8666605013098992, 0.8666605013098992],
-            "flip": [-1, -1, -1, -1],
-            "c": 0.11666050130989923,
-            "r": 0.003259846355194914
+            "dev": [0.9292717604879932, 0.9292717604879932, 0.9292717604879932, 0.9292717604879932],
+            "base": [0.7518999007370541, 0.7518999007370541, 0.7518999007370541, 0.7518999007370541],
+            "flip": [1, 1, 1, 1],
+            "c": 0.08868592987546958,
+            "r": 0.0027492324321343807
         },
         "LmrDivisor": {
             "index": 1,
-            "dev": [212, 212, 212, 212],
-            "base": [237, 237, 237, 237],
-            "flip": [-1, -1, -1, -1],
-            "c": 12.443786806389252,
-            "r": 0.0032598463551949137
+            "dev": [2.2570411698426525, 2.2570411698426525, 2.2570411698426525, 2.2570411698426525],
+            "base": [1.9244689328096416, 1.9244689328096416, 1.9244689328096416, 1.9244689328096416],
+            "flip": [1, 1, 1, 1],
+            "c": 0.16628611851650546,
+            "r": 0.0027492324321343803
         }
     }
 }
 ```
 
-(One parameter trimmed; arrays reformatted onto one line. This tune uses the
-`SINGLE` distribution, so all four runners share one perturbation.)
+(Trimmed to the first two of six parameters; arrays reformatted onto one
+line. This tune uses the `SINGLE` distribution, so all four runners share one
+perturbation.)
 
 ### `GET|POST /api/pgns/<id>/`
 
@@ -701,25 +742,29 @@ uploaded batch.
 ```
 HTTP/1.1 200 OK
 Content-Type: application/octet-stream
-Content-Length: 4096
-Expires: -1
+Content-Length: 3072
+Expires: Wed, 30 Sep 2026 07:16:27 GMT
+Cache-Control: max-age=0, no-cache, no-store, must-revalidate, private
 Content-Disposition: attachment; filename=3.pgn.tar
 
 <tar bytes>
 ```
 
-The checks run in this order, each answering status 200 with JSON:
+The archive is never cached: `Expires` is the time of the response.
 
-| Error | Body |
-|---|---|
-| Authentication failed | `{"error": "API requires authentication for this server"}` |
-| No workload with that id | `{"error": "Requested Workload Id does not exist"}` |
-| No archive on disk | `{"error": "Unable to find PGN for Workload #4"}` |
-| Workload not finished | `{"error": "PGNs cannot be downloaded while the Workload is active"}` |
-| A machine that reported in the last 2 minutes is still on it | `{"error": "Some machines are still on this Workload. Try again shortly"}` |
-| Batches not yet archived | `{"error": "Still processing individual PGNs into the archive. Try again shortly"}` |
+The checks run in this order:
 
-The last two clear on their own; retry after a short wait.
+| Error | Status | Body |
+|---|---|---|
+| Authentication failed | 401 | `{"error": "API requires authentication for this server"}` |
+| No workload with that id | 404 | `{"error": "Requested Workload Id does not exist"}` |
+| No archive on disk | 404 | `{"error": "Unable to find PGN for Workload #4"}` |
+| Workload not finished | 409 | `{"error": "PGNs cannot be downloaded while the Workload is active"}` |
+| A machine that reported in the last 2 minutes is still on it | 409 | `{"error": "Some machines are still on this Workload. Try again shortly"}` |
+| Batches not yet archived | 409 | `{"error": "Still processing individual PGNs into the archive. Try again shortly"}` |
+| Throttled | 429 | `{"error": "Too many failed logins"}` |
+
+The last two 409s clear on their own; retry after a short wait.
 `Scripts/archive2pgns.py` and `Scripts/archive2nps.py` read these archives.
 
 ## Server
@@ -916,13 +961,14 @@ Approvers may upload.
 
 | Outcome | Answer |
 |---|---|
-| Uploaded | 302 to `/networks/<engine>/`, banner "Uploaded demo-net-3 for Avalanche" |
-| Not an Approver | 302 to `/index/`, no banner |
+| Uploaded | 302 to `/networks/<engine>/`, banner "Uploaded demo-net-1 for Avalanche" |
+| Not an Approver | 302 to `/index/`, banner "Only Approvers may upload Networks" |
+| `engine` or `name` missing or empty | 302 to `/networks/`, banner "UPLOAD_NETWORK requires engine" (or `name`, or both) |
+| `netfile` missing | 302 to `/networks/`, banner "No network file was uploaded as netfile" |
 | `name` outside `[a-zA-Z0-9_.-]` | 302 to `/networks/`, banner "Valid characters are [a-zA-Z0-9_.-]" |
 | Same file already uploaded for that engine | 302 to `/networks/`, banner "Network with that hash already exists for that engine" |
 | Name already used for that engine | 302 to `/networks/`, banner "Network with that name already exists for that engine" |
 | Unknown engine | 302 to `/networks/`, banner "No Engine found with matching name" |
-| `engine`, `name` or `netfile` missing | 500 |
 
 Side effects: creates a `Network` row authored by the caller, not the default,
 and stores the file in `Media/<sha>` unless another engine already has it.
@@ -944,8 +990,13 @@ datagen.
 | Outcome | Answer |
 |---|---|
 | Created | 302 to `/index/`; a warning banner if dev appears behind base |
-| Rejected | 200, the create form with the reasons in the error banner, for example "no-such-branch-xyz could not be found" |
-| A form field missing from the POST | 500 |
+| Rejected | 200, the create form with every reason in the error banner, one per line, for example "no-such-branch-xyz could not be found" |
+
+A field left out of the POST is rejected like an invalid one, for example
+`"Priority" is not an Integer`. A missing `dev_branch`, `dev_repo` or
+`dev_engine` (or `base_…`) is reported as "Missing form fields: dev_branch",
+and that side is not looked up on GitHub. `info` and the two `*_bench` fields
+are optional.
 
 Side effects: creates the test, its engines and a `CREATE` event. The test is
 approved at once when the caller is an Approver and `use_cross_approval` is
@@ -961,8 +1012,8 @@ the database answers a query against the `OpenBench_serverstate` table.
 {"status": "ok"}
 ```
 
-It answers 503 `{"status": "unavailable"}` when the query fails. It is not
-exempt from CSRF, so a `POST` gets Django's 403 page. The reverse proxy and
+It answers 503 `{"status": "unavailable"}` when the query fails. Any other
+method gets 405 with an empty body and `Allow: GET, HEAD`. The reverse proxy and
 deployers use it, see [DEPLOYMENT.md](DEPLOYMENT.md).
 
 ## Client worker endpoints
@@ -992,40 +1043,44 @@ CREDENTIALS = {
 }
 
 
+class OpenBenchError(RuntimeError):
+    def __init__(self, response: requests.Response) -> None:
+        self.status = response.status_code
+        try:
+            message = response.json()["error"]
+        except (ValueError, KeyError):
+            message = response.reason
+        super().__init__(f"{self.status}: {message}")
+
+
 def api(path: str, **fields: str) -> requests.Response:
     response = requests.post(f"{SERVER}/api/{path.strip('/')}/", data={**CREDENTIALS, **fields}, timeout=30)
-    if response.status_code == 429:
-        raise RuntimeError("Throttled after failed logins; wait out the 15-minute window")
-    response.raise_for_status()
+    if not response.ok:
+        raise OpenBenchError(response)
     return response
 
 
-def api_json(path: str, **fields: str) -> dict:
-    body = api(path, **fields).json()
-    if "error" in body:
-        raise RuntimeError(body["error"])
-    return body
-
-
-info = api_json("workload/3/info")["info"]
+info = api("workload/3/info").json()["info"]
 print(info["dev"]["name"], info["games"], info["currentllr"])
 
-network = api_json("networks/Avalanche")["default"]
+network = api("networks/Avalanche").json()["default"]
 if network:
-    download = api(f"networks/Avalanche/{network['sha256']}")
-    if download.headers["Content-Type"] != "application/octet-stream":
-        raise RuntimeError(download.json()["error"])
     with open(network["sha256"], "wb") as out:
-        out.write(download.content)
+        out.write(api(f"networks/Avalanche/{network['sha256']}").content)
 ```
+
+`OpenBenchError.status` tells the cases apart: 401 means the credentials are
+wrong or the account is not enabled, 403 that the account lacks a permission,
+404 that the engine, network or workload does not exist, 409 that the request
+may succeed later, and 429 that the throttle refused the login.
 
 Notes for script authors:
 
 - Use plain `requests.post`, or a fresh `requests.Session` per call, with
   credentials in the body. A session that went through `/scripts/` is logged
   in, and the delete endpoint then demands a CSRF token.
-- Check for an `error` key even on status 200, and check the `Content-Type` of
-  download endpoints before saving the body.
-- Keep retries on authentication errors bounded: every failed password counts
-  toward the throttle, and 10 failures lock that username out from your
-  address for the rest of the 15-minute window.
+- Keep retries on 401 bounded: every failed password counts toward the
+  throttle, and 10 failures lock that username out from your address for the
+  rest of the 15-minute window. Do not retry a 429 before the window ends.
+- `/scripts/` does not follow these rules; read its banner as
+  `Scripts/upload_net.py` does.
