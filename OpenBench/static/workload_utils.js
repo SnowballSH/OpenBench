@@ -108,8 +108,9 @@ function format_cpu_name(name) {
 
 function append_summary_section(table, label, rows, key_formatter) {
 
-    // Older workloads don't have NPS tracking stats.
+    // Older workloads don't have NPS tracking stats, and tunes have no Elo.
     const is_nps_available =  rows.some(row => row.dev_nps > 0);
+    const has_elo = rows.some(row => 'elo' in row);
 
     // A header row naming the grouping, then one tbody of data rows. All three
     // sections share the one table, so their columns line up automatically.
@@ -117,7 +118,7 @@ function append_summary_section(table, label, rows, key_formatter) {
     header.className = 'table-header';
     header.appendChild(summary_cell('th', label));
 
-    ['Penta', 'Elo', 'Pairs', '%'].forEach(name => {
+    ['Penta', ...(has_elo ? ['Elo'] : []), 'Pairs', '%'].forEach(name => {
         header.appendChild(summary_cell('th', name));
     });
 
@@ -137,7 +138,8 @@ function append_summary_section(table, label, rows, key_formatter) {
         // a point-estimate Elo, the pair count, and the % of the group total
         tr.appendChild(summary_cell('td', key_formatter ? key_formatter(row.key) : row.key));
         tr.appendChild(summary_cell('td', row.penta));
-        tr.appendChild(summary_cell('td', row.elo,   'numeric'));
+        if (has_elo)
+            tr.appendChild(summary_cell('td', row.elo, 'numeric'));
         tr.appendChild(summary_cell('td', row.pairs, 'numeric'));
         tr.appendChild(summary_cell('td', row.percent, 'numeric'));
 

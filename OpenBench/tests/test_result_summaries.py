@@ -31,3 +31,11 @@ class ResultSummaryTests(TestCase):
         self.result(DD=1, dev_nodes=500, dev_time=0, dev_time_scaled=0, base_nodes=500, base_time=1, base_time_scaled=0)
         [row] = fetch_result_summaries(self.test)['user']
         self.assertEqual((row['dev_nps'], row['dev_nps_scaled'], row['base_nps'], row['base_nps_scaled']), (0, 0, 500000, 0))
+
+    def test_tunes_carry_no_elo(self):
+        self.test.test_mode = 'SPSA'
+        self.test.save()
+        self.result(LL=1, LD=2, DD=3, DW=2, WW=1)
+        for rows in fetch_result_summaries(self.test).values():
+            self.assertEqual([row['pairs'] for row in rows], [9])
+            self.assertNotIn('elo', rows[0])

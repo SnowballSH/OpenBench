@@ -132,7 +132,10 @@ def fetch_result_summaries(workload):
     # Turn a { key: penta } bucket into ready-to-display rows: the penta as a
     # single "(a, b, c, d, e)" string, a point-estimate Elo with its symmetric
     # error bar, the pair count, and the share of the grouping's total. Largest
-    # contributor comes first.
+    # contributor comes first. Tunes play perturbed copies of one engine, so
+    # their rows carry no Elo.
+
+    with_elo = workload.test_mode != 'SPSA'
 
     def elo_display(penta):
         lower, mu, upper = OpenBench.stats.Elo(penta)
@@ -143,7 +146,7 @@ def fetch_result_summaries(workload):
         rows = [{
             'key'             : key,
             'penta'           : '(%d, %d, %d, %d, %d)' % tuple(penta),
-            'elo'             : elo_display(penta),
+            **({ 'elo' : elo_display(penta) } if with_elo else {}),
             'pairs'           : sum(penta),
             'percent'         : '%.2f' % (100.0 * sum(penta) / total_pairs if total_pairs else 0.0),
             'dev_nps'         : nodes_per_second(nps_stats[key][0], nps_stats[key][1]),
