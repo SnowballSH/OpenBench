@@ -211,6 +211,29 @@ class ClientAddressTests(TestCase):
         self.assertEqual(throttle.client_ip(self.request()), '10.0.2.100')
         self.assertEqual(throttle.client_ip(self.request('')), '10.0.2.100')
 
+class CrossSiteActionTests(TestCase):
+
+    def setUp(self):
+        create_engine_config()
+        ensure_book()
+        self.approver = create_user('admin', approver=True)
+        self.test     = create_test(self.approver)
+        self.client.force_login(self.approver)
+
+    def test_cross_site_workload_action_is_refused(self):
+        for site in ('cross-site', 'same-site'):
+            self.client.get('/test/%d/DELETE/' % (self.test.id), headers={ 'sec-fetch-site' : site })
+            self.assertFalse(Test.objects.get(id=self.test.id).deleted, site)
+
+    def test_same_origin_workload_action_is_allowed(self):
+        self.client.get('/test/%d/DELETE/' % (self.test.id), headers={ 'sec-fetch-site' : 'same-origin' })
+        self.assertTrue(Test.objects.get(id=self.test.id).deleted)
+
+    def test_cross_site_network_delete_is_refused(self):
+        Network.objects.create(sha256='ABCDEF01', name='r1', engine='Avalanche', author='admin')
+        self.client.get('/networks/Avalanche/DELETE/r1/', headers={ 'sec-fetch-site' : 'cross-site' })
+        self.assertTrue(Network.objects.filter(name='r1').exists())
+
 class ApiNetworkDownloadTests(TestCase):
 
     def setUp(self):

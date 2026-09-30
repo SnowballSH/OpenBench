@@ -38,6 +38,7 @@ from OpenBench.insights.api import workload_payload
 
 from OpenBench.config import OPENBENCH_CONFIG, OPENBENCH_STATIC_VERSION
 from OpenBench.security import throttle
+from OpenBench.security.fetch_metadata import is_cross_site
 from OpenSite.settings import PROJECT_PATH
 
 from OpenBench.models import *
@@ -518,6 +519,8 @@ def machines(request, pk=None):
 def workload(request, workload_type, pk, action=None):
 
     if action != None:
+        if is_cross_site(request):
+            return redirect(request, '/index/', error='Workload actions must be made from OpenBench itself')
         return modify_workload(request, pk, action)
 
     if not (workload := Test.objects.select_related('spsa_run').filter(id=int(pk)).first()):
@@ -556,6 +559,10 @@ def networks(request, engine=None, action=None, name=None, client=False):
     # Require approver credentials, unless downloading as a client
     if not client and not Profile.objects.get(user=request.user).approver:
         return django.http.HttpResponseRedirect('/index/')
+
+    # Changes are made by plain links, so refuse any a foreign site could trigger
+    if action.upper() in ['DEFAULT', 'DELETE'] and is_cross_site(request):
+        return redirect(request, '/networks/', error='Network changes must be made from OpenBench itself')
 
     # Split out Uploads, since there is no logic to disambiguate the name
     if action.upper() == 'UPLOAD':
