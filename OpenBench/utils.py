@@ -345,11 +345,11 @@ def network_delete(request, engine, network):
     else:
         return OpenBench.views.redirect(request, '/networks/%s/' % (engine), error=message)
 
-def network_download(request, engine, network):
+def network_download(request, engine, network, identifier=None):
 
-    # Craft the download HTML response
+    # Only a SHA-addressed URL always names the same bytes; a name can be reused
     netfile = os.path.join(MEDIA_ROOT, network.sha256)
-    max_age = int(datetime.timedelta(days=7).total_seconds())
+    max_age = int(datetime.timedelta(days=7).total_seconds()) if identifier == network.sha256 else None
     return media_download_response(netfile, network.sha256, max_age)
 
 def network_edit(request, engine, network):

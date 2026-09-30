@@ -1,3 +1,5 @@
+import argparse
+import importlib.util
 import tempfile
 import time
 from pathlib import Path
@@ -207,9 +209,9 @@ class NetworkIdentifierTests(ApiTestCase):
 
 
 class DownloadCachingHeaderTests(ApiTestCase):
-    def test_network_download_expires_in_a_week_privately(self):
+    def test_sha_addressed_download_expires_in_a_week_privately(self):
         self.add_network("ABCDEF01", "r1")
-        response = self.post("/api/networks/Avalanche/r1/", self.reader)
+        response = self.post("/api/networks/Avalanche/ABCDEF01/", self.reader)
         expires = parse_http_date(response["Expires"])
         self.assertEqual(response["Expires"], http_date(expires))
         self.assertAlmostEqual(expires - time.time(), NETWORK_MAX_AGE, delta=60)
@@ -217,6 +219,22 @@ class DownloadCachingHeaderTests(ApiTestCase):
             set(response["Cache-Control"].split(", ")),
             {"private", f"max-age={NETWORK_MAX_AGE}"},
         )
+
+    def test_name_addressed_download_is_never_cached(self):
+        self.add_network("ABCDEF01", "r1")
+        response = self.post("/api/networks/Avalanche/r1/", self.reader)
+        self.assertEqual(
+            response["Content-Disposition"], "attachment; filename=ABCDEF01"
+        )
+        self.assertIn("no-store", response["Cache-Control"])
+        self.assertNotIn(f"max-age={NETWORK_MAX_AGE}", response["Cache-Control"])
+
+    def test_website_download_is_never_cached(self):
+        self.add_network("ABCDEF01", "r1")
+        self.client.force_login(self.approver)
+        response = self.client.get("/networks/Avalanche/DOWNLOAD/ABCDEF01/")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("no-store", response["Cache-Control"])
 
     def test_pgn_archive_is_never_cached(self):
         self.workload.finished = True
@@ -242,3 +260,44 @@ class ResultsFormattingTests(ApiTestCase):
                 self.assertTrue(
                     response.content.startswith(b'{\n    "'), response.content[:40]
                 )
+
+
+class DeleteNetworksScriptTests(ApiTestCase):
+    def load_script(self):
+        path = Path(__file__).resolve().parents[2] / "Scripts" / "delete_networks.py"
+        spec = importlib.util.spec_from_file_location("delete_networks_script", path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    def test_deletes_the_listed_network_when_its_name_is_another_sha(self):
+        self.add_network("ABCDEF01", "first")
+        target = self.add_network("12345678", "ABCDEF01")
+        listed = self.post("/api/networks/Avalanche/", self.approver).json()["networks"]
+        entry = next(
+            network for network in listed if network["sha256"] == target.sha256
+        )
+
+        script = self.load_script()
+        args = argparse.Namespace(
+            server="http://testserver",
+            engine="Avalanche",
+            author="approver",
+            contains=None,
+            days=0,
+            dry=False,
+            **credentials(self.approver),
+        )
+
+        def post(url, data):
+            return self.client.post(url.removeprefix("http://testserver"), data)
+
+        with (
+            mock.patch.object(script.requests, "post", side_effect=post),
+            mock.patch("builtins.print"),
+        ):
+            script.delete_network(args, entry)
+
+        self.assertEqual(
+            list(Network.objects.values_list("name", flat=True)), ["first"]
+        )

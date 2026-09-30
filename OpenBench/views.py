@@ -1135,7 +1135,7 @@ def api_network_download(request, engine, identifier):
         return api_response({ 'error' : 'API requires authentication for this endpoint' }, status=401)
 
     if (network := OpenBench.utils.network_disambiguate(engine, identifier)):
-        return OpenBench.utils.network_download(request, engine, network)
+        return OpenBench.utils.network_download(request, engine, network, identifier)
 
     if not EngineConfig.objects.filter(name=engine).exists():
         return api_response({ 'error' : 'Engine not found. Check /api/config/ for a full list' }, status=404)
