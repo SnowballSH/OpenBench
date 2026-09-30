@@ -1,3 +1,4 @@
+import importlib.util
 import os
 import re
 import tempfile
@@ -8,6 +9,7 @@ from django.core.cache import cache
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 
+from OpenSite.settings import BASE_DIR
 
 from OpenBench.models import Book, EngineConfig, LogEvent, Network, Profile, Test
 from OpenBench.tests.fixtures import (
@@ -394,6 +396,25 @@ class NetworkUploadAndEditTests(CsrfClientMixin, TestCase):
             headers={"sec-fetch-site": "cross-site"},
         )
         self.assertEqual(response.status_code, 200)
+
+
+class UploadScriptBannerTests(TestCase):
+    def setUp(self):
+        cache.clear()
+        self.addCleanup(cache.clear)
+        path = os.path.join(BASE_DIR, "Scripts", "upload_net.py")
+        spec = importlib.util.spec_from_file_location("upload_net", path)
+        self.script = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.script)
+
+    def test_banners_are_read_from_a_rendered_page(self):
+        response = self.client.post(
+            "/scripts/",
+            {"username": "nobody", "password": "wrong", "action": "UPLOAD_NETWORK"},
+            follow=True,
+        )
+        banners = self.script.page_banners(response.content.decode())
+        self.assertEqual(banners.get("error-message"), "Unable to authenticate user")
 
 
 class ApiNetworkDeleteSessionTests(CsrfClientMixin, TestCase):
