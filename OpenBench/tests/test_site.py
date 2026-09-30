@@ -61,6 +61,7 @@ class NetworkTests(TestCase):
         network = Network.objects.get(name='r1-ctrl')
         response = self.client.get('/networks/Avalanche/download/r1-ctrl/')
         self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.streaming)
         self.assertEqual(response.getvalue(), content)
         self.assertEqual(response['Content-Disposition'], f'attachment; filename={network.sha256}')
 

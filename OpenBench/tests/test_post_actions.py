@@ -199,6 +199,7 @@ class NetworkActionTests(CsrfTestCase):
 
             self.client.force_login(self.approver)
             response = self.client.get('/networks/Avalanche/DOWNLOAD/BBBBBBBB/')
+            self.assertTrue(response.streaming)
             self.assertEqual(response.getvalue(), b'weights')
 
             self.client.logout()
@@ -206,6 +207,7 @@ class NetworkActionTests(CsrfTestCase):
                 '/clientGetNetwork/Avalanche/new/',
                 credentials(create_user('lab-worker')),
             )
+            self.assertTrue(response.streaming)
             self.assertEqual(response.getvalue(), b'weights')
 
 
