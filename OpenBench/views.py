@@ -34,6 +34,7 @@ from OpenBench.workloads.get_workload import filter_valid_workloads, get_workloa
 from OpenBench.workloads.modify_workload import modify_workload
 from OpenBench.workloads.verify_workload import verify_workload
 from OpenBench.workloads.view_workload import view_workload, fetch_results, fetch_result_summaries
+from OpenBench.insights.api import workload_payload
 
 from OpenBench.config import OPENBENCH_CONFIG, OPENBENCH_STATIC_VERSION
 from OpenSite.settings import PROJECT_PATH
@@ -1196,7 +1197,10 @@ def api_workload(request, workload_id, query):
     if query == 'summary':
         return api_response({ 'summary' : fetch_result_summaries(workload) })
 
-    valid_endpoints = [ 'results', 'info', 'summary' ]
+    if query == 'insights':
+        return api_response({ 'insights' : workload_payload(workload) })
+
+    valid_endpoints = [ 'results', 'info', 'summary', 'insights' ]
     return api_response({ 'error' : 'Valid /query/ endpoints are: [ %s ]' % (', '.join(valid_endpoints)) })
 
 def health(request):
