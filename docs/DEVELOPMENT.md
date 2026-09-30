@@ -3,6 +3,16 @@
 The server targets Python 3.14 and Django 5.2. Install the dependencies with
 `pip install -r requirements.txt -r Client/requirements.txt`.
 
+`requirements.in` lists the server's direct dependencies; `requirements.txt`
+is compiled from it with every transitive version pinned, so the container
+image builds the same way every time. Change a dependency in
+`requirements.in`, then recompile, and upgrade everything within its bounds
+with `--upgrade`:
+
+```bash
+uv pip compile requirements.in -o requirements.txt --python-version 3.14 --no-header
+```
+
 ## Local data
 
 [DEPLOYMENT.md](DEPLOYMENT.md#local-development) shows how to migrate, run
