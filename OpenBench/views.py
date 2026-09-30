@@ -55,6 +55,7 @@ from django.db import DatabaseError, connection, transaction
 from django.db.models import F, Q
 from django.http import HttpResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.http import require_http_methods
 from django.core.files.storage import FileSystemStorage
 from django.core.files.base import ContentFile
 from django.utils import timezone
@@ -1263,7 +1264,7 @@ def api_workload(request, workload_id, query):
     except: return api_response({ 'error' : 'Requested Workload Id does not exist' }, status=404)
 
     if query == 'results':
-        return JsonResponse({ 'results' : fetch_results(workload_id) })
+        return api_response({ 'results' : fetch_results(workload_id) })
 
     if query == 'info':
         return api_response({ 'info' : OpenBench.model_utils.workload_to_dict(workload) })
@@ -1277,6 +1278,8 @@ def api_workload(request, workload_id, query):
     valid_endpoints = [ 'results', 'info', 'summary', 'insights' ]
     return api_response({ 'error' : 'Valid /query/ endpoints are: [ %s ]' % (', '.join(valid_endpoints)) }, status=404)
 
+@csrf_exempt
+@require_http_methods([ 'GET', 'HEAD' ])
 def health(request):
 
     # Reveals nothing beyond whether the database answers, so it needs no login

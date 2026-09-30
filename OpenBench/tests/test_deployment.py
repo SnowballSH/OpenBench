@@ -6,7 +6,7 @@ from unittest import mock
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import DatabaseError
-from django.test import TestCase, override_settings
+from django.test import Client, TestCase, override_settings
 
 from OpenBench.models import Network
 from OpenBench.tests.fixtures import create_engine_config, create_user
@@ -21,6 +21,16 @@ class HealthTests(TestCase):
     def test_unavailable_when_the_database_fails(self):
         with mock.patch('OpenBench.views.connection.cursor', side_effect=DatabaseError):
             self.assertEqual(self.client.get('/health/').status_code, 503)
+
+    def test_head_is_allowed(self):
+        self.assertEqual(self.client.head('/health/').status_code, 200)
+
+    def test_other_methods_answer_405_even_without_a_csrf_token(self):
+        client = Client(enforce_csrf_checks=True)
+        for method in (client.post, client.put, client.delete):
+            response = method('/health/')
+            self.assertEqual(response.status_code, 405, method.__name__)
+            self.assertEqual(response['Allow'], 'GET, HEAD')
 
 class LargeUploadTests(TestCase):
 

@@ -229,3 +229,16 @@ class DownloadCachingHeaderTests(ApiTestCase):
         self.assertEqual(
             response["Expires"], http_date(parse_http_date(response["Expires"]))
         )
+
+
+class ResultsFormattingTests(ApiTestCase):
+    def test_results_are_formatted_like_the_other_queries(self):
+        for query in ("results", "info"):
+            with self.subTest(query=query):
+                response = self.post(
+                    f"/api/workload/{self.workload.id}/{query}/", self.reader
+                )
+                self.assertEqual(response["Content-Type"], "application/json")
+                self.assertTrue(
+                    response.content.startswith(b'{\n    "'), response.content[:40]
+                )
