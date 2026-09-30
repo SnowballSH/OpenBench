@@ -1106,11 +1106,16 @@ def api_network_download(request, engine, identifier):
 @csrf_exempt
 def api_network_delete(request, engine, identifier):
 
-    if not api_authenticate(request):
-        return api_response({ 'error' : 'API requires authentication for this server' })
+    if request.method != 'POST':
+        return api_response({ 'error' : 'POST required' }, status=405)
 
-    if not api_authenticate(request, require_enabled=True):
-        return api_response({ 'error' : 'API requires authentication for this endpoint' })
+    # Exempt from CSRF, so refuse a foreign page riding on a browser session
+    if is_cross_site(request):
+        return api_response({ 'error' : 'Cross-site requests are refused' }, status=403)
+
+    # Matches the website, where only Approvers may delete Networks
+    if not (user := api_user(request)) or not Profile.objects.filter(user=user, approver=True).exists():
+        return api_response({ 'error' : 'Only Approvers may delete Networks' })
 
     if not (network := OpenBench.utils.network_disambiguate(engine, identifier)):
         return api_response({ 'error' : 'Network %s for Engine %s not found' % (identifier, engine) })

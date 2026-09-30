@@ -115,6 +115,35 @@ class ScriptsTests(TestCase):
         self.upload(**credentials(create_user('worker')))
         self.assertFalse(Network.objects.exists())
 
+class ApiNetworkDeleteTests(TestCase):
+
+    def setUp(self):
+        clear_throttle(self)
+        create_engine_config()
+        self.network = Network.objects.create(sha256='ABCDEF01', name='r1', engine='Avalanche', author='approver')
+
+    def delete(self, user, **headers):
+        return self.client.post('/api/networks/Avalanche/r1/delete/', credentials(user), headers=headers)
+
+    def test_enabled_non_approver_cannot_delete(self):
+        response = self.delete(create_user('lab-readonly'))
+        self.assertIn('error', response.json())
+        self.assertTrue(Network.objects.filter(id=self.network.id).exists())
+
+    def test_approver_can_delete(self):
+        self.assertIn('success', self.delete(create_user('admin', approver=True)).json())
+        self.assertFalse(Network.objects.filter(id=self.network.id).exists())
+
+    def test_cross_site_request_is_refused(self):
+        response = self.delete(create_user('admin', approver=True), sec_fetch_site='same-site')
+        self.assertEqual(response.status_code, 403)
+        self.assertTrue(Network.objects.filter(id=self.network.id).exists())
+
+    def test_get_is_refused(self):
+        self.client.force_login(create_user('admin', approver=True))
+        self.assertEqual(self.client.get('/api/networks/Avalanche/r1/delete/').status_code, 405)
+        self.assertTrue(Network.objects.filter(id=self.network.id).exists())
+
 class ApiAuthenticationLoggingTests(TestCase):
 
     def setUp(self):
