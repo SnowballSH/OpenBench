@@ -321,6 +321,8 @@ def greens(request, page=1):
     completed = OpenBench.utils.get_completed_tests().filter(passed=True)
     return render(request, 'index.html', OpenBench.page_queries.workload_list_data(completed, int(page), 'greens'))
 
+SEARCH_TERMS_LIMIT = 20
+
 def search(request, page=1):
 
     # Search uses GET so the parameters live in the URL and can be shared.
@@ -331,6 +333,34 @@ def search(request, page=1):
 
     if not (params := request.GET):
         return render(request, 'search.html', { 'books' : books })
+
+    # Echo the submitted values back so the form stays populated for tweaking
+
+    form = {
+        'keywords'      : params.get('keywords', ''),
+        'info'          : params.get('info-contains', ''),
+        'authors'       : params.get('authors', ''),
+        'dev_engine'    : params.get('dev-engine', ''),
+        'base_engine'   : params.get('base-engine', ''),
+        'dev_network'   : params.get('dev-network', ''),
+        'base_network'  : params.get('base-network', ''),
+        'workload_type' : params.get('workload-type', ''),
+        'book'          : params.get('opening-book', ''),
+        'tc_type'       : params.get('tc-type', ''),
+        'tc_value'      : params.get('tc-value-input', ''),
+        'threads'       : params.get('threads', ''),
+        'hide_greens'   : 'hide-greens'  in params,
+        'hide_yellows'  : 'hide-yellows' in params,
+        'hide_reds'     : 'hide-reds'    in params,
+        'hide_blues'    : 'hide-blues'   in params,
+        'hide_stopped'  : 'hide-stopped' in params,
+        'show_deleted'  : 'show-deleted' in params,
+    }
+
+    # Each keyword or author is one more OR'd match, and SQLite caps expression depth
+    if too_many := [name for name in ('keywords', 'authors') if len(params.get(name, '').split()) > SEARCH_TERMS_LIMIT]:
+        error = 'Search at most %d %s' % (SEARCH_TERMS_LIMIT, ' and '.join(too_many))
+        return render(request, 'search.html', { 'form' : form, 'books' : books }, error=error)
 
     tests  = Test.objects.all()
 
@@ -433,29 +463,6 @@ def search(request, page=1):
     tests = OpenBench.page_queries.listing_tests(tests.order_by('-id'))
     start, end, paging = OpenBench.utils.getPaging(tests, int(page), 'search')
     shown = list(tests[start:end])
-
-    # Echo the submitted values back so the form stays populated for tweaking
-
-    form = {
-        'keywords'      : params.get('keywords', ''),
-        'info'          : params.get('info-contains', ''),
-        'authors'       : params.get('authors', ''),
-        'dev_engine'    : params.get('dev-engine', ''),
-        'base_engine'   : params.get('base-engine', ''),
-        'dev_network'   : params.get('dev-network', ''),
-        'base_network'  : params.get('base-network', ''),
-        'workload_type' : params.get('workload-type', ''),
-        'book'          : params.get('opening-book', ''),
-        'tc_type'       : params.get('tc-type', ''),
-        'tc_value'      : params.get('tc-value-input', ''),
-        'threads'       : params.get('threads', ''),
-        'hide_greens'   : 'hide-greens'  in params,
-        'hide_yellows'  : 'hide-yellows' in params,
-        'hide_reds'     : 'hide-reds'    in params,
-        'hide_blues'    : 'hide-blues'   in params,
-        'hide_stopped'  : 'hide-stopped' in params,
-        'show_deleted'  : 'show-deleted' in params,
-    }
 
     error = 'No matching tests found' if not shown else None
     data  = { 'tests' : shown, 'form' : form, 'books' : books, 'paging' : { **paging, 'query' : '?' + params.urlencode() } }

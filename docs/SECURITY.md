@@ -134,6 +134,18 @@ Machine info (the fleet, `/api/insights/server/`, a workload's insights and
 summary) also coerce each field as they read it, so a Machine stored before
 this check cannot break them.
 
+## Input bounds
+
+- `/search/` takes at most 20 space-separated `keywords` and 20 `authors`.
+  Each becomes one more OR'd match, and SQLite refuses an expression tree
+  deeper than 1,000, so more terms answer the search form, still filled in,
+  with the error "Search at most 20 keywords" (or authors) instead of a 500.
+- Page numbers in `/index/`, `/greens/`, `/search/`, `/events/`, `/errors/`
+  and `/user/<name>/` have at most 10 digits, and ids in `/machines/<id>/`,
+  `/test/<id>/`, `/tune/<id>/` and `/datagen/<id>/` at most 18; longer numbers
+  are a 404, so they never reach `int()`'s 4,300-digit limit or overflow
+  SQLite's 64-bit integers.
+
 ## Response headers and cookies
 
 Django sets `X-Frame-Options: DENY`, `Referrer-Policy: same-origin`,

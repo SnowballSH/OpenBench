@@ -29,12 +29,13 @@ urlpatterns = [
     django.urls.path(r'profile/', OpenBench.views.profile),
     django.urls.path(r'profileConfig/', OpenBench.views.profile_config),
 
-    # Links for viewing test tables
-    django.urls.re_path(r'^index(?:/(?P<page>\d+))?/$', OpenBench.views.index),
-    django.urls.re_path(r'^user/(?P<username>[^/]+)(?:/(?P<page>\d+))?/$', OpenBench.views.user),
-    django.urls.re_path(r'^greens(?:/(?P<page>\d+))?/$', OpenBench.views.greens),
+    # Links for viewing test tables. Page numbers and ids are bounded, so int()
+    # and SQLite's 64-bit integers never see an oversized number
+    django.urls.re_path(r'^index(?:/(?P<page>\d{1,10}))?/$', OpenBench.views.index),
+    django.urls.re_path(r'^user/(?P<username>[^/]+)(?:/(?P<page>\d{1,10}))?/$', OpenBench.views.user),
+    django.urls.re_path(r'^greens(?:/(?P<page>\d{1,10}))?/$', OpenBench.views.greens),
 
-    django.urls.re_path(r'^search(?:/(?P<page>\d+))?/$', OpenBench.views.search),
+    django.urls.re_path(r'^search(?:/(?P<page>\d{1,10}))?/$', OpenBench.views.search),
 
     # Engine progress over time, for every engine or one
     django.urls.path(r'progress/', OpenBench.progress.views.progress),
@@ -43,13 +44,13 @@ urlpatterns = [
     # Links for viewing general information tables
     django.urls.path(r'users/', OpenBench.views.users),
     django.urls.path(r'event/<int:pk>/', OpenBench.views.event),
-    django.urls.re_path(r'^events(?:/(?P<page>\d+))?/$', OpenBench.views.events_actions),
-    django.urls.re_path(r'^errors(?:/(?P<page>\d+))?/$', OpenBench.views.events_errors),
-    django.urls.re_path(r'^machines(?:/(?P<pk>\d+))?/$', OpenBench.views.machines),
+    django.urls.re_path(r'^events(?:/(?P<page>\d{1,10}))?/$', OpenBench.views.events_actions),
+    django.urls.re_path(r'^errors(?:/(?P<page>\d{1,10}))?/$', OpenBench.views.events_errors),
+    django.urls.re_path(r'^machines(?:/(?P<pk>\d{1,18}))?/$', OpenBench.views.machines),
 
     # Links to create, view or manage Workloads (Tests, Tunes, Datagen)
     django.urls.re_path(r'^(?P<workload_type>tune|test|datagen)/new/$', OpenBench.views.new_workload),
-    django.urls.re_path(r'^(?P<workload_type>tune|test|datagen)/(?P<pk>\d+)(?:/(?P<action>\w+))?/$', OpenBench.views.workload),
+    django.urls.re_path(r'^(?P<workload_type>tune|test|datagen)/(?P<pk>\d{1,18})(?:/(?P<action>\w+))?/$', OpenBench.views.workload),
 
     # Links for viewing and managing Networks
     django.urls.path(r'networks/', OpenBench.views.networks),
