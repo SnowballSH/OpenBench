@@ -152,6 +152,22 @@ whose games are between perturbed copies of the same engine.
 games per hour, falling back to the overall rate. It is `null` when neither
 exists or the rate is zero, and so is `completes_at` (now + `remaining_seconds`).
 
+`eta.reason` says why the numbers are incomplete, and is `null` when they are
+not (`finished`, or a count and a time were both computed; `completes_at` alone
+can still be `null` when it would overflow the calendar):
+
+| `reason` | `kind` | Meaning |
+|---|---|---|
+| `too_few_games` | `unavailable` | SPRT with fewer than 200 games |
+| `outside_bounds` | `unavailable` | the LLR is not strictly between the SPRT bounds |
+| `empty_outcome` | `unavailable` | trinomial SPRT with an empty W, D or L bucket |
+| `no_variance` | `unavailable` | the LLR increment variance is below 1e-12 |
+| `no_target` | `unavailable` | not SPRT, and no target number of games |
+| `no_rate` | `target`, `sprt_estimate` | games are known but there is no non-zero rate to turn them into time |
+
+`sprt_unavailable_reason` classifies the SPRT cases with the same tests and
+thresholds as `forecast_sprt`; the tests assert both agree.
+
 #### The SPRT estimate
 
 This is an estimate that assumes the Workload keeps producing results like the
@@ -269,7 +285,8 @@ queries: status 200 with `{ "error": "..." }`.
       "kind": "sprt_estimate",        // finished | target | sprt_estimate | unavailable
       "remaining_games": 31412,       // or null
       "remaining_seconds": 593589.2,  // or null
-      "completes_at": "..."           // or null
+      "completes_at": "...",          // or null
+      "reason": null                  // or a reason from the table above
     },
     "strength": {                     // null for SPSA
       "elo": Elo, "normalized_elo": Elo,
@@ -329,6 +346,42 @@ Cost: the workload endpoint reads the Test, its snapshots and its Results once
 each, and computes one Elo interval per history point (about 25 ms for 150
 points; `OpenBench.stats.Elo` dominates). The server endpoint runs a fixed
 number of aggregate queries.
+
+## Where it shows
+
+- **Workload page** (`Templates/OpenBench/workload.html`, `OpenBench/static/insights.js`):
+  an Insights section below the configuration and actions and above the
+  SPSA parameters, result summary and individual results. The configuration and
+  stat block say what the workload is and where it stands; the insights explain
+  how it got there; the raw tables stay last. The script fetches
+  `/api/workload/<id>/insights/` once on load, then every 60 s while the
+  Workload is `pending` or `active` (so a pending one picks up its approval),
+  skipping ticks while the tab is hidden and refreshing as soon as it is
+  visible again. A failed fetch shows an inline banner, keeps the last good
+  render and retries with the delay doubling up to 8 minutes; after three
+  consecutive client errors (a 4xx, or an `error` payload such as an unknown
+  id) it stops. `eta.reason` picks the wording under an unavailable time left.
+  - Progress tiles: elapsed, games (with the fraction of `target_games` when
+    there is one), games per hour (recent window and overall), and time left.
+    For SPRT the time left is labelled an estimate and prefixed with `≈`;
+    `completes_at` is shown in local time.
+  - Strength tiles, when `strength` is not null and games were played: LLR
+    position between the bounds (SPRT), Elo and normalized Elo with their 95%
+    intervals, LOS, draw ratio.
+  - Charts from `history.points`: LLR against games with both bounds (SPRT),
+    Elo with its 95% band against games (not SPSA), and cumulative games
+    against elapsed time with the target line where there is one. Fewer than
+    two points show a single notice instead.
+  - Contributions: per-CPU and per-machine tables with a share bar, games,
+    pairs per hour and Elo (not SPSA).
+- **Index** (`Templates/OpenBench/index.html`): a strip of server tiles from
+  `/api/insights/server/` (machines online with threads and MNPS, active and
+  pending workloads, games in the last 24 h, Workloads finished in 7 days and
+  the SPRT pass rate). It is hidden when the endpoint refuses the viewer. Active
+  rows also carry a thin bar under the stat block, from the `workload_progress`
+  template filter: the LLR's position between the SPRT bounds, or games over
+  `max_games` for GAMES and DATAGEN. It reads only the Test's fields; SPSA rows
+  have none, since their stat block already states iterations.
 
 ## Demo data
 

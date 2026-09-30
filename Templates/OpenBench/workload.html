@@ -8,6 +8,8 @@
 {% block scripts %}
 
     <script src="{% static 'workload_utils.js' %}?{{ static_version }}"></script>
+    <script src="{% static 'vendor/chartjs-4.5.1/chart.umd.min.js' %}" defer></script>
+    <script src="{% static 'insights.js' %}?{{ static_version }}" defer></script>
 
     <script>
         document.addEventListener('DOMContentLoaded', function() {
@@ -200,6 +202,17 @@
             </div>
         </form>
     </div>
+
+    <section id="insights" class="insights" data-workload-insights data-workload-id="{{workload.id}}" aria-labelledby="insights-title">
+        <div class="insights-header">
+            <h3 id="insights-title" class="insights-title">Insights</h3>
+            <p class="insights-status" data-insights-status role="status">Loading&hellip;</p>
+        </div>
+        <p class="insights-error" data-insights-error role="alert" hidden></p>
+        <div class="insights-tiles" data-insights-tiles></div>
+        <div class="insights-charts" data-insights-charts></div>
+        <div data-insights-contributions></div>
+    </section>
 
     <!-- SPSA Paramater Summary, for Tunes -->
     {% if type == "TUNE" %}

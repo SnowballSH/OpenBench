@@ -1,10 +1,46 @@
 {% extends "OpenBench/base.html" %}
 
 {% load mytags %}
+{% load static %}
 
 {% block content_class %}content-wide{% endblock %}
 
+{% block scripts %}
+    {% if server_insights %}
+        <script src="{% static 'insights.js' %}?{{ static_version }}" defer></script>
+    {% endif %}
+{% endblock %}
+
 {% block content %}
+
+    {% if server_insights %}
+        <section class="server-stats" data-server-insights aria-label="Server activity" aria-busy="true">
+            <div class="stat-tile">
+                <span class="stat-label">Machines online</span>
+                <span class="stat-value" data-field="machines">&mdash;</span>
+                <span class="stat-meta" data-field="fleet"></span>
+            </div>
+            <div class="stat-tile">
+                <span class="stat-label">Active workloads</span>
+                <span class="stat-value" data-field="active">&mdash;</span>
+                <span class="stat-meta" data-field="pending"></span>
+            </div>
+            <div class="stat-tile">
+                <span class="stat-label">Games, last 24 h</span>
+                <span class="stat-value" data-field="games">&mdash;</span>
+            </div>
+            <div class="stat-tile">
+                <span class="stat-label">Finished, last 7 days</span>
+                <span class="stat-value" data-field="finished">&mdash;</span>
+                <span class="stat-meta" data-field="outcomes"></span>
+            </div>
+            <div class="stat-tile">
+                <span class="stat-label">SPRT pass rate, 7 days</span>
+                <span class="stat-value" data-field="pass_rate">&mdash;</span>
+                <span class="stat-meta" data-field="decided"></span>
+            </div>
+        </section>
+    {% endif %}
 
     <div class="table-wrap w-100">
     <table class="test-list stripes hoverable">
@@ -30,7 +66,7 @@
                     <tr class="table-small-header"><th colspan='7'>Priority {{group.priority}}</th></tr>
                     {% for test in group.tests %}
                         <tr>
-                            {% include "OpenBench/Blocks/testsummary.html" %}
+                            {% include "OpenBench/Blocks/testsummary.html" with show_progress=True %}
                         </tr>
                     {% endfor %}
                 {% endfor %}

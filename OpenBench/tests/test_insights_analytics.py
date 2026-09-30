@@ -7,7 +7,7 @@ from django.test import SimpleTestCase
 
 from OpenBench.insights.contributions import ResultRow, summarize_contributions
 from OpenBench.insights.domain import Outcomes, ProgressPoint, SprtBounds, WorkloadFacts, WorkloadMode, WorkloadStatus
-from OpenBench.insights.eta import EtaKind, estimate_eta
+from OpenBench.insights.eta import EtaKind, EtaReason, estimate_eta, sprt_unavailable_reason
 from OpenBench.insights.grouping import sum_by_key
 from OpenBench.insights.serialize import to_json
 from OpenBench.insights.series import build_series
@@ -210,7 +210,36 @@ class EtaTests(SimpleTestCase):
         self.assertIsNone(eta.completes_at)
 
     def test_missing_target(self):
-        self.assertEqual(estimate_eta(facts(WorkloadMode.SPSA), self.rate, at(0)).kind, EtaKind.UNAVAILABLE)
+        eta = estimate_eta(facts(WorkloadMode.SPSA), self.rate, at(0))
+        self.assertEqual((eta.kind, eta.reason), (EtaKind.UNAVAILABLE, EtaReason.NO_TARGET))
+
+    def test_complete_estimates_carry_no_reason(self):
+        for eta in (estimate_eta(facts(), self.rate, at(0)), estimate_eta(facts(finished=True), self.rate, at(0)),
+                    estimate_eta(facts(WorkloadMode.GAMES, target=20000), self.rate, at(0))):
+            self.assertIsNone(eta.reason)
+
+    def test_missing_rate_is_the_reason(self):
+        for rate in (None, Rate(0.0, 3600.0)):
+            self.assertEqual(estimate_eta(facts(), rate, at(0)).reason, EtaReason.NO_RATE)
+            self.assertEqual(estimate_eta(facts(WorkloadMode.GAMES, target=20000), rate, at(0)).reason, EtaReason.NO_RATE)
+
+    def test_sprt_unavailable_reasons(self):
+        flat = SprtBounds(elo0=1.0, elo1=1.0, lower_llr=-2.94, upper_llr=2.94)
+        trinomial_draws_only = Outcomes((0, 600, 0), (0, 0, 300, 0, 0), False)
+        cases = [
+            (outcomes((0, 1, 2, 1, 0)), 0.1, BOUNDS, EtaReason.TOO_FEW_GAMES),
+            (outcomes(), 3.0, BOUNDS, EtaReason.OUTSIDE_BOUNDS),
+            (outcomes(), -2.94, BOUNDS, EtaReason.OUTSIDE_BOUNDS),
+            (trinomial_draws_only, 0.0, BOUNDS, EtaReason.EMPTY_OUTCOME),
+            (outcomes(), 0.0, flat, EtaReason.NO_VARIANCE),
+        ]
+        for results, llr, bounds, reason in cases:
+            self.assertIsNone(forecast_sprt(results, llr, bounds), reason)
+            self.assertEqual(sprt_unavailable_reason(results, llr, bounds), reason)
+
+    def test_unavailable_sprt_eta_reports_its_reason(self):
+        eta = estimate_eta(facts(llr=5.0), self.rate, at(0))
+        self.assertEqual((eta.kind, eta.reason), (EtaKind.UNAVAILABLE, EtaReason.OUTSIDE_BOUNDS))
 
 class SeriesTests(SimpleTestCase):
 
