@@ -53,6 +53,11 @@ class CreateWorkloadTests(TestCase):
         session.save()
         return error
 
+    def test_bench_fields_submit_empty_so_the_commit_bench_is_used(self):
+        content = self.client.get('/test/new/').content.decode()
+        self.assertNotIn('value="Autofill"', content)
+        self.assertEqual(content.count('placeholder="Autofill"'), 2)
+
     def test_valid_test_is_created(self):
         self.assertIsNone(self.create('test', test_fields()))
         test = Test.objects.get()
@@ -89,6 +94,11 @@ class CreateWorkloadTests(TestCase):
     def test_valid_tune_is_created(self):
         self.assertIsNone(self.create('tune', tune_fields()))
         self.assertEqual(SPSARun.objects.get().a_ratio, 0.1)
+
+    def test_tune_form_without_info_is_created(self):
+        fields = { name : value for name, value in tune_fields().items() if not name.startswith('base_') }
+        self.assertIsNone(self.create('tune', fields))
+        self.assertEqual(Test.objects.get().info, '')
 
     def test_malformed_a_ratio_is_an_error_not_a_crash(self):
         for value in ['abc', '-1']:
