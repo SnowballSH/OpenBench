@@ -89,5 +89,5 @@ class SPSAApiTests(TestCase):
     def test_non_spsa_workloads_are_refused(self):
         for query in ('inputs', 'outputs', 'digest', 'perturbation'):
             response = self.client.get('/api/spsa/%d/%s/' % (self.sprt.id, query))
-            self.assertEqual(response.status_code, 200, query)
+            self.assertEqual(response.status_code, 404, query)
             self.assertEqual(response.json(), { 'error' : 'Requested Workload is not an SPSA tune' }, query)

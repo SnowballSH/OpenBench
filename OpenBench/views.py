@@ -1089,7 +1089,7 @@ def api_active(request):
 def api_configs(request, engine=None):
 
     if not api_authenticate(request):
-        return api_response({ 'error' : 'API requires authentication for this server' })
+        return api_response({ 'error' : 'API requires authentication for this server' }, status=401)
 
     if engine == None:
         engines = list(EngineConfig.objects.filter(enabled=True).order_by('name').values_list('name', flat=True))
@@ -1102,13 +1102,13 @@ def api_configs(request, engine=None):
     if (config := EngineConfig.objects.filter(name=engine).first()):
         return api_response(OpenBench.model_utils.engine_config_to_dict(config))
 
-    return api_response({ 'error' : 'Engine not found. Check /api/config/ for a full list' })
+    return api_response({ 'error' : 'Engine not found. Check /api/config/ for a full list' }, status=404)
 
 @csrf_exempt
 def api_networks(request, engine):
 
     if not api_authenticate(request):
-        return api_response({ 'error' : 'API requires authentication for this server' })
+        return api_response({ 'error' : 'API requires authentication for this server' }, status=401)
 
     if EngineConfig.objects.filter(name=engine).exists():
 
@@ -1124,14 +1124,14 @@ def api_networks(request, engine):
         return api_response({ 'default' : default, 'networks' : networks })
 
     else:
-        return api_response({ 'error' : 'Engine not found. Check /api/config/ for a full list' })
+        return api_response({ 'error' : 'Engine not found. Check /api/config/ for a full list' }, status=404)
 
 @csrf_exempt
 def api_network_download(request, engine, identifier):
 
     # Checked once, so a bad password counts as a single failure
     if not api_authenticate(request, require_enabled=True):
-        return api_response({ 'error' : 'API requires authentication for this endpoint' })
+        return api_response({ 'error' : 'API requires authentication for this endpoint' }, status=401)
 
     if (network := Network.objects.filter(engine=engine, sha256=identifier).first()):
         return OpenBench.utils.network_download(request, engine, network)
@@ -1139,7 +1139,10 @@ def api_network_download(request, engine, identifier):
     if (network := Network.objects.filter(engine=engine, name=identifier).first()):
         return OpenBench.utils.network_download(request, engine, network)
 
-    return api_response({ 'error' : 'Engine not found. Check /api/config/ for a full list' })
+    if not EngineConfig.objects.filter(name=engine).exists():
+        return api_response({ 'error' : 'Engine not found. Check /api/config/ for a full list' }, status=404)
+
+    return api_response({ 'error' : 'Network %s for Engine %s not found' % (identifier, engine) }, status=404)
 
 @csrf_exempt
 def api_network_delete(request, engine, identifier):
@@ -1154,21 +1157,24 @@ def api_network_delete(request, engine, identifier):
     if fails_session_csrf(request):
         return api_response({ 'error' : 'Browser sessions must send a CSRF token' }, status=403)
 
+    if not (user := api_user(request)):
+        return api_response({ 'error' : 'API requires authentication for this endpoint' }, status=401)
+
     # Matches the website, where only Approvers may delete Networks
-    if not (user := api_user(request)) or not Profile.objects.filter(user=user, approver=True).exists():
-        return api_response({ 'error' : 'Only Approvers may delete Networks' })
+    if not Profile.objects.filter(user=user, approver=True).exists():
+        return api_response({ 'error' : 'Only Approvers may delete Networks' }, status=403)
 
     if not (network := OpenBench.utils.network_disambiguate(engine, identifier)):
-        return api_response({ 'error' : 'Network %s for Engine %s not found' % (identifier, engine) })
+        return api_response({ 'error' : 'Network %s for Engine %s not found' % (identifier, engine) }, status=404)
 
     message, success = OpenBench.model_utils.network_delete(network)
-    return api_response({ 'success' if success else 'error' : message })
+    return api_response({ 'success' if success else 'error' : message }, status=200 if success else 409)
 
 @csrf_exempt
 def api_build_info(request):
 
     if not api_authenticate(request):
-        return api_response({ 'error' : 'API requires authentication for this server' })
+        return api_response({ 'error' : 'API requires authentication for this server' }, status=401)
 
     data = {}
     for config in EngineConfig.objects.filter(enabled=True).order_by('name'):
@@ -1193,28 +1199,28 @@ def api_pgns(request, pgn_id):
 
     # 0. Make sure the request has the correct permissions
     if not api_authenticate(request):
-        return api_response({ 'error' : 'API requires authentication for this server' })
+        return api_response({ 'error' : 'API requires authentication for this server' }, status=401)
 
     # 1. Make sure the workload actually exists for the requested PGN
     try: workload = Test.objects.get(pk=pgn_id)
-    except: return api_response({ 'error' : 'Requested Workload Id does not exist' })
+    except: return api_response({ 'error' : 'Requested Workload Id does not exist' }, status=404)
 
     # 2. Make sure there actually is a PGN attached to the Workload
     pgn_path = FileSystemStorage().path('PGNs/%d.pgn.tar' % (pgn_id))
     if not os.path.exists(pgn_path):
-        return api_response({ 'error' : 'Unable to find PGN for Workload #%d' % (pgn_id) })
+        return api_response({ 'error' : 'Unable to find PGN for Workload #%d' % (pgn_id) }, status=404)
 
     # 3. Make sure the workload is not currently running
     if not workload.finished:
-        return api_response({ 'error' : 'PGNs cannot be downloaded while the Workload is active' })
+        return api_response({ 'error' : 'PGNs cannot be downloaded while the Workload is active' }, status=409)
 
     # 4. Make sure no active workers are still on this workload
     if OpenBench.utils.getRecentMachines().filter(workload=pgn_id):
-        return api_response({ 'error' : 'Some machines are still on this Workload. Try again shortly' })
+        return api_response({ 'error' : 'Some machines are still on this Workload. Try again shortly' }, status=409)
 
     # 5. Make sure there are no pending .pgn.bz2 files to be processed
     if PGN.objects.filter(test_id=pgn_id).filter(processed=False):
-        return api_response({ 'error' : 'Still processing individual PGNs into the archive. Try again shortly' })
+        return api_response({ 'error' : 'Still processing individual PGNs into the archive. Try again shortly' }, status=409)
 
     # Craft the download HTML response
     return OpenBench.utils.media_download_response(pgn_path, '%d.pgn.tar' % (pgn_id), -1)
@@ -1224,14 +1230,14 @@ def api_spsa(request, workload_id, query):
 
     # 0. Make sure the request has the correct permissions
     if not api_authenticate(request):
-        return api_response({ 'error' : 'API requires authentication for this server' })
+        return api_response({ 'error' : 'API requires authentication for this server' }, status=401)
 
     # 1. Make sure the workload actually exists for the requested SPSA session
     try: workload = Test.objects.get(pk=workload_id)
-    except: return api_response({ 'error' : 'Requested Workload Id does not exist' })
+    except: return api_response({ 'error' : 'Requested Workload Id does not exist' }, status=404)
 
     if workload.test_mode != 'SPSA':
-        return api_response({ 'error' : 'Requested Workload is not an SPSA tune' })
+        return api_response({ 'error' : 'Requested Workload is not an SPSA tune' }, status=404)
 
     if query == 'inputs':
         return HttpResponse(OpenBench.spsa_utils.spsa_original_input(workload), content_type='text/plain')
@@ -1246,18 +1252,18 @@ def api_spsa(request, workload_id, query):
         return api_response({ 'perturbation' : OpenBench.spsa_utils.spsa_workload_assignment_dict(workload, 4) })
 
     valid_endpoints = [ 'inputs', 'outputs', 'digest', 'perturbation' ]
-    return api_response({ 'error' : 'Valid /query/ endpoints are: [ %s ]' % (', '.join(valid_endpoints)) })
+    return api_response({ 'error' : 'Valid /query/ endpoints are: [ %s ]' % (', '.join(valid_endpoints)) }, status=404)
 
 @csrf_exempt
 def api_workload(request, workload_id, query):
 
     # 0. Make sure the request has the correct permissions
     if not api_authenticate(request):
-        return api_response({ 'error' : 'API requires authentication for this server' })
+        return api_response({ 'error' : 'API requires authentication for this server' }, status=401)
 
     # 1. Make sure the workload actually exists for the requested query
     try: workload = Test.objects.get(pk=workload_id)
-    except: return api_response({ 'error' : 'Requested Workload Id does not exist' })
+    except: return api_response({ 'error' : 'Requested Workload Id does not exist' }, status=404)
 
     if query == 'results':
         return JsonResponse({ 'results' : fetch_results(workload_id) })
@@ -1272,7 +1278,7 @@ def api_workload(request, workload_id, query):
         return api_response({ 'insights' : workload_payload(workload) })
 
     valid_endpoints = [ 'results', 'info', 'summary', 'insights' ]
-    return api_response({ 'error' : 'Valid /query/ endpoints are: [ %s ]' % (', '.join(valid_endpoints)) })
+    return api_response({ 'error' : 'Valid /query/ endpoints are: [ %s ]' % (', '.join(valid_endpoints)) }, status=404)
 
 def health(request):
 

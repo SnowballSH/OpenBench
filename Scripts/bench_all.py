@@ -97,6 +97,9 @@ if __name__ == '__main__':
     request = credentialed_request(args.server, args.username, args.password, 'api/buildinfo')
     configs = request.json()
 
+    if request.status_code != 200:
+        sys.exit('Unable to fetch /api/buildinfo/: %s' % (configs.get('error', request.status_code)))
+
     # Filter down to only engines provided via --engines, if applicable
     engines = configs.keys() if not args.engines else args.engines
     engines = list(set(engines) & set(configs.keys()))
