@@ -20,13 +20,11 @@ from OpenBench.fleet.status import (
     UNKNOWN,
     OfflineWindow,
     Presence,
-    int_of,
-    known_text,
     presence,
     relative_age,
-    text_of,
 )
 from OpenBench.insights.server import ACTIVE_MACHINE, GAMES_WINDOW, load_games_since
+from OpenBench.machine_info import int_of, known_text, text_of
 from OpenBench.models import Machine, Result, Test
 
 if TYPE_CHECKING:

@@ -102,6 +102,21 @@ given, owns the Result). Results with negative counts are refused.
 others answer `{ "error" : ... }`, which makes the Client restart its session.
 A genuine Client never triggers either.
 
+`/clientWorkerInfo/` checks the registered `system_info` before it creates a
+Machine (`OpenBench/machine_info.py`). After the Client version check, which
+still comes first so an old Client learns to update, it requires the fields
+the Server reads, with the exact JSON types the Client sends: integer
+`concurrency`, `physical_cores`, `logical_cores`, `ram_total_mb`, `sockets`
+and `syzygy_max`; boolean `noisy`; `cpu_flags` a list of strings; `os_name` a
+string; `compilers` and `tokens` objects. `cpu_name`, `isa_name`, `os_ver` and
+`machine_name` must be strings, and `focus` and `only` lists of strings, when
+present. Anything else is answered `{"error": "Malformed system_info: <fields>"}`
+(or `{"error": "Malformed system_info"}` when it is not a JSON object), which
+the Client treats like any failed registration. Pages and APIs that read
+Machine info (the fleet, `/api/insights/server/`, a workload's insights and
+summary) also coerce each field as they read it, so a Machine stored before
+this check cannot break them.
+
 ## Response headers and cookies
 
 Django sets `X-Frame-Options: DENY`, `Referrer-Policy: same-origin`,

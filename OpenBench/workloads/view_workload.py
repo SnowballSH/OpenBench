@@ -33,6 +33,7 @@ from django.utils import timezone
 import OpenBench.views
 import OpenBench.stats
 from OpenBench.insights.grouping import sum_by_key
+from OpenBench.machine_info import text_of
 from OpenBench.insights.speed import nodes_per_second
 from OpenBench.models import *
 
@@ -125,8 +126,8 @@ def fetch_result_summaries(workload):
 
     groupings = {
         'user'     : lambda row: row['machine__user__username'],
-        'cpu_name' : lambda row: (row['machine__info'] or {}).get('cpu_name'),
-        'isa_name' : lambda row: (row['machine__info'] or {}).get('isa_name'),
+        'cpu_name' : lambda row: text_of(row['machine__info'], 'cpu_name'),
+        'isa_name' : lambda row: text_of(row['machine__info'], 'isa_name'),
     }
 
     # Turn a { key: penta } bucket into ready-to-display rows: the penta as a

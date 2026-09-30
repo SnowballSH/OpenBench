@@ -7,6 +7,7 @@ from django.db.models import Max, Min
 from django.utils import timezone
 
 from OpenBench.insights.domain import WorkloadMode, spsa_target_games, tune_completed
+from OpenBench.machine_info import int_of
 from OpenBench.models import Machine, Profile, Test, WorkloadSnapshot
 
 ACTIVE_MACHINE = timedelta(minutes=2)
@@ -72,7 +73,7 @@ class FinishedWorkload:
 
 
 def fleet_status(machines: Iterable[tuple[dict[str, Any], float]]) -> FleetStatus:
-    rows = [(int(info.get('concurrency', 0)), mnps) for info, mnps in machines]
+    rows = [(int_of(info, 'concurrency'), mnps) for info, mnps in machines]
     return FleetStatus(
         machines=len(rows),
         threads=sum(threads for threads, _ in rows),

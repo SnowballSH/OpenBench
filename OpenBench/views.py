@@ -41,6 +41,7 @@ from OpenBench.fleet.machines import load_machines_page
 from OpenBench.fleet.status import OfflineWindow
 from OpenBench.fleet.users import load_user_rows
 
+from OpenBench import machine_info
 from OpenBench.config import OPENBENCH_CONFIG, OPENBENCH_STATIC_VERSION
 from OpenBench.security import throttle
 from OpenBench.security.csrf import fails_session_csrf
@@ -809,11 +810,18 @@ def client_worker_info(request):
         return JsonResponse({ 'error' : 'Bad Credentials' })
 
     # Request update before creating a machine
-    info         = json.loads(request.POST['system_info'])
+    info         = machine_info.decode_system_info(request.POST.get('system_info'))
     expected_ver = OPENBENCH_CONFIG['client_version']
+
+    if info is None:
+        return JsonResponse({ 'error' : 'Malformed system_info' })
 
     if info.get('client_ver') != expected_ver:
         return JsonResponse({ 'error' : 'Bad Client Version: Expected %d' % (expected_ver)})
+
+    # The Client treats any error as a failed registration, and retries later
+    if malformed := machine_info.malformed_fields(info):
+        return JsonResponse({ 'error' : 'Malformed system_info: %s' % (', '.join(malformed)) })
 
     # Create a new Machine for this session
     machine = Machine(user=user, info=info)
