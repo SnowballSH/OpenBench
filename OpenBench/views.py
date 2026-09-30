@@ -576,7 +576,8 @@ def networks(request, engine=None, action=None, name=None, client=False):
         return redirect(request, '/networks/%s/' % (engine), error='Network changes must be submitted from the Networks page')
 
     # Defense in depth, for browsers that report where the request came from
-    if action.upper() in NETWORK_CHANGES and is_cross_site(request):
+    is_change = action.upper() in NETWORK_CHANGES or (action.upper() == 'EDIT' and request.method == 'POST')
+    if is_change and is_cross_site(request):
         return redirect(request, '/networks/', error='Network changes must be made from OpenBench itself')
 
     # Split out Uploads, since there is no logic to disambiguate the name

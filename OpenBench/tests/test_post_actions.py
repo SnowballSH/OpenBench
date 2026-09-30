@@ -5,7 +5,9 @@ import tempfile
 from unittest import mock
 
 from django.core.cache import cache
-from django.test import TestCase
+from django.core.files.uploadedfile import SimpleUploadedFile
+from django.test import TestCase, override_settings
+
 
 from OpenBench.models import Book, EngineConfig, LogEvent, Network, Profile, Test
 from OpenBench.tests.fixtures import (
@@ -266,6 +268,132 @@ class ManageActionTests(CsrfClientMixin, TestCase):
         content = self.client.get("/manage/books/").content.decode()
         self.assertIn('form="manage-actions"', content)
         self.assertNotIn('href="/manage/books/unused.epd/delete/"', content)
+
+
+class ManageGetRefusalTests(TestCase):
+    def setUp(self):
+        self.manager = create_user("manager")
+        Profile.objects.filter(user=self.manager).update(superuser=True)
+        self.book = Book.objects.create(
+            name="unused.epd", source="https://example.invalid/unused.zip", sha="0" * 64
+        )
+        self.engine = create_engine_config("Unused")
+        self.client.force_login(self.manager)
+
+    def assert_refused(self, path, listing):
+        self.assertRedirects(
+            self.client.get(path), listing, fetch_redirect_response=False
+        )
+        self.assertIn("must be submitted", self.client.session["error_message"])
+
+    def test_get_of_book_create_and_edit_changes_nothing(self):
+        query = (
+            "?source=https://raw.githubusercontent.com/x/y.zip&sha="
+            + "a" * 64
+            + "&enabled=TRUE"
+        )
+        self.assert_refused("/manage/books/fresh.epd/create/" + query, "/manage/books/")
+        self.assert_refused("/manage/books/unused.epd/edit/" + query, "/manage/books/")
+        self.assertFalse(Book.objects.filter(name="fresh.epd").exists())
+        self.assertEqual(Book.objects.get(id=self.book.id).sha, "0" * 64)
+
+    def test_get_of_engine_create_and_edit_changes_nothing(self):
+        query = "?source=https://github.com/x/y&nps=5&private=FALSE&enabled=FALSE"
+        self.assert_refused("/manage/engines/Fresh/create/" + query, "/manage/engines/")
+        self.assert_refused("/manage/engines/Unused/edit/" + query, "/manage/engines/")
+        self.assertFalse(EngineConfig.objects.filter(name="Fresh").exists())
+        self.assertEqual(EngineConfig.objects.get(id=self.engine.id).nps, 1000000)
+
+
+class NetworkUploadAndEditTests(CsrfClientMixin, TestCase):
+    def setUp(self):
+        cache.clear()
+        self.addCleanup(cache.clear)
+        media = tempfile.TemporaryDirectory()
+        self.addCleanup(media.cleanup)
+        self.enterContext(override_settings(MEDIA_ROOT=media.name))
+        create_engine_config()
+        self.approver = create_user("admin", approver=True)
+
+    def netfile(self):
+        return SimpleUploadedFile("net.nnue", b"weights")
+
+    def test_website_upload_with_a_csrf_token(self):
+        client = self.csrf_client(self.approver)
+        token = self.form_token(client, "/newNetwork/")
+        response = client.post(
+            "/networks/Avalanche/upload/r1/",
+            {"csrfmiddlewaretoken": token, "netfile": self.netfile()},
+        )
+        self.assertRedirects(
+            response, "/networks/Avalanche/", fetch_redirect_response=False
+        )
+        self.assertEqual(Network.objects.get().name, "r1")
+
+    def test_website_upload_without_a_csrf_token_is_refused(self):
+        client = self.csrf_client(self.approver)
+        response = client.post(
+            "/networks/Avalanche/upload/r1/", {"netfile": self.netfile()}
+        )
+        self.assertEqual(response.status_code, 403)
+        self.assertFalse(Network.objects.exists())
+
+    def test_cross_site_upload_is_refused(self):
+        self.client.force_login(self.approver)
+        for site in ("cross-site", "same-site"):
+            self.client.post(
+                "/networks/Avalanche/upload/r1/",
+                {"netfile": self.netfile()},
+                headers={"sec-fetch-site": site},
+            )
+        self.assertFalse(Network.objects.exists())
+
+    def test_scripts_upload_needs_no_csrf_token(self):
+        client = self.client_class(enforce_csrf_checks=True)
+        response = client.post(
+            "/scripts/",
+            {
+                **credentials(self.approver),
+                "action": "UPLOAD_NETWORK",
+                "engine": "Avalanche",
+                "name": "r1",
+                "netfile": self.netfile(),
+            },
+        )
+        self.assertRedirects(
+            response, "/networks/Avalanche/", fetch_redirect_response=False
+        )
+        self.assertEqual(Network.objects.get().author, "admin")
+
+    def test_cross_site_edit_is_refused(self):
+        Network.objects.create(
+            sha256="ABCDEF01", name="r1", engine="Avalanche", author="admin"
+        )
+        edit = {"name": "renamed", "default": "FALSE", "was_default": "FALSE"}
+        self.client.force_login(self.approver)
+        self.client.post(
+            "/networks/Avalanche/EDIT/ABCDEF01/",
+            edit,
+            headers={"sec-fetch-site": "cross-site"},
+        )
+        self.assertEqual(Network.objects.get().name, "r1")
+        self.client.post(
+            "/networks/Avalanche/EDIT/ABCDEF01/",
+            edit,
+            headers={"sec-fetch-site": "same-origin"},
+        )
+        self.assertEqual(Network.objects.get().name, "renamed")
+
+    def test_edit_form_is_still_served_to_cross_site_links(self):
+        Network.objects.create(
+            sha256="ABCDEF01", name="r1", engine="Avalanche", author="admin"
+        )
+        self.client.force_login(self.approver)
+        response = self.client.get(
+            "/networks/Avalanche/EDIT/ABCDEF01/",
+            headers={"sec-fetch-site": "cross-site"},
+        )
+        self.assertEqual(response.status_code, 200)
 
 
 class ApiNetworkDeleteSessionTests(CsrfClientMixin, TestCase):

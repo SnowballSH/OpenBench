@@ -63,16 +63,27 @@ the admin login, and a `user_login_failed` receiver counts the failures.
   submit a hidden form that carries the token. Deleting a Workload, Network,
   Book or Engine asks for confirmation first.
 - A `GET` of any of those URLs, such as an old bookmark or a link pasted into
-  Discord, changes nothing. It redirects to the Workload, the Network list or
-  the Manage page with an error. Viewing a Workload, the Network list, a
-  Network's `EDIT` form and `DOWNLOAD` stay `GET`.
-- As defense in depth, Workload and Network changes, and
-  `POST /api/networks/<engine>/<name>/delete/`, are also refused when the
+  Discord, changes nothing:
+  - Workload actions redirect to the Workload with an error, for anyone.
+  - Book and Engine actions redirect to `/manage/books/` or `/manage/engines/`
+    with an error, for anyone.
+  - Network actions first apply the usual Network checks: an anonymous user is
+    sent to `/login/` and a non-Approver to `/index/`, both without a message.
+    An Approver is sent to `/networks/<engine>/` with an error.
+- Viewing a Workload, the Network list, a Network's `EDIT` form and `DOWNLOAD`
+  stay `GET`.
+- As defense in depth, Workload actions, the Network `UPLOAD`, `DEFAULT` and
+  `DELETE` actions, a Network `EDIT` submission, and
+  `POST /api/networks/<engine>/<name>/delete/` are also refused when the
   browser reports `Sec-Fetch-Site` as `cross-site` or `same-site`. Scripts and
   the Client send no such header and are unaffected.
 - `POST /api/networks/<engine>/<name>/delete/` is exempt from CSRF so Scripts
-  can call it with credentials in the POST body. A request that rides a logged-in
-  browser session must still carry a valid CSRF token.
+  can call it with credentials in the POST body. A request that carries a
+  logged-in Django session cookie is authenticated by that session instead,
+  and must also carry a valid CSRF token. That includes a script that reuses a
+  `requests.Session` after `/scripts/` or `/clientGetNetwork/` logged it in:
+  such a script must send the token, or drop the session cookie and rely on
+  its credentials alone.
 - `/scripts/` is exempt from CSRF, so it acts only as the user named by the
   `username` and `password` in its POST body, which must be enabled.
 - Only Approvers may delete Networks through the API, as on the website.
