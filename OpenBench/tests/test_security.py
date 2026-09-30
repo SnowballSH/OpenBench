@@ -57,7 +57,7 @@ class LogoutTests(TestCase):
 
     def test_sidebar_logs_out_with_a_csrf_protected_form(self):
         content = self.client.get('/index/').content.decode()
-        self.assertRegex(content, r'<form action="/logout/" class="logout-form" hidden="" id="logout-form" method="post"><input name="csrfmiddlewaretoken"')
+        self.assertRegex(content, r'<form id="logout-form" [^>]*method="post" action="/logout/"[^>]*><input [^>]*name="csrfmiddlewaretoken"')
         self.assertIn('name="csrfmiddlewaretoken"', content)
 
     def test_post_without_csrf_token_is_refused(self):

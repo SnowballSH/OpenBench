@@ -21,7 +21,7 @@
                 <td class="timestamp muted">{{event.created|date:'U'}}</td>
                 <td><a href="/machines/{{event.machine_id}}">{{event.machine_id}}</a></td>
                 <td>{{event.author|capfirst}}</td>
-                <td><a href="{{event.test_id|workload_url}}">{{event.test_id|testIdToPrettyName}}</a></td>
+                <td>{% if event.workload %}<a href="{{event.workload|workload_url}}">{{event.workload.dev.name|prettyName}}</a>{% endif %}</td>
                 <td>{{event.summary}}</td>
                 <td>{% if event.log_file %}<a href='/event/{{event.id}}'>View</a>{% endif %}</td>
             </tr>

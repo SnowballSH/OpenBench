@@ -23,7 +23,7 @@ import json
 
 from django.db.models import CharField, IntegerField, BigIntegerField, BooleanField, FloatField
 from django.db.models import JSONField, ForeignKey, DateTimeField, OneToOneField
-from django.db.models import CASCADE, PROTECT, Index, Model, TextChoices
+from django.db.models import CASCADE, PROTECT, Index, Model, Q, TextChoices
 from django.contrib.auth.models import User
 from django.utils import timezone
 
@@ -287,6 +287,14 @@ class Test(Model):
     def workload_type_str(self):
         return {'SPSA' : 'tune', 'DATAGEN' : 'datagen'}.get(self.test_mode, 'test')
 
+    class Meta:
+        # Partial, so each holds only the rows its listing reads; see docs/PERFORMANCE.md
+        indexes = [
+            Index(fields=['approved'], condition=Q(finished=False, deleted=False), name='test_unfinished'),
+            Index(fields=['-updated'], condition=Q(finished=True, deleted=False), name='test_completed_updated'),
+            Index(fields=['author'], name='test_author'),
+        ]
+
 class WorkloadSnapshot(Model):
 
     # Cumulative Test counters at a point in time; see docs/INSIGHTS.md. Derived
@@ -325,6 +333,9 @@ class LogEvent(Model):
     def __str__(self):
         return "{0} {1} {2}".format(self.author, str(self.test_id), self.summary)
 
+    class Meta:
+        indexes = [Index(fields=['machine_id'], name='logevent_machine')]
+
 class Network(Model):
 
     default     = BooleanField(default=False)
@@ -338,6 +349,9 @@ class Network(Model):
     def __str__(self):
         return '[{}] {} ({})'.format(self.engine, self.name, self.sha256)
 
+    class Meta:
+        indexes = [Index(fields=['engine', 'sha256'], name='network_engine_sha')]
+
 class PGN(Model):
 
     test_id    = IntegerField(default=0)
@@ -350,6 +364,9 @@ class PGN(Model):
 
     def filename(self):
         return '%s.%s.%s.pgn.bz2' % (self.test_id, self.result_id, self.book_index)
+
+    class Meta:
+        indexes = [Index(fields=['test_id'], condition=Q(processed=False), name='pgn_unprocessed')]
 
 class SPSARun(Model):
 

@@ -61,6 +61,14 @@ def gitDiffLink(test):
     return OpenBench.utils.path_join(repo, 'compare',
         '{0}..{1}'.format(test.base.sha[:8], test.dev.sha[:8]))
 
+def spsa_parameter_count(test):
+
+    # Listings annotate the count (see OpenBench.page_queries), saving a query per row
+    if hasattr(test, 'spsa_parameter_count'):
+        return test.spsa_parameter_count
+
+    return test.spsa_run.parameters.count()
+
 def shortStatBlock(test):
 
     tri_line   = 'Games: %d W: %d L: %d D: %d' % test.as_nwld()
@@ -69,7 +77,7 @@ def shortStatBlock(test):
     if test.test_mode == 'SPSA':
         spsa_run = test.spsa_run # Avoid extra database accesses
         statlines = [
-            'Tuning %d Parameters' % (spsa_run.parameters.count()),
+            'Tuning %d Parameters' % (spsa_parameter_count(test)),
             '%d/%d Iterations' % (test.games / (2 * spsa_run.pairs_per), spsa_run.iterations),
             '%d/%d Games Played' % (test.games, 2 * spsa_run.iterations * spsa_run.pairs_per)]
 
@@ -140,6 +148,15 @@ def prettyName(name):
         return name[:16].upper()
     return name
 
+def dev_network_name(test):
+
+    # Listings annotate the name (see OpenBench.page_queries), saving a query per row
+    if hasattr(test, 'dev_network_label'):
+        return test.dev_network_label
+
+    network = OpenBench.models.Network.objects.filter(engine=test.dev_engine, sha256=test.dev_network).first()
+    return network.name if network else None
+
 def prettyDevName(test):
 
     # If engines are different, use the base name + branch
@@ -154,8 +171,8 @@ def prettyDevName(test):
             return prettyName(test.dev.name)
 
         # Use the network's name, if we still have it saved
-        network = OpenBench.models.Network.objects.filter(engine=test.dev_engine, sha256=test.dev_network).first()
-        return network.name if network else test.dev_netname
+        network_name = dev_network_name(test)
+        return network_name if network_name is not None else test.dev_netname
 
     return prettyName(test.dev.name)
 

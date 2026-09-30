@@ -21,7 +21,7 @@ from OpenBench.tests.fixtures import (
 )
 
 CSRF_INPUT = re.compile(
-    r'<input name="csrfmiddlewaretoken" type="hidden" value="([^"]+)"'
+    r'<input [^>]*name="csrfmiddlewaretoken" value="([^"]+)"'
 )
 
 
@@ -113,7 +113,7 @@ class WorkloadActionTests(CsrfClientMixin, TestCase):
         content = self.client.get("/test/%d/" % (workload.id)).content.decode()
         self.assertRegex(
             content,
-            r'<form hidden="" id="workload-actions" method="post"><input name="csrfmiddlewaretoken"',
+            r'<form id="workload-actions" method="post" hidden><input [^>]*name="csrfmiddlewaretoken"',
         )
         for action in ("APPROVE", "STOP", "DELETE"):
             self.assertIn(
@@ -192,7 +192,7 @@ class NetworkActionTests(CsrfClientMixin, TestCase):
         content = self.client.get("/networks/").content.decode()
         self.assertRegex(
             content,
-            r'<form hidden="" id="network-actions" method="post"><input name="csrfmiddlewaretoken"',
+            r'<form id="network-actions" method="post" hidden><input [^>]*name="csrfmiddlewaretoken"',
         )
         self.assertIn(
             'form="network-actions" formaction="/networks/Avalanche/DEFAULT/BBBBBBBB/"',
@@ -200,7 +200,7 @@ class NetworkActionTests(CsrfClientMixin, TestCase):
         )
         self.assertRegex(
             content,
-            r'formaction="/networks/Avalanche/DELETE/BBBBBBBB/" onclick="return confirm\(',
+            r'formaction="/networks/Avalanche/DELETE/BBBBBBBB/"\s+onclick="return confirm\(',
         )
         self.assertNotRegex(content, r'href="/networks/[^"]+/(DEFAULT|DELETE)/')
 

@@ -174,3 +174,16 @@ POST body like the other API endpoints. Otherwise it answers 401 with
 | `media.skipped_symlinks`, `media.unreadable_dirs` | Symbolic links not followed, and directories that could not be listed (their contents are not counted). |
 | `media.truncated` | The scan hit its entry limit, so totals are low. |
 | `upload_spool` | `null` when `OPENBENCH_UPLOAD_TEMP_DIR` is unset. `truncated` is true when it holds more than 10,000 entries, so the figures are low. |
+
+## Response compression
+
+The server sends HTML as rendered, without minifying it. Upstream used
+django-htmlmin, which re-parses every response with html5lib: on a busy index
+or search page that parse cost more than the whole view and its queries, while
+saving only about a fifth of the bytes. Compression belongs to the reverse
+proxy (for Caddy, `encode zstd gzip` on the vhost), which shrinks the same
+pages far more for a fraction of the CPU, and also covers the JSON endpoints.
+Enable it at the proxy when deploying: without it, pages are sent
+uncompressed and about a quarter larger than htmlmin made them. Django masks
+the CSRF token in every response, so compressing pages that reflect query
+parameters does not expose it to BREACH-style guessing.

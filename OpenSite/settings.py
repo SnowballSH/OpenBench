@@ -81,7 +81,6 @@ LOGGING = {
     'loggers'  : { 'OpenBench' : { 'handlers' : ['console'], 'level' : 'INFO' } },
 }
 
-HTML_MINIFY   = True
 APPEND_SLASH  = True
 
 DEFAULT_AUTO_FIELD = 'django.db.models.AutoField'
@@ -120,8 +119,6 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
-    'htmlmin.middleware.HtmlMinifyMiddleware',
-    'htmlmin.middleware.MarkRequestMiddleware',
     'OpenBench.security.middleware.LoginThrottleMiddleware',
 ]
 
