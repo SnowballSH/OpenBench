@@ -1,15 +1,19 @@
 {% extends "OpenBench/base.html" %}
 
+{% block title %}Manage · OpenBench{% endblock %}
+
+{% block heading %}Manage{% endblock %}
+
 {% block content %}
 
     <!-- Tabs for each section of /manage/. Split evenly as more are added -->
-    <div class="anchor-container mb-4">
+    <nav class="anchor-container mb-4" aria-label="Manage sections" data-current-nav>
         <a class="anchorbutton btn-start" href="/manage/books/">Books</a>
         <a class="anchorbutton btn-start" href="/manage/engines/">Engines</a>
         {% if can_manage %}
             <a class="anchorbutton btn-start" href="/manage/storage/">Storage</a>
         {% endif %}
-    </div>
+    </nav>
 
     {% block manage %}
     {% endblock %}

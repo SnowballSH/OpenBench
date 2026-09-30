@@ -1,5 +1,9 @@
 {% extends "OpenBench/manage.html" %}
 
+{% block title %}Engine {{engine_config.name}} · OpenBench{% endblock %}
+
+{% block heading %}Engine {{engine_config.name}}{% endblock %}
+
 {% block manage %}
 
     <form method="POST" action="/manage/engines/{{engine_config.name}}/edit/">
@@ -48,7 +52,7 @@
                     </select>
                 </div>
 
-                <h3> Build Settings </h3>
+                <h2> Build Settings </h2>
 
                 <div class="row">
                     <label for="build_path"> Path </label>
@@ -70,10 +74,10 @@
                     <input id="build_systems" name="build_systems" value="{{engine_config.build_systems}}" {% if not can_manage %}readonly{% endif %}>
                 </div>
 
-                <h3> Presets </h3>
+                <h2 id="presets-title"> Presets </h2>
 
                 <div class="row">
-                    <textarea id="presets" name="presets" rows="24" {% if not can_manage %}readonly{% endif %}>{{ presets }}</textarea>
+                    <textarea id="presets" name="presets" aria-labelledby="presets-title" rows="24" {% if not can_manage %}readonly{% endif %}>{{ presets }}</textarea>
                 </div>
 
                 {% if can_manage %}

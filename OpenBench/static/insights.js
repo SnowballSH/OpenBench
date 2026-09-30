@@ -118,7 +118,7 @@
         const group = element('div', 'insights-group');
         const grid = element('div', 'stat-tiles');
         grid.append(...tiles);
-        group.append(element('h4', 'insights-group-title', heading), grid);
+        group.append(element('h3', 'insights-group-title', heading), grid);
         return group;
     }
 
@@ -319,7 +319,7 @@
         const with_elo = insights.strength !== null;
         const card = element('div', 'insights-contributions');
         const header = element('div', 'card-header');
-        header.append(element('h4', 'card-title', 'Contributions'),
+        header.append(element('h3', 'card-title', 'Contributions'),
             element('span', 'muted insights-note', 'Pairs per hour average over the whole elapsed time'));
         card.append(header);
 
@@ -640,11 +640,14 @@
     function chart_card(spec) {
         const card = element('figure', 'card chart-card');
         const header = element('figcaption', 'chart-caption');
-        header.append(element('span', 'card-title', spec.title), element('span', 'chart-subtitle', spec.subtitle));
+        const subtitle = element('span', 'chart-subtitle', spec.subtitle);
+        subtitle.id = `insights-${spec.key}-description`;
+        header.append(element('span', 'card-title', spec.title), subtitle);
 
         const box = element('div', 'chart-box');
         const canvas = element('canvas');
         canvas.setAttribute('role', 'img');
+        canvas.setAttribute('aria-describedby', subtitle.id);
         box.append(canvas);
 
         const empty = element('p', 'chart-empty');
@@ -699,6 +702,8 @@
             this.section = section;
             this.url = `/api/workload/${encodeURIComponent(section.dataset.workloadId)}/insights/`;
             this.status = section.querySelector('[data-insights-status]');
+            this.announcer = section.querySelector('[data-insights-announcer]');
+            this.announced_status = null;
             this.error = section.querySelector('[data-insights-error]');
             this.tiles = section.querySelector('[data-insights-tiles]');
             this.charts = section.querySelector('[data-insights-charts]');
@@ -769,6 +774,16 @@
 
             const refreshing = this.polled ? ' · refreshes every minute' : '';
             this.status.textContent = `Updated ${time_format.format(new Date())}${refreshing}`;
+            this.announce_status_change();
+        }
+
+        announce_status_change() {
+            const status = this.latest.workload.status;
+            if (!this.announcer || status === this.announced_status) return;
+            this.announcer.textContent = this.announced_status === null
+                ? 'Insights loaded'
+                : `Workload is now ${status}`;
+            this.announced_status = status;
         }
 
         render_history() {

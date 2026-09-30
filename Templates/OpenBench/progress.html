@@ -4,6 +4,8 @@
 
 {% block title %}{{page.title}} · OpenBench{% endblock %}
 
+{% block page_heading %}{% endblock %}
+
 {% block scripts %}
     <script src="{% static 'vendor/chartjs-4.5.1/chart.umd.min.js' %}" defer></script>
     <script src="{% static 'progress.js' %}?{{ static_version }}" defer></script>
@@ -15,7 +17,7 @@
 
         <header class="progress-heading">
             <div class="progress-heading-text">
-                <h3>{{page.title}}</h3>
+                <h1>{{page.title}}</h1>
                 <p class="muted">{{page.start|date:"M j, Y"}} to {{page.end|date:"M j, Y"}}, UTC days</p>
             </div>
 
@@ -55,10 +57,10 @@
             <figure class="card chart-card progress-chart-wide">
                 <figcaption class="chart-caption">
                     <span class="card-title">Cumulative Elo from greens</span>
-                    <span class="chart-subtitle">Each passed SPRT with non-negative bounds adds its own Elo point estimate, at the time it finished. Summed estimates overstate real progress: greens are selected for looking good, and each estimate is measured against its own base, not a fixed reference.</span>
+                    <span class="chart-subtitle" id="progress-elo-description">Each passed SPRT with non-negative bounds adds its own Elo point estimate, at the time it finished. Summed estimates overstate real progress: greens are selected for looking good, and each estimate is measured against its own base, not a fixed reference.</span>
                 </figcaption>
                 <div class="chart-box" data-progress-chart="elo">
-                    <canvas role="img" aria-label="Cumulative Elo chart"></canvas>
+                    <canvas role="img" aria-label="Cumulative Elo chart" aria-describedby="progress-elo-description" aria-details="progress-greens"></canvas>
                 </div>
                 <p class="chart-empty" hidden></p>
             </figure>
@@ -66,16 +68,17 @@
             <figure class="card chart-card">
                 <figcaption class="chart-caption">
                     <span class="card-title">SPRT outcomes per week</span>
-                    <span class="chart-subtitle">Finished SPRT tests by the UTC week (from Monday) they finished in. Stopped means finished without passing or failing.</span>
+                    <span class="chart-subtitle" id="progress-outcomes-description">Finished SPRT tests by the UTC week (from Monday) they finished in. Stopped means finished without passing or failing.</span>
                 </figcaption>
                 <div class="chart-box" data-progress-chart="outcomes">
-                    <canvas role="img" aria-label="SPRT outcomes per week chart"></canvas>
+                    <canvas role="img" aria-label="SPRT outcomes per week chart" aria-describedby="progress-outcomes-description" aria-details="progress-outcomes-table"></canvas>
                 </div>
                 <p class="chart-empty" hidden></p>
                 <details class="progress-data-table">
-                    <summary>Table</summary>
+                    <summary>Data table</summary>
                     <div class="table-wrap w-100">
-                        <table class="stripes w-100">
+                        <table class="stripes w-100" id="progress-outcomes-table">
+                            <caption class="visually-hidden">SPRT outcomes per week</caption>
                             <thead>
                                 <tr class="table-header">
                                     <th>Week of</th>
@@ -104,16 +107,17 @@
             <figure class="card chart-card">
                 <figcaption class="chart-caption">
                     <span class="card-title">Games per day</span>
-                    <span class="chart-subtitle">Across the fleet, from workload history by UTC day. Games reported before a workload's history began count on the day of its first recorded report.</span>
+                    <span class="chart-subtitle" id="progress-games-description">Across the fleet, from workload history by UTC day. Games reported before a workload's history began count on the day of its first recorded report.</span>
                 </figcaption>
                 <div class="chart-box" data-progress-chart="games">
-                    <canvas role="img" aria-label="Games per day chart"></canvas>
+                    <canvas role="img" aria-label="Games per day chart" aria-describedby="progress-games-description" aria-details="progress-games-table"></canvas>
                 </div>
                 <p class="chart-empty" hidden></p>
                 <details class="progress-data-table">
-                    <summary>Table</summary>
+                    <summary>Data table</summary>
                     <div class="table-wrap w-100">
-                        <table class="stripes w-100">
+                        <table class="stripes w-100" id="progress-games-table">
+                            <caption class="visually-hidden">Games per day</caption>
                             <thead>
                                 <tr class="table-header">
                                     <th>Day</th>
@@ -136,9 +140,9 @@
             </figure>
         </div>
 
-        <section class="card progress-section" aria-labelledby="progress-greens-title">
+        <section class="card progress-section" id="progress-greens" aria-labelledby="progress-greens-title">
             <div class="card-header">
-                <h4 id="progress-greens-title" class="card-title">Contributing greens</h4>
+                <h2 id="progress-greens-title" class="card-title">Contributing greens</h2>
                 <span class="muted">Newest first{% if page.greens_hidden %}; the {{page.greens_hidden}} oldest are left out of this table but counted in the sum{% endif %}</span>
             </div>
             {% if page.greens %}
@@ -176,7 +180,7 @@
         <div class="fleet-columns">
             <section class="card progress-section" aria-labelledby="progress-contributors-title">
                 <div class="card-header">
-                    <h4 id="progress-contributors-title" class="card-title">Top contributors</h4>
+                    <h2 id="progress-contributors-title" class="card-title">Top contributors</h2>
                     <span class="muted">Games in results last reported in the window</span>
                 </div>
                 {% include "OpenBench/Blocks/progress_shares.html" with rows=page.contributors heading="User" unit="Games" empty="No games were reported in this window." %}
@@ -184,7 +188,7 @@
 
             <section class="card progress-section" aria-labelledby="progress-authors-title">
                 <div class="card-header">
-                    <h4 id="progress-authors-title" class="card-title">Top authors</h4>
+                    <h2 id="progress-authors-title" class="card-title">Top authors</h2>
                     <span class="muted">Workloads created in the window</span>
                 </div>
                 {% include "OpenBench/Blocks/progress_shares.html" with rows=page.authors heading="Author" unit="Tests" empty="No workloads were created in this window." %}

@@ -6,7 +6,11 @@ function delete_repo_row(control) {
     if (!engine || (radio && radio.checked))
         return;
 
-    control.closest('.row').remove();
+    const row = control.closest('.row');
+    const next = row.nextElementSibling?.querySelector('[data-delete-repo]')
+        ?? document.getElementById('new-engine-name');
+    row.remove();
+    next?.focus();
 
     const deleted_repos_input = document.getElementById('deleted-repos');
     const deleted_repos = JSON.parse(deleted_repos_input.value);

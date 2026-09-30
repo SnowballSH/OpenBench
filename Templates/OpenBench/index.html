@@ -3,6 +3,10 @@
 {% load mytags %}
 {% load static %}
 
+{% block title %}{% if paging.url == 'greens' %}Greens{% elif paging.url == 'index' %}Workloads{% else %}Workloads by {{ paging.url|slice:"5:" }}{% endif %} · OpenBench{% endblock %}
+
+{% block heading %}{% if paging.url == 'greens' %}Greens{% elif paging.url == 'index' %}Workloads{% else %}Workloads by {{ paging.url|slice:"5:" }}{% endif %}{% endblock %}
+
 {% block content_class %}content-wide{% endblock %}
 
 {% block scripts %}
@@ -56,7 +60,7 @@
                         {% include "OpenBench/Blocks/testsummary.html" %}
                     </tr>
                 {% endfor %}
-                <tr class="table-spacer"><th colspan='7'></th></tr>
+                <tr class="table-spacer" aria-hidden="true"><td colspan='7'></td></tr>
             {% endif %}
 
             <!-- Currently Running tests (Waiting to be completed) -->
@@ -70,7 +74,7 @@
                         </tr>
                     {% endfor %}
                 {% endfor %}
-                <tr class="table-spacer"><th colspan='7'></th></tr>
+                <tr class="table-spacer" aria-hidden="true"><td colspan='7'></td></tr>
             {% endif %}
 
         {% endif %}

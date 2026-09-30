@@ -57,6 +57,7 @@ function create_preset_buttons(engine, workload_type) {
 
         // Create a new button for the test mode
         var btn         = document.createElement('button')
+        btn.type        = 'button';
         btn.textContent = mode;
         btn.addEventListener('click', () => apply_preset(mode, workload_type));
 

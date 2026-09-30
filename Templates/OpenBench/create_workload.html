@@ -2,6 +2,10 @@
 
 {% load static %}
 
+{% block title %}New {{ workload|lower|capfirst }} · OpenBench{% endblock %}
+
+{% block heading %}New {{ workload|lower|capfirst }}{% endblock %}
+
 {% block scripts %}
 
     {{ config|json_script:"json-config" }}
@@ -30,7 +34,7 @@
         <div class="form w-100">
             <div class="col">
 
-                <h3> Engines </h3>
+                <h2> Engines </h2>
 
                 <div class="row">
                     <label for="dev_engine"> {{dev_text}} Engine </label>
@@ -60,7 +64,7 @@
                     </div>
                 {% endif %}
 
-                <h3> {{dev_title_text}} Settings </h3>
+                <h2> {{dev_title_text}} Settings </h2>
 
                 <div class="row">
                     <label for="dev_branch" > {{dev_text}} Branch </label> <input id="dev_branch" name="dev_branch" autofocus>
@@ -80,7 +84,7 @@
 
                 {% if workload == "TEST" or workload == "DATAGEN" %}
 
-                    <h3> Base Settings </h3>
+                    <h2> Base Settings </h2>
 
                     <div class="row">
                         <label for="base_branch"> Base Branch </label> <input id="base_branch" name="base_branch">
@@ -98,7 +102,7 @@
                         <label for="base_time_control" > Base Time </label> <input id="base_time_control" name="base_time_control">
                     </div>
 
-                    <h3> Information </h3>
+                    <h2> Information </h2>
 
                     <div class="row">
                         <label for="info"> Info </label> <textarea id="info" name="info" rows="4"></textarea>
@@ -106,7 +110,7 @@
 
                 {% elif workload == "TUNE" %}
 
-                    <h3> SPSA Methodologies </h3>
+                    <h2> SPSA Methodologies </h2>
 
                     <div class="row">
                         <label for="spsa_reporting_type"> Reporting </label>
@@ -124,16 +128,16 @@
                         </select>
                     </div>
 
-                    <h3> Information </h3>
+                    <h2> Information </h2>
 
                     <div class="row">
                         <label for="info"> Info </label> <textarea id="info" name="info" rows="4"></textarea>
                     </div>
 
-                    <h3> SPSA Input </h3>
+                    <h2 id="spsa-inputs-title"> SPSA Input </h2>
 
                     <div class="row">
-                        <textarea id="spsa_inputs" name="spsa_inputs" rows=9></textarea>
+                        <textarea id="spsa_inputs" name="spsa_inputs" rows=9 aria-labelledby="spsa-inputs-title"></textarea>
                     </div>
 
                 {% endif %}
@@ -144,7 +148,7 @@
 
                 {% if workload == "TEST" %}
 
-                    <h3> Test Settings </h3>
+                    <h2> Test Settings </h2>
 
                     <div class="row">
                         <label for="test_mode"> Test Mode </label>
@@ -168,7 +172,7 @@
 
                 {% elif workload == "TUNE" %}
 
-                    <h3> SPSA Settings </h3>
+                    <h2> SPSA Settings </h2>
 
                     <div class="row">
                         <label for="spsa_alpha"> Alpha </label> <input value="0.602" id="spsa_alpha" name="spsa_alpha">
@@ -188,7 +192,7 @@
 
                 {% elif workload == "DATAGEN" %}
 
-                    <h3> Datagen Settings </h3>
+                    <h2> Datagen Settings </h2>
 
                     <div class="row">
                         <label for="datagen_max_games"> Max Games </label> <input id="datagen_max_games" name="datagen_max_games">
@@ -199,7 +203,7 @@
                     </div>
 
                     <div class="row">
-                        <label for="test_mode"> Play Reverses </label>
+                        <label for="datagen_play_reverses"> Play Reverses </label>
                         <select id="datagen_play_reverses" name="datagen_play_reverses">
                             <option value="YES"> Yes </option>
                             <option selected value="NO"> No </option>
@@ -208,7 +212,7 @@
 
                 {% endif %}
 
-                <h3> General Settings </h3>
+                <h2> General Settings </h2>
 
                 <div class="row">
                     <label for="book_name"> Opening Book </label> <select id="book_name" name="book_name">
@@ -238,7 +242,7 @@
                 </div>
 
                 <div class="row">
-                    <label for="throughput"> Throughput </label> <input value="1000" id="throughput" , name="throughput">
+                    <label for="throughput"> Throughput </label> <input value="1000" id="throughput" name="throughput">
                 </div>
 
                 {% if workload == "TEST" or workload == "DATAGEN" %}
@@ -259,7 +263,7 @@
                     </select>
                 </div>
 
-                <h3> Adjudication Settings </h3>
+                <h2> Adjudication Settings </h2>
                 <div class="row">
                     <label for="syzygy_adj"> Syzygy ADJ. </label>
                     <select id="syzygy_adj" name="syzygy_adj">
@@ -279,7 +283,7 @@
                     <label for="draw_adj"> Draw ADJ. </label> <input id="draw_adj" name="draw_adj">
                 </div>
 
-                <h3> Scaling Settings </h3>
+                <h2> Scaling Settings </h2>
                 <div class="row">
                     <label for="scale_method"> Scale Method </label>
                     <select id="scale_method" name="scale_method">

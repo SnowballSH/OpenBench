@@ -1,5 +1,9 @@
 {% extends "OpenBench/base.html" %}
 
+{% block title %}Upload Network · OpenBench{% endblock %}
+
+{% block heading %}Upload Network{% endblock %}
+
 {% block content %}
 
     <form method="post" enctype="multipart/form-data" id="network-form" data-action-template="/networks/{network-engine}/upload/{network-name}/">

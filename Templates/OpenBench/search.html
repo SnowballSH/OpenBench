@@ -1,5 +1,9 @@
 {% extends "OpenBench/base.html" %}
 
+{% block title %}Search · OpenBench{% endblock %}
+
+{% block heading %}Search{% endblock %}
+
 {% load static %}
 
 {% block scripts %}
@@ -37,7 +41,7 @@
                                 <option value="{{engine.name}}" {% if form.dev_engine == engine.name %}selected{% endif %}>{{engine.name}}</option>
                             {% endfor %}
                         </select>
-                        <input id="dev-network" name="dev-network" value="{{form.dev_network}}" placeholder="Network (Case-Insensitive)">
+                        <input id="dev-network" name="dev-network" aria-label="Dev network" value="{{form.dev_network}}" placeholder="Network (Case-Insensitive)">
                     </div>
                     <div class="row">
                         <label for="base-engine">Base</label>
@@ -47,7 +51,7 @@
                                 <option value="{{engine.name}}" {% if form.base_engine == engine.name %}selected{% endif %}>{{engine.name}}</option>
                             {% endfor %}
                         </select>
-                        <input id="base-network" name="base-network" value="{{form.base_network}}" placeholder="Network (Case-Insensitive)">
+                        <input id="base-network" name="base-network" aria-label="Base network" value="{{form.base_network}}" placeholder="Network (Case-Insensitive)">
                     </div>
 
                     <hr>
@@ -81,7 +85,7 @@
                             <option value="FISCHER" {% if form.tc_type == "FISCHER" %}selected{% endif %}>Fischer</option>
                             <option value="CYCLIC" {% if form.tc_type == "CYCLIC" %}selected{% endif %}>Cyclic</option>
                         </select>
-                        <input id="tc-value-input" name="tc-value-input" value="{{form.tc_value}}">
+                        <input id="tc-value-input" name="tc-value-input" aria-label="Time control value" value="{{form.tc_value}}">
                     </div>
                     <div class="row">
                         <label for="threads">Threads</label>
@@ -111,6 +115,7 @@
     {% if tests %}
     <div class="table-wrap w-100 search-results">
     <table class="test-list stripes hoverable">
+        <caption class="visually-hidden">Search results</caption>
         {% for test in tests %}
             <tr>
                 <td class="datestamp">{{test.creation|date:"U"}}</td>

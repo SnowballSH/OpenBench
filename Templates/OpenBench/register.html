@@ -1,5 +1,9 @@
 {% extends "OpenBench/base.html" %}
 
+{% block title %}Register · OpenBench{% endblock %}
+
+{% block heading %}Register{% endblock %}
+
 {% block content %}
 
     <form id="registerForm" method="POST" action="/register/">
@@ -7,16 +11,16 @@
         <div class="form">
             <div class="col">
                 <div class="row">
-                    <label>Username</label><input name="username">
+                    <label for="register-username">Username</label><input id="register-username" name="username" autocomplete="username">
                 </div>
                 <div class="row">
-                    <label>Password</label><input type="password" name="password1">
+                    <label for="register-password1">Password</label><input id="register-password1" type="password" name="password1" autocomplete="new-password">
                 </div>
                 <div class="row">
-                    <label>Password</label><input type="password" name="password2">
+                    <label for="register-password2">Confirm Password</label><input id="register-password2" type="password" name="password2" autocomplete="new-password">
                 </div>
                 <div class="row">
-                    <label>Email</label><input name="email">
+                    <label for="register-email">Email</label><input id="register-email" name="email" type="email" autocomplete="email">
                 </div>
                 <input class="anchorbutton btn-blue w-100" type="submit" name="submit" value="Create User">
             </div>

@@ -109,8 +109,8 @@ without relying on fill alone.
   and `<tbody>`, and put a `<button class="sort-button">` in each sortable
   header; `data-sort="number"` sorts numerically (largest first on the first
   click). A cell's `data-sort-value` overrides its text as the sort key.
-  `OpenBench/static/fleet.js` wires them up; load it from the page's
-  `scripts` block.
+  `OpenBench/static/fleet.js` wires them up and sets `aria-sort`; load it from
+  the page's `scripts` block. Never put a click handler on a bare `<th>`.
 - **Banners**: `.error-message`, `.warning-message`, `.status-message` render
   the session messages in `base.html`.
 - **Small pieces**: `.flag-*` for the test-list markers, `.icon-ok`,
@@ -135,6 +135,57 @@ without relying on fill alone.
   the toggle.
 - The layout breakpoints are 1024px (single-column forms and workload view)
   and 767px (off-canvas sidebar). Check pages at 375px and in both themes.
+
+## Accessibility
+
+The target is WCAG 2.2 AA. `OpenBench/tests/test_accessibility.py` renders
+every page and checks labels, accessible names, duplicate ids, landmarks and
+heading order without a browser; run axe-core against a `seed_demo` server
+for contrast and anything dynamic.
+
+- **Page frame**: `base.html` supplies the skip link (first tab stop, to
+  `#content`), the site `<nav>` inside `#sidebar`, the `<header>` bar and one
+  `<main id="content">`. Keep `id="sidebar"` on its `<div>`.
+- **Titles and headings**: every page sets `{% block title %}Name · OpenBench{% endblock %}`
+  and `{% block heading %}Name{% endblock %}`, which becomes a visually hidden
+  `<h1>`. A page with a visible title (progress, machine) overrides
+  `{% block page_heading %}{% endblock %}` and renders its own `<h1>`.
+  Below it, sections are `<h2>` and their subsections `<h3>`, never skipping a
+  level; style headings by class, not by level.
+- **Forms**: every control has a `<label for>` matching its `id`. A control
+  that shares a row with another's label, or sits under a section heading,
+  takes `aria-label` or `aria-labelledby` instead. Give credential fields an
+  `autocomplete` value.
+- **Icons**: Font Awesome `<i>` elements carry `aria-hidden="true"`. An
+  icon-only link or button needs an `aria-label` naming its target
+  (`Edit r1`, `Delete r1`); a status icon needs `.visually-hidden` text beside
+  it. Table headers over icon columns hold `.visually-hidden` text.
+- **Actions**: anything that runs script is a `<button type="button">`, not an
+  `<a>` without `href`. `.btn-disabled` anchors have no `href` and stay out of
+  the tab order.
+- **Colour**: text tokens meet 4.5:1 against every surface they sit on in both
+  themes (`--text-subtle` included, on `--surface-3`). Result colour is
+  repeated as `.visually-hidden` text (`Blocks/result_text.html`). Links
+  inside a `<p>` are underlined, since colour alone does not set them apart.
+- **Live regions**: session banners use `role="alert"` (errors) or
+  `role="status"`. The insights error line is `role="alert"`; the visible
+  "Updated ..." line is not live, so the minute refresh stays quiet, and the
+  hidden `data-insights-announcer` speaks only on first load and when the
+  workload's status changes. The workload page's hidden
+  `data-workload-announcer` reports completed actions (copy, fetch), and a
+  copy announces success only when the clipboard write succeeded.
+- **Focus**: an action never leaves focus on `<body>`: copying restores focus
+  to its button, and removing a profile repo row moves focus to the next
+  row's remove button or the new-engine select.
+- **Scrolling tables**: `site.js` makes a `.table-wrap` that overflows
+  focusable (`tabindex="0"`, `role="region"`) so keyboard users can scroll it,
+  and names it from its caption, its section heading, or `data-region-label`.
+- **Charts**: a canvas has `role="img"`, an `aria-label` with the latest
+  value and `aria-describedby` pointing at its subtitle; where a data table
+  exists, `aria-details` points at it.
+- **Motion and focus**: `prefers-reduced-motion` removes transitions and
+  animations; `:focus-visible` draws `--focus-ring`, and `scroll-padding-top`
+  keeps focused elements clear of the sticky header.
 
 ## Charts
 

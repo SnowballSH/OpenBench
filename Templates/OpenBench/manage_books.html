@@ -1,5 +1,9 @@
 {% extends "OpenBench/manage.html" %}
 
+{% block title %}Books · OpenBench{% endblock %}
+
+{% block heading %}Books{% endblock %}
+
 {% load mytags %}
 
 {% block manage %}
@@ -14,9 +18,9 @@
         <tr class="table-header">
             <th>Name</th>
             <th>Source</th>
-            <th></th>
-            <th></th>
-            <th></th>
+            <th><span class="visually-hidden">Enabled</span></th>
+            <th><span class="visually-hidden">Edit</span></th>
+            <th><span class="visually-hidden">Delete</span></th>
         </tr>
 
         {% for book in books %}
@@ -26,24 +30,24 @@
 
                 <td class="textcenter">
                     {% if book.enabled %}
-                        <i class="fa-solid fa-check icon-ok"></i>
+                        <i class="fa-solid fa-check icon-ok" aria-hidden="true"></i><span class="visually-hidden">Enabled</span>
                     {% else %}
-                        <i class="fa-solid fa-xmark icon-danger"></i>
+                        <i class="fa-solid fa-xmark icon-danger" aria-hidden="true"></i><span class="visually-hidden">Disabled</span>
                     {% endif %}
                 </td>
 
                 <td>
-                    <a href="/manage/books/{{book.name}}/">
-                        <i class="fa-solid fa-pen-to-square icon-muted"></i>
+                    <a href="/manage/books/{{book.name}}/" aria-label="Edit {{book.name}}">
+                        <i class="fa-solid fa-pen-to-square icon-muted" aria-hidden="true"></i>
                     </a>
                 </td>
 
                 <td>
                     {% if can_manage %}
-                        <button class="link-button" form="manage-actions" aria-label="Delete"
+                        <button class="link-button" form="manage-actions" aria-label="Delete {{book.name}}"
                             formaction="/manage/books/{{book.name}}/delete/"
                             data-confirm="YOU ARE DELETING THIS BOOK FOREVER">
-                        <i class="fa-solid fa-trash-can icon-danger"></i></button>
+                        <i class="fa-solid fa-trash-can icon-danger" aria-hidden="true"></i></button>
                     {% endif %}
                 </td>
             </tr>
@@ -58,7 +62,7 @@
             <div class="form">
                 <div class="col">
 
-                    <h3> New Book </h3>
+                    <h2> New Book </h2>
 
                     <div class="row">
                         <label for="book-name"> Name </label>
