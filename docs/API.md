@@ -1013,7 +1013,7 @@ datagen.
 | Outcome | Answer |
 |---|---|
 | Created | 302 to `/index/`; a warning banner if dev appears behind base |
-| Rejected | 200, the create form with every reason in the error banner, one per line, for example "no-such-branch-xyz could not be found" |
+| Rejected | 200, the create form with every reason in the error banner, one per line, for example "no-such-branch-xyz could not be found", or "Base Branch is required" for an empty branch, which is refused without asking GitHub |
 
 A field left out of the POST is rejected like an invalid one, for example
 `"Priority" is not an Integer`. A missing `dev_branch`, `dev_repo` or
