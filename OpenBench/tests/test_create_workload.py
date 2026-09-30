@@ -62,3 +62,12 @@ class CreateWorkloadTests(TestCase):
     def test_unknown_upload_pgns_is_rejected(self):
         self.assertIn('Upload PGNs', self.create('test', test_fields(upload_pgns='SOMETIMES')))
         self.assertFalse(Test.objects.exists())
+
+    def test_valid_tune_is_created(self):
+        self.assertIsNone(self.create('tune', tune_fields()))
+        self.assertEqual(SPSARun.objects.get().a_ratio, 0.1)
+
+    def test_malformed_a_ratio_is_an_error_not_a_crash(self):
+        for value in ['abc', '-1']:
+            self.assertIn('A-Ratio', self.create('tune', tune_fields(spsa_A_ratio=value)))
+        self.assertFalse(Test.objects.exists())

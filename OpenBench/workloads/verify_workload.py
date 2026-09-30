@@ -155,12 +155,12 @@ def verify_tune_creation(errors, request):
         (verify_draw_adj              , 'draw_adj'),
 
         # Verify everything about the SPSA Settings
-        (verify_float                 , 'spsa_alpha', 'SPSA A-Ratio'),
+        (verify_float                 , 'spsa_A_ratio', 'SPSA A-Ratio'),
         (verify_float                 , 'spsa_alpha', 'SPSA Alpha'),
         (verify_float                 , 'spsa_gamma', 'SPSA Gamma'),
         (verify_integer               , 'spsa_iterations', 'SPSA Iterations'),
         (verify_integer               , 'spsa_pairs_per', 'SPSA Pairs-Per'),
-        (verify_greater_than          , 'spsa_alpha', 'SPSA A-Ratio', 0.00),
+        (verify_greater_than          , 'spsa_A_ratio', 'SPSA A-Ratio', 0.00),
         (verify_greater_than          , 'spsa_alpha', 'SPSA Alpha', 0.00),
         (verify_greater_than          , 'spsa_gamma', 'SPSA Gamma', 0.00),
         (verify_greater_than          , 'spsa_iterations', 'SPSA Iterations', 0),
