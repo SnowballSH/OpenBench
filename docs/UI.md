@@ -117,6 +117,11 @@ without relying on fill alone.
   the page's `scripts` block. Never put a click handler on a bare `<th>`.
 - **Banners**: `.error-message`, `.warning-message`, `.status-message` render
   the session messages in `base.html`.
+- **Error pages**: `OpenBench/security/error_pages.py` serves `404.html` and
+  `403.html` in the site layout with an empty Engines list, so they run no
+  query and show an anonymous visitor nothing about the server. `500.html`
+  stands alone (`body.standalone`, no sidebar), because the database or the
+  session may be what failed; it needs no request context.
 - **Small pieces**: `.flag-*` for the test-list markers, `.icon-ok`,
   `.icon-danger`, `.icon-muted` for Font Awesome icons, `.mono` for hashes,
   options and time controls, `.muted` for secondary text.

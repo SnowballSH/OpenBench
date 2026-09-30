@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+
+<html lang="en">
+
+    {% load static %}
+
+    <head>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <meta name="color-scheme" content="dark light">
+
+        <script src="{% static 'theme-init.js' %}?{{ static_version }}"></script>
+
+        <link rel="icon" type="image/svg+xml" href="{% static 'logo.svg' %}?{{ static_version }}">
+        <link rel="stylesheet" href="{% static 'style.css' %}?{{ static_version }}">
+
+        <title>Server error · OpenBench</title>
+    </head>
+
+    <body class="standalone">
+
+        <div id="content-parent">
+            <header id="content-header">
+                <nav aria-label="Site">
+                    <a class="site-title" href="/">
+                        <img class="site-logo" src="{% static 'logo.svg' %}?{{ static_version }}" alt="">
+                        <span>OpenBench <span class="site-title-sub">Testing Framework</span></span>
+                    </a>
+                </nav>
+            </header>
+
+            <main id="content" class="pb-5">
+
+                <h1 class="visually-hidden">Server error</h1>
+
+                <div class="error-message" role="alert">
+                    <pre>Server error</pre>
+                </div>
+
+                <p class="muted">Something went wrong on the server. Try again in a moment, or <a href="/index/">return to the index</a>.</p>
+
+            </main>
+        </div>
+    </body>
+</html>

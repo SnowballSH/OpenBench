@@ -1,0 +1,15 @@
+{% extends "OpenBench/base.html" %}
+
+{% block title %}Forbidden · OpenBench{% endblock %}
+
+{% block heading %}Forbidden{% endblock %}
+
+{% block content %}
+
+    <div class="error-message" role="alert">
+        <pre>Permission denied</pre>
+    </div>
+
+    <p class="muted">You do not have access to this page. <a href="/index/">Return to the index</a>.</p>
+
+{% endblock %}
