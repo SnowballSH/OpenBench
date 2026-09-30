@@ -430,7 +430,8 @@ begin a spreadsheet formula: a leading `-` only ever starts a negative number.
   `require_login_to_view`, and an anonymous viewer is redirected before any
   workload is looked up. With neither id the page shows only its form. An id
   that is not 1 to 18 digits, a missing id, or the same id twice answers 400
-  with the form and the reasons. An id with no workload answers 404.
+  with the form and the reasons. An id with no workload answers 404 with the
+  form, still filled in, and "Workload N does not exist".
 - **Reuse.** Each side is `insights.workload.insights_without_contributions`:
   the workload endpoint's payload built by the same `build_insights`, with no
   Result rows, since the page shows no contributions.

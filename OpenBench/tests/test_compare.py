@@ -220,10 +220,16 @@ class CompareViewTests(TestCase):
                 self.assertIn('id="compare-errors"', html)
                 self.assertEqual(inline_code(html), [])
 
-    def test_unknown_workload_is_not_found(self) -> None:
+    def test_unknown_workload_is_not_found_and_keeps_the_form(self) -> None:
         missing = Test.objects.order_by('-id').values_list('id', flat=True)[0] + 1
-        self.assertEqual(self.client.get(self.compare(self.a.id, missing)).status_code, 404)
-        self.assertEqual(self.client.get(self.compare(missing, self.a.id)).status_code, 404)
+        for a, b in ((self.a.id, missing), (missing, self.a.id)):
+            with self.subTest(a=a, b=b):
+                response = self.client.get(self.compare(a, b))
+                self.assertEqual(response.status_code, 404)
+                html = response.content.decode()
+                self.assertIn(f'Workload {missing} does not exist', html)
+                self.assertIn(f'value="{a}"', html)
+                self.assertIn(f'value="{b}"', html)
 
     def test_anonymous_viewers_are_sent_to_login_before_any_lookup(self) -> None:
         self.client.logout()
