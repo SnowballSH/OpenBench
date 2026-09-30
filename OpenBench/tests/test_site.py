@@ -33,7 +33,7 @@ class PageTests(TestCase):
         for url in ['/index/', '/machines/', '/networks/', '/users/', '/manage/books/']:
             self.assertEqual(self.client.get(url).status_code, 200, url)
 
-        self.client.get('/logout/')
+        self.client.post('/logout/')
         self.assertRedirects(self.client.get('/index/'), '/login/', fetch_redirect_response=False)
 
     def test_bad_password_is_rejected(self):

@@ -540,6 +540,13 @@ def update_test(request, machine):
     # Pentanomial Implementation
     LL, LD, DD, DW, WW = map(int, request.POST['pentanomial'].split())
 
+    # Workers may only report non-negative counts, into a Result of their own
+    if min(crashes, timelosses, illegals, losses, draws, wins, LL, LD, DD, DW, WW) < 0:
+        return { 'stop' : True }
+
+    if not Result.objects.filter(id=result_id, test_id=test_id, machine=machine).exists():
+        return { 'stop' : True }
+
     # SPSA Delta update vector; might not have this
     raw_spsa_delta = request.POST.get('spsa_delta', '')
     spsa_delta     = json.loads(raw_spsa_delta) if raw_spsa_delta else []

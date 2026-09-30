@@ -62,21 +62,25 @@
                     cells.forEach(cell => {
 
                         // Only have Threads= and Hash= settings
-                        if (cell.textContent.split(/\s+/).length <= 2)
+                        const options = cell.textContent.trim().split(/\s+/);
+                        if (options.length <= 2)
                             return;
 
                         // Only display Threads=X Hash=X ...
-                        const re_threads = cell.textContent.match(/Threads=\d+/)[0];
-                        const re_hash    = cell.textContent.match(/Hash=\d+/)[0];
-                        const new_text   = re_threads + ' ' + re_hash + ' ...'
+                        const summary = ['Threads=', 'Hash=']
+                            .map(prefix => options.find(option => option.startsWith(prefix)))
+                            .filter(option => option !== undefined);
 
-                        // Add all options into the popup text
+                        // Options are user input, so they are only ever added as text
                         const popup = document.createElement('div');
                         popup.classList.add('engine-options-popup');
-                        popup.innerHTML = cell.textContent.trim().replace(/\s+/g, '<br>');
+                        options.forEach((option, index) => {
+                            if (index) popup.appendChild(document.createElement('br'));
+                            popup.appendChild(document.createTextNode(option));
+                        });
 
                         // Prune text, and append popup
-                        cell.textContent = new_text;
+                        cell.textContent = [...summary, '...'].join(' ');
                         cell.appendChild(popup);
                     });
                 }
@@ -116,7 +120,10 @@
             <ul>
                 <li class="header">Admin</li>
                 {% if user.is_authenticated %}
-                    <li><a href="/logout/"><i class="fa-solid fa-right-from-bracket fa-fw"></i> Logout</a></li>
+                    <li>
+                        <form id="logout-form" class="logout-form" method="post" action="/logout/" hidden>{% csrf_token %}</form>
+                        <a href="/logout/" onclick="event.preventDefault(); document.getElementById('logout-form').submit();"><i class="fa-solid fa-right-from-bracket fa-fw"></i> Logout</a>
+                    </li>
                     <li><a href="/profile/"><i class="fa-solid fa-user fa-fw"></i> Profile</a></li>
                 {% else %}
                     <li><a href="/login"><i class="fa-solid fa-right-to-bracket fa-fw"></i> Login</a></li>

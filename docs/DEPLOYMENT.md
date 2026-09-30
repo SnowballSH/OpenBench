@@ -8,7 +8,7 @@ environment, so no secret or host name lives in the repository.
 | `OPENBENCH_SECRET_KEY` | yes, unless `OPENBENCH_DEBUG` | Django `SECRET_KEY`. |
 | `OPENBENCH_DEBUG` | no | `1`/`true`/`yes` enables `DEBUG` and a throwaway secret key. Never in production. |
 | `OPENBENCH_ALLOWED_HOSTS` | yes in production | Comma-separated host names. Each non-wildcard entry `h` also becomes the CSRF trusted origin `https://h`. |
-| `OPENBENCH_BEHIND_TLS_PROXY` | no | Trust `X-Forwarded-Proto: https` from the reverse proxy and mark session and CSRF cookies `Secure`. Set it only when a TLS proxy that overwrites that header is the sole ingress. |
+| `OPENBENCH_BEHIND_TLS_PROXY` | no | Trust `X-Forwarded-Proto: https` from the reverse proxy and mark session and CSRF cookies `Secure`. Set it only when a TLS proxy that overwrites that header is the sole ingress. It also makes the login throttle take the client address from the right-most `X-Forwarded-For` entry (see [SECURITY.md](SECURITY.md)). |
 | `OPENBENCH_SECRET_KEY_FILE` | no | Path of a file holding the key; takes precedence over `OPENBENCH_SECRET_KEY`. |
 | `OPENBENCH_DATA_DIR` | no | Directory holding `db.sqlite3`, `Media/`, and the PGN watcher lockfile. Defaults to the checkout. |
 | `OPENBENCH_UPLOAD_TEMP_DIR` | no | Where uploads larger than 2.5 MiB spool while they arrive. Defaults to the system temporary directory. |

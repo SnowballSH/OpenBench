@@ -74,18 +74,18 @@ def verify_engine_presets(presets):
 
 def verify_general_config(conf):
 
-    assert type(conf.get('client_version'  ) == int)
-    assert type(conf.get('client_repo_url' ) == str)
-    assert type(conf.get('client_repo_ref' ) == str)
+    assert type(conf.get('client_version'  )) == int
+    assert type(conf.get('client_repo_url' )) == str
+    assert type(conf.get('client_repo_ref' )) == str
 
-    assert type(conf.get('fastchess_min_version') == str)
-    assert type(conf.get('fastchess_repo_url') == str)
-    assert type(conf.get('fastchess_repo_ref') == str)
+    assert type(conf.get('fastchess_min_version')) == str
+    assert type(conf.get('fastchess_repo_url')) == str
+    assert type(conf.get('fastchess_repo_ref')) == str
 
-    assert type(conf.get('use_cross_approval'         ) == bool)
-    assert type(conf.get('require_login_to_view'      ) == bool)
-    assert type(conf.get('require_manual_registration') == bool)
-    assert type(conf.get('balance_engine_throughputs' ) == bool)
+    assert type(conf.get('use_cross_approval'         )) == bool
+    assert type(conf.get('require_login_to_view'      )) == bool
+    assert type(conf.get('require_manual_registration')) == bool
+    assert type(conf.get('balance_engine_throughputs' )) == bool
 
     # Serving of Networks and PGNs may be handed off to an nginx reverse proxy.
     # The root must match an "internal" nginx location, aliased to Media/. ie:

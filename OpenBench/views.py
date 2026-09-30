@@ -18,7 +18,7 @@
 #                                                                             #
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 
-import csv, io, os, json, secrets
+import csv, io, os, json, logging, secrets
 
 import django.http
 import django.shortcuts
@@ -37,6 +37,8 @@ from OpenBench.workloads.view_workload import view_workload, fetch_results, fetc
 from OpenBench.insights.api import workload_payload
 
 from OpenBench.config import OPENBENCH_CONFIG, OPENBENCH_STATIC_VERSION
+from OpenBench.security import throttle
+from OpenBench.security.fetch_metadata import is_cross_site
 from OpenSite.settings import PROJECT_PATH
 
 from OpenBench.models import *
@@ -54,6 +56,8 @@ from django.utils import timezone
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 #                              GENERAL UTILITIES                              #
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
+
+logger = logging.getLogger(__name__)
 
 ERROR_MESSAGES = {
     'disabled'            : 'Account has not been enabled. Contact an Administrator',
@@ -94,7 +98,7 @@ def render(request, template, content={}, always_allow=False, error=None, warnin
         request.session['error_message'] = error
 
     if warning:
-        request.session['warning_message'] = error
+        request.session['warning_message'] = warning
 
     if status:
         request.session['status_message'] = status
@@ -121,22 +125,32 @@ def redirect(request, destination, error=None, warning=None, status=None):
 
 def authenticate(request, requireEnabled=False):
 
-    try:
-        user = django.contrib.auth.authenticate(
-            username = request.POST['username'],
-            password = request.POST['password'])
+    # Credentials only ever come from the POST body, never from the session
 
-        if requireEnabled:
-            profile = OpenBench.models.Profile.objects.get(user=user)
-            if not profile.enabled: raise UnableToAuthenticate()
+    username = request.POST.get('username', '')
+    password = request.POST.get('password', '')
 
-    except Exception:
+    if not username or not password:
         raise UnableToAuthenticate()
 
+    if throttle.is_throttled(request, username):
+        logger.warning('Throttled login for username %r from %s on %r',
+            username[:150], throttle.client_ip(request), request.path)
+        raise throttle.LoginThrottled()
+
+    user = django.contrib.auth.authenticate(request, username=username, password=password)
+
+    if user and requireEnabled and not Profile.objects.filter(user=user, enabled=True).exists():
+        user = None
+
     if user is None:
+        logger.warning('Authentication failed for username %r from %s on %r',
+            username[:150], throttle.client_ip(request), request.path)
         raise UnableToAuthenticate()
 
     return user
+
+THROTTLED_MESSAGE = 'Too many failed logins. Try again later'
 
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 #                            ADMINISTRATIVE VIEWS                             #
@@ -144,10 +158,11 @@ def authenticate(request, requireEnabled=False):
 
 def register(request):
 
-    if request.method == 'GET':
-        if not OPENBENCH_CONFIG['require_manual_registration']:
-            return render(request, 'register.html', always_allow=True)
+    if OPENBENCH_CONFIG['require_manual_registration']:
         return redirect(request, '/login/', error=ERROR_MESSAGES['manual_registration'])
+
+    if request.method == 'GET':
+        return render(request, 'register.html', always_allow=True)
 
     if request.POST['password1'] != request.POST['password2']:
         return redirect(request, '/register/', error='Passwords do not match')
@@ -163,7 +178,7 @@ def register(request):
     password = request.POST['password1']
 
     user = User.objects.create_user(username, email, password)
-    django.contrib.auth.login(request, user)
+    django.contrib.auth.login(request, user, backend='django.contrib.auth.backends.ModelBackend')
     Profile.objects.create(user=user)
 
     return redirect(request, '/index/')
@@ -177,10 +192,17 @@ def login(request):
         django.contrib.auth.login(request, authenticate(request))
         return redirect(request, '/index/')
 
+    except throttle.LoginThrottled:
+        return redirect(request, '/login/', error=THROTTLED_MESSAGE)
+
     except UnableToAuthenticate:
         return redirect(request, '/login/', error='Unable to authenticate user')
 
 def logout(request):
+
+    # A GET must never end a session, or any page could log a user out
+    if request.method != 'POST':
+        return redirect(request, '/index/')
 
     django.contrib.auth.logout(request)
     return redirect(request, '/index/', status='Logged out')
@@ -208,7 +230,7 @@ def profile(request):
     if request.POST['password1']:
         request.user.set_password(request.POST['password1'])
         request.user.save()
-        django.contrib.auth.login(request, request.user)
+        django.contrib.auth.update_session_auth_hash(request, request.user)
         changes_message += '\nUpdated password'
 
     return redirect(request, '/profile/', status=changes_message.removeprefix('\n'))
@@ -219,7 +241,7 @@ def profile_config(request):
         return redirect(request, '/login/')
 
     if not (profile := Profile.objects.filter(user=request.user).first()):
-        return redirect(request, 'index')
+        return redirect(request, '/index/')
 
     if request.method == 'GET':
         return render(request, 'profile.html')
@@ -502,6 +524,8 @@ def machines(request, pk=None):
 def workload(request, workload_type, pk, action=None):
 
     if action != None:
+        if is_cross_site(request):
+            return redirect(request, '/index/', error='Workload actions must be made from OpenBench itself')
         return modify_workload(request, pk, action)
 
     if not (workload := Test.objects.select_related('spsa_run').filter(id=int(pk)).first()):
@@ -540,6 +564,10 @@ def networks(request, engine=None, action=None, name=None, client=False):
     # Require approver credentials, unless downloading as a client
     if not client and not Profile.objects.get(user=request.user).approver:
         return django.http.HttpResponseRedirect('/index/')
+
+    # Changes are made by plain links, so refuse any a foreign site could trigger
+    if action.upper() in ['DEFAULT', 'DELETE'] and is_cross_site(request):
+        return redirect(request, '/networks/', error='Network changes must be made from OpenBench itself')
 
     # Split out Uploads, since there is no logic to disambiguate the name
     if action.upper() == 'UPLOAD':
@@ -675,15 +703,24 @@ def manage_engines(request, name=None, action=None):
 @csrf_exempt
 def scripts(request):
 
-    login(request) # All requests are attached to a User
+    # Exempt from CSRF, so the request must carry its own credentials
+    try: user = authenticate(request, requireEnabled=True)
+    except throttle.LoginThrottled:
+        return redirect(request, '/login/', error=THROTTLED_MESSAGE)
+    except UnableToAuthenticate:
+        return redirect(request, '/login/', error='Unable to authenticate user')
 
-    if request.POST['action'] == 'UPLOAD_NETWORK':
+    django.contrib.auth.login(request, user)
+
+    if request.POST.get('action') == 'UPLOAD_NETWORK':
         engine = request.POST['engine']
         name   = request.POST['name']
         return networks(request, engine, 'upload', name)
 
-    if request.POST['action'] == 'CREATE_TEST':
+    if request.POST.get('action') == 'CREATE_TEST':
         return new_workload(request, "TEST")
+
+    return redirect(request, '/index/', error='Unknown scripts action')
 
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 #                              CLIENT HOOK VIEWS                              #
@@ -707,13 +744,21 @@ def verify_worker(function):
             return JsonResponse({ 'error' : 'Bad Client Version: Server Configuration Changed' })
 
         # Use the secret token as our soft verification
-        if machine.secret != args[0].POST['secret']:
+        if not secrets.compare_digest(machine.secret.encode(), args[0].POST.get('secret', '').encode()):
             return JsonResponse({ 'error' : 'Bad Client Version: Invalid Secret Token' })
 
         # Otherwise, carry on, and pass along the machine
         return function(*args, machine)
 
     return wrapped_verify_worker
+
+NOT_ASSIGNED = { 'error' : 'Workload is not assigned to this Machine' }
+
+def is_assigned(machine, test_id, result_id=None):
+
+    # A Result row exists for each (Test, Machine) pair the Machine was given
+    results = Result.objects.filter(machine=machine, test_id=test_id)
+    return results.filter(id=result_id).exists() if result_id is not None else results.exists()
 
 @csrf_exempt
 def client_version_ref(request):
@@ -750,6 +795,8 @@ def client_worker_info(request):
 
     # Verify the User's credentials
     try: user = authenticate(request, True)
+    except throttle.LoginThrottled:
+        return JsonResponse({ 'error' : THROTTLED_MESSAGE })
     except UnableToAuthenticate:
         return JsonResponse({ 'error' : 'Bad Credentials' })
 
@@ -812,6 +859,7 @@ def client_get_network(request, engine, name):
 
     # Verify the User's credentials
     try: django.contrib.auth.login(request, authenticate(request, True))
+    except throttle.LoginThrottled: return HttpResponse(THROTTLED_MESSAGE, status=429)
     except UnableToAuthenticate: return HttpResponse('Bad Credentials')
 
     # Return the requested Neural Network file for the Client
@@ -825,6 +873,9 @@ def client_get_workload(request, machine):
 @csrf_exempt
 @verify_worker
 def client_bench_error(request, machine):
+
+    if not is_assigned(machine, int(request.POST['test_id'])):
+        return JsonResponse(NOT_ASSIGNED)
 
     # Find and stop the test with the bad bench
     test = Test.objects.get(id=int(request.POST['test_id']))
@@ -860,6 +911,9 @@ def client_submit_error(request, machine):
     # Report an error when working on test. This could be one three kinds.
     # 1. Error building the engine. Does not compile, for whatever reason.
     # 2. Error during actual gameplay. Timeloss, Disconnect, Crash, etc.
+
+    if not is_assigned(machine, int(request.POST['test_id'])):
+        return JsonResponse(NOT_ASSIGNED)
 
     # Log the Error into the Events table
     event = LogEvent.objects.create(
@@ -897,9 +951,12 @@ def client_heartbeat(request, machine):
 
 @csrf_exempt
 @verify_worker
-def client_submit_nps_stats(request, _):
+def client_submit_nps_stats(request, machine):
 
     result_id = int(request.POST['result_id'])
+
+    if not is_assigned(machine, int(request.POST['test_id']), result_id):
+        return JsonResponse(NOT_ASSIGNED)
 
     # No risk from concurrent access
     Result.objects.filter(id=result_id).update(
@@ -917,6 +974,9 @@ def client_submit_nps_stats(request, _):
 @csrf_exempt
 @verify_worker
 def client_submit_pgn(request, machine):
+
+    if not is_assigned(machine, int(request.POST['test_id']), int(request.POST['result_id'])):
+        return JsonResponse(NOT_ASSIGNED)
 
     with transaction.atomic():
 
@@ -939,31 +999,26 @@ def client_submit_pgn(request, machine):
 def api_response(data, status=200):
     return HttpResponse(json.dumps(data, indent=4), content_type='application/json', status=status)
 
+def api_user(request):
+
+    # The enabled User behind an API request, from the browser session or else
+    # from credentials in the POST body. None if there is no such User. Raises
+    # LoginThrottled, which LoginThrottleMiddleware turns into a 429
+
+    if request.user.is_authenticated:
+        return request.user if Profile.objects.filter(user=request.user, enabled=True).exists() else None
+
+    try: return authenticate(request, requireEnabled=True)
+    except UnableToAuthenticate: return None
+
 @csrf_exempt
 def api_authenticate(request, require_enabled=False):
 
-    try:
+    # Force requiring an enabled user when require_login_to_view is set
+    require_enabled = require_enabled or OPENBENCH_CONFIG['require_login_to_view']
 
-        # Force requiring an enabled user when require_login_to_view is set
-        require_enabled = require_enabled or OPENBENCH_CONFIG['require_login_to_view']
-
-        # Don't require a login for Public frameworks
-        if not require_enabled:
-            return True
-
-        # Request is made from a browser, and is already logged in
-        if request.user.is_authenticated:
-            return Profile.objects.get(user=request.user).enabled
-
-        # Request might be made from the command line. Check the headers
-        user = django.contrib.auth.authenticate(
-            username=request.POST['username'], password=request.POST['password'])
-        return Profile.objects.get(user=user).enabled
-
-    except Exception:
-        import traceback
-        traceback.print_exc()
-        return False
+    # Don't require a login for Public frameworks
+    return not require_enabled or api_user(request) is not None
 
 ACTIVE_INFO_TYPES = {
     'concurrency'    : int,
@@ -1067,9 +1122,7 @@ def api_networks(request, engine):
 @csrf_exempt
 def api_network_download(request, engine, identifier):
 
-    if not api_authenticate(request):
-        return api_response({ 'error' : 'API requires authentication for this server' })
-
+    # Checked once, so a bad password counts as a single failure
     if not api_authenticate(request, require_enabled=True):
         return api_response({ 'error' : 'API requires authentication for this endpoint' })
 
@@ -1084,11 +1137,16 @@ def api_network_download(request, engine, identifier):
 @csrf_exempt
 def api_network_delete(request, engine, identifier):
 
-    if not api_authenticate(request):
-        return api_response({ 'error' : 'API requires authentication for this server' })
+    if request.method != 'POST':
+        return api_response({ 'error' : 'POST required' }, status=405)
 
-    if not api_authenticate(request, require_enabled=True):
-        return api_response({ 'error' : 'API requires authentication for this endpoint' })
+    # Exempt from CSRF, so refuse a foreign page riding on a browser session
+    if is_cross_site(request):
+        return api_response({ 'error' : 'Cross-site requests are refused' }, status=403)
+
+    # Matches the website, where only Approvers may delete Networks
+    if not (user := api_user(request)) or not Profile.objects.filter(user=user, approver=True).exists():
+        return api_response({ 'error' : 'Only Approvers may delete Networks' })
 
     if not (network := OpenBench.utils.network_disambiguate(engine, identifier)):
         return api_response({ 'error' : 'Network %s for Engine %s not found' % (identifier, engine) })
