@@ -344,7 +344,7 @@ def verify_spsa_distribution_type(errors, request, field, field_name):
     except: errors.append('%s must be in %s' % (field_name, ', '.join(candidates)))
 
 def verify_upload_pgns(errors, request, field, field_name):
-    try: request.POST[field] in ['FALSE', 'COMPACT', 'VERBOSE']
+    try: assert request.POST[field] in ['FALSE', 'COMPACT', 'VERBOSE']
     except: errors.append('"%s" must be FALSE, COMPACT, or VERBOSE' % (field_name))
 
 def verify_datagen_games(errors, request, field):
