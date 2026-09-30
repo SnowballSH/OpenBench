@@ -330,6 +330,39 @@ each, and computes one Elo interval per history point (about 25 ms for 150
 points; `OpenBench.stats.Elo` dominates). The server endpoint runs a fixed
 number of aggregate queries.
 
+## Where it shows
+
+- **Workload page** (`Templates/OpenBench/workload.html`, `OpenBench/static/insights.js`):
+  an Insights section below the configuration and actions and above the
+  SPSA parameters, result summary and individual results. The configuration and
+  stat block say what the workload is and where it stands; the insights explain
+  how it got there; the raw tables stay last. The script fetches
+  `/api/workload/<id>/insights/` once on load, then every 60 s while the
+  Workload is `active`, skipping ticks while the tab is hidden and refreshing
+  as soon as it is visible again. A failed fetch shows an inline banner and
+  keeps the last good render.
+  - Progress tiles: elapsed, games (with the fraction of `target_games` when
+    there is one), games per hour (recent window and overall), and time left.
+    For SPRT the time left is labelled an estimate and prefixed with `≈`;
+    `completes_at` is shown in local time.
+  - Strength tiles, when `strength` is not null and games were played: LLR
+    position between the bounds (SPRT), Elo and normalized Elo with their 95%
+    intervals, LOS, draw ratio.
+  - Charts from `history.points`: LLR against games with both bounds (SPRT),
+    Elo with its 95% band against games (not SPSA), and cumulative games
+    against elapsed time with the target line where there is one. Fewer than
+    two points show a single notice instead.
+  - Contributions: per-CPU and per-machine tables with a share bar, games,
+    pairs per hour and Elo (not SPSA).
+- **Index** (`Templates/OpenBench/index.html`): a strip of server tiles from
+  `/api/insights/server/` (machines online with threads and MNPS, active and
+  pending workloads, games in the last 24 h, Workloads finished in 7 days and
+  the SPRT pass rate). It is hidden when the endpoint refuses the viewer. Active
+  rows also carry a thin bar under the stat block, from the `workload_progress`
+  template filter: the LLR's position between the SPRT bounds, or games over
+  `max_games` for GAMES and DATAGEN. It reads only the Test's fields; SPSA rows
+  have none, since their stat block already states iterations.
+
 ## Demo data
 
 `seed_demo` gives every seeded Workload with games a 150-point history between

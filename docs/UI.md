@@ -81,6 +81,20 @@ without relying on fill alone.
   of `.stat-tile`, each with `.stat-label`, `.stat-value` and optional
   `.stat-meta`; `.stat-tile-{pass,fail,warn,info}` colours its top edge.
 - **Badges**: `.badge` with `.badge-{pass,fail,warn,info,accent}`.
+- **Insights** (built by `insights.js`, see below): `.insights` is the workload
+  page section; `.insights-group` titles a `.stat-tiles` row; `.insight-meter`
+  sits at the foot of a tile, `-fill` for progress towards a target and
+  `-position` for a marker between two bounds (the LLR), both driven by a
+  `--fraction` custom property from 0 to 1. `.chart-card` is a `<figure>` card
+  holding `.chart-caption`, a fixed-height `.chart-box` for the canvas and a
+  `.chart-empty` fallback; `.insights-empty` is a full-width dashed notice.
+  `.contribution-table` is a full-width `.table-wrap` with a caption, and
+  `.share-bar` a small horizontal bar set by `--share`. `.insights-error` is
+  the inline failure banner.
+- **Server strip**: `.server-stats` is the compact tile grid at the top of the
+  index. `.row-progress` (`-games` fill or `-llr` marker, `--fraction`) is the
+  thin bar under an active row's stat block, rendered by the `workload_progress`
+  template filter from the Test's own fields, with no extra queries.
 - **Banners**: `.error-message`, `.warning-message`, `.status-message` render
   the session messages in `base.html`.
 - **Small pieces**: `.flag-*` for the test-list markers, `.icon-ok`,
@@ -102,3 +116,48 @@ without relying on fill alone.
   the toggle.
 - The layout breakpoints are 1024px (single-column forms and workload view)
   and 767px (off-canvas sidebar). Check pages at 375px and in both themes.
+
+## Charts
+
+Charts use Chart.js, vendored so the site loads no new third-party origin:
+
+| Item | Value |
+| --- | --- |
+| Library | Chart.js 4.5.1, UMD build, MIT licence |
+| File | `OpenBench/static/vendor/chartjs-4.5.1/chart.umd.min.js`, with `LICENSE.md` beside it |
+| Source | `https://registry.npmjs.org/chart.js/-/chart.js-4.5.1.tgz`, `package/dist/chart.umd.min.js` |
+| Tarball integrity | `sha512-GIjfiT9dbmHRiYi6Nl2yFCq7kkwdkp1W/lp2J99rX0yo9tgJGn3lKQATztIjb5tVtevcBtIdICNWqlq5+E8/Pw==` (as published by npm) |
+| File sha256 | `48444a82d4edcb5bec0f1965faacdde18d9c17db3063d042abada2f705c9f54a` |
+| File sha512 | matches the cdnjs SRI for `Chart.js/4.5.1/chart.umd.min.js` |
+
+The file is byte-identical to the release; its trailing `sourceMappingURL`
+names a map that is not vendored, which only matters with developer tools open.
+The versioned directory is the cache key, so it needs no `static_version`
+query. To upgrade, vendor the new release into a new `chartjs-<version>`
+directory, re-verify both hashes, update this table and the `<script>` in
+`workload.html`, and delete the old directory.
+
+No date adapter or plugin is used. Strength and LLR charts plot against games
+on a linear axis; the throughput chart plots cumulative games against elapsed
+seconds, with duration ticks on round steps. Timestamps appear in tooltips.
+`insights.js` adds two small inline plugins: labelled horizontal reference
+lines (SPRT bounds, zero, a games target) and a vertical crosshair.
+
+Rules the charts follow:
+
+- Colours come from the tokens, read with `getComputedStyle` at render time:
+  `--series-1` for the data, `--chart-grid`, `--chart-axis`, `--text-muted`
+  for chrome, `--pass` / `--fail` for the SPRT bound lines (always labelled).
+  A `MutationObserver` on `data-theme` and a `prefers-color-scheme` listener
+  re-render every chart when the theme changes.
+- `prefers-reduced-motion: reduce` turns animation off; refreshes never
+  animate.
+- One series per chart, so no legend; the card title names it. The Elo chart
+  draws the 95% interval as a 14% wash of the series colour. Its y range is
+  fitted to the interval from 10% of the games onwards, so the very wide first
+  points are clipped rather than flattening the rest; the tooltip still shows
+  their values.
+- Every canvas has `role="img"` and an `aria-label` stating the latest value.
+- The `--series-1` to `--series-4` values were re-stepped for this feature and
+  pass the categorical palette checks (lightness band, chroma, colour-vision
+  separation, 3:1 contrast) against `--surface` in both themes.
