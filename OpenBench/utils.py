@@ -221,9 +221,12 @@ def getMachineStatus(username=None):
 
 def getPaging(content, page, url, pagelen=25):
 
-    start = max(0, pagelen * (page - 1))
-    end   = min(content.count(), pagelen * page)
-    count = 1 + math.ceil(content.count() / pagelen)
+    total = content.count()
+    count = 1 + math.ceil(total / pagelen)
+    page  = max(1, min(page, count - 1))
+
+    start = pagelen * (page - 1)
+    end   = min(total, pagelen * page)
 
     part1 = list(range(1, min(4, count)))
     part2 = list(range(page - 2, page + 1))
