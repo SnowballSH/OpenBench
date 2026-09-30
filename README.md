@@ -9,4 +9,4 @@ You can join OpenBench's [Discord server](https://discord.com/invite/9MVg7fBTpM)
 
 Documentation for OpenBench is available in the [Wiki](https://github.com/AndyGrant/OpenBench/wiki)
 
-This fork documents its own behaviour in [`docs/`](docs/); its HTTP API for scripts is in [docs/API.md](docs/API.md).
+This fork documents its own behaviour in [`docs/`](docs/); its HTTP API for scripts is in [docs/API.md](docs/API.md), and linting, tests and the fork-owned boundary are in [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).

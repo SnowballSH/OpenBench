@@ -19,35 +19,51 @@ OPENBENCH_SECRET_KEY=test python manage.py test OpenBench
 
 CI runs [`.github/scripts/lint.sh`](../.github/scripts/lint.sh) with ruff at
 the version pinned by `required-version` in `pyproject.toml`; any other ruff
-version refuses to run. Locally:
+version refuses to run. The script runs three checks:
+
+1. `ruff check` with the full rule set in `pyproject.toml` over the
+   fork-owned paths.
+2. `ruff format --check --diff` over the same paths.
+3. `ruff check` with only the bug-catching rules (`F821`, `F811`, `F632`,
+   `F704`, `F706`, `F823`) over the whole server: `OpenBench/`, `OpenSite/`
+   and `manage.py`.
+
+Run it locally without installing ruff, or with ruff 0.16.9 installed:
 
 ```bash
-uv tool install ruff@0.16.9
+uvx --from ruff==0.16.9 bash .github/scripts/lint.sh
 .github/scripts/lint.sh
-ruff format OpenBench/insights OpenBench/security \
-    OpenBench/management/commands/seed_demo.py OpenBench/tests
 ```
 
+To fix findings, run `ruff check --fix` and `ruff format` on the fork-owned
+files you changed; never on upstream-owned files.
+
 The script is the one place that lists the fork-owned paths. When you add a
-fork-owned module outside them, add it there.
+fork-owned module outside them, add it there and to the list below.
 
 ## Fork-owned and upstream-owned code
 
 This is a fork of [AndyGrant/OpenBench](https://github.com/AndyGrant/OpenBench),
 and upstream changes are merged in periodically.
 
-- **Fork-owned**: `OpenBench/insights/`, `OpenBench/security/`,
+- **Fork-owned**: `OpenBench/fleet/`, `OpenBench/insights/`,
+  `OpenBench/progress/`, `OpenBench/security/`, `OpenBench/storage/`,
+  `OpenBench/page_queries.py`, `OpenBench/workloads/clone.py`,
   `OpenBench/management/commands/seed_demo.py` and `OpenBench/tests/`. These
   are held to the full rule set in `pyproject.toml` and to `ruff format`.
 - **Upstream-owned**: everything else, including `OpenBench/views.py`,
-  `OpenBench/utils.py`, `OpenBench/workloads/`, `OpenBench/templatetags/`,
-  `Client/` and `Scripts/`. Restyling these would turn every upstream merge
-  into a conflict, so they keep upstream's style and receive only the edits a
-  feature needs. They are checked for undefined names, redefinitions and
-  similar bugs only (`F821`, `F811`, `F632`, `F704`, `F706`, `F823`).
+  `OpenBench/utils.py`, `OpenBench/workloads/` apart from `clone.py`,
+  `OpenBench/templatetags/`, `Client/` and `Scripts/`. Restyling these would
+  turn every upstream merge into a conflict, so they keep upstream's style and
+  receive only the edits a feature needs. They are checked by the
+  bug-catching rules only.
 
 ## Feature notes
 
+- [API.md](API.md): the JSON API, the `/scripts/` endpoint and `/health/`.
+- [WORKLOADS.md](WORKLOADS.md): creating tests, tunes and datagen sessions.
+- [PERFORMANCE.md](PERFORMANCE.md): per-page query budgets and the tests that
+  pin them.
 - [INSIGHTS.md](INSIGHTS.md): workload progress, throughput and strength
   statistics.
 - [SECURITY.md](SECURITY.md): operator-visible security behaviour.
