@@ -117,9 +117,10 @@ function append_summary_section(table, label, rows, key_formatter) {
     const header = document.createElement('tr');
     header.className = 'table-header';
     header.appendChild(summary_cell('th', label));
+    header.appendChild(summary_cell('th', 'Penta'));
 
-    ['Penta', ...(has_elo ? ['Elo'] : []), 'Pairs', '%'].forEach(name => {
-        header.appendChild(summary_cell('th', name));
+    [...(has_elo ? ['Elo'] : []), 'Pairs', '%'].forEach(name => {
+        header.appendChild(summary_cell('th', name, 'numeric'));
     });
 
     if (is_nps_available) {

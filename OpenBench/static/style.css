@@ -987,10 +987,6 @@ td pre {
     font-size: var(--text-sm);
 }
 
-.summary-table th:nth-child(n + 3):nth-child(-n + 5) {
-    text-align: right;
-}
-
 .test-config td {
     padding-block: 0.4375rem;
 }
