@@ -334,9 +334,16 @@ Content-Disposition: attachment; filename=66174A29
 <file bytes>
 ```
 
-The filename is the network's `sha256`, not its name. A network's content
-never changes under its SHA, so the browser may keep it for a week; shared
-caches may not, since the download needs a login. When the server sets
+The example is a download by SHA. The filename is always the network's
+`sha256`, not its name.
+
+Caching depends on how the URL names the network. A SHA always names the
+same bytes, so a download by SHA may be kept by the browser for a week (shared
+caches may not, since it needs a login). A name can be moved to other bytes by
+renaming or re-uploading, so a download by name is sent with
+`Cache-Control: max-age=0, no-cache, no-store, must-revalidate, private` and
+is never cached. Scripts that download repeatedly should use the SHA from
+`/api/networks/<engine>/`. When the server sets
 `use_x_accel_redirect`, the body is served by the reverse proxy and the
 response carries `X-Accel-Redirect` instead; the client sees the same result.
 
@@ -375,7 +382,8 @@ the network can no longer fetch it.
 | Default or previous default network | 409 | `{"error": "You may not delete Default, or previous Default networks"}` |
 | Throttled | 429 | `{"error": "Too many failed logins"}` |
 
-`Scripts/delete_networks.py` uses this endpoint.
+`Scripts/delete_networks.py` uses this endpoint, addressing each network by
+its SHA so a name that matches another network's SHA cannot misdirect it.
 
 ## Workloads
 
