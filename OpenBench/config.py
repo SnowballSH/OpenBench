@@ -23,7 +23,7 @@ import os
 
 from OpenSite.settings import PROJECT_PATH
 
-OPENBENCH_STATIC_VERSION = 'v24'
+OPENBENCH_STATIC_VERSION = 'v25'
 
 OPENBENCH_CONFIG = None # Initialized by OpenBench/apps.py
 

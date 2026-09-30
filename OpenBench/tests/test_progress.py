@@ -1,9 +1,7 @@
 import re
 from datetime import UTC, date, datetime, timedelta
-from pathlib import Path
 from unittest import mock
 
-from django.conf import settings
 from django.core.cache import cache
 from django.db import connection
 from django.db.models.functions import TruncDate
@@ -517,15 +515,6 @@ class ProgressViewTests(TestCase):
         with CaptureQueriesContext(connection) as queries:
             self.assertEqual(self.client.get("/progress/").status_code, 200)
         return len(queries)
-
-    def test_templates_are_csp_ready(self):
-        for name in ("progress.html", "Blocks/progress_shares.html"):
-            text = (
-                Path(settings.BASE_DIR) / "Templates" / "OpenBench" / name
-            ).read_text()
-            self.assertNotRegex(text, r"<script(?![^>]*\bsrc=)", name)
-            self.assertNotRegex(text, r"\son[a-z]+\s*=", name)
-            self.assertNotIn("style=", text, name)
 
     def test_api_requires_authentication(self):
         response = self.client.get("/api/progress/")

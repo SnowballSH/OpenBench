@@ -368,13 +368,6 @@
         return island ? JSON.parse(island.textContent) : null;
     }
 
-    function fill_share_bars(root) {
-        root.querySelectorAll('.share-bar[data-share]').forEach(bar => {
-            const share = Number(bar.dataset.share);
-            bar.style.setProperty('--share', is_number(share) ? String(Math.min(1, Math.max(0, share))) : '0');
-        });
-    }
-
     function wire_engine_form(root) {
         const form = root.querySelector('[data-progress-engine-form]');
         if (!form) return;
@@ -390,7 +383,6 @@
     }
 
     function init(root) {
-        fill_share_bars(root);
         wire_engine_form(root);
 
         const report = read_report();

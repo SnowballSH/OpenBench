@@ -614,18 +614,20 @@ server can hold thousands of greens, so `greens` carries only the newest 500
 (every one of them is still in the summary and the sum) and `elo_steps` is
 thinned to at most 500 points: with more greens than that, it keeps evenly
 spaced greens by rank, always the first and the last, each with its exact
-running sum, so the line keeps its shape at a coarser step. The page embeds this same
-object (without the `progress` wrapper) as a `json_script` data island.
+running sum, so the line keeps its shape at a coarser step. The page embeds
+this same object (without the `progress` wrapper) as a `json_script` data island.
 
 ### The page
 
 `Templates/OpenBench/progress.html` renders the tiles and every table on the
 server; `OpenBench/static/progress.js` only draws the charts from the data
-island, sets the share bars' `--share` from their `data-share` attribute, and
-submits the engine form when the selection changes (its button stays for
-visitors without scripts). The template has no inline script other than the
-data island, no inline event handler and no `style` attribute, so it works
-under a strict Content-Security-Policy.
+island and submits the engine form when the selection changes (its button
+stays for visitors without scripts). The share bars carry `data-share`, which
+`site.js` copies into `--share` like every other page. The page follows the
+site's Content-Security-Policy (`docs/SECURITY.md`): its only inline `<script>`
+is the `application/json` data island, which is never executed, and it has no
+inline event handler or `style` attribute. `OpenBench/tests/test_csp.py` scans
+the template and the rendered `/progress/` pages.
 
 - **Cumulative Elo from greens**: a stepped line over time from `elo_steps`
   (linear axis in milliseconds with ticks on UTC day multiples), one marker per
