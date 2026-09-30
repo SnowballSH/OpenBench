@@ -2,21 +2,21 @@ from django.test import SimpleTestCase
 
 from OpenBench.utils import getPaging
 
-class Content:
 
+class Content:
     def __init__(self, total):
         self.total = total
 
     def count(self):
         return self.total
 
-class PagingTests(SimpleTestCase):
 
+class PagingTests(SimpleTestCase):
     def paging(self, total, page):
         return getPaging(Content(total), page, 'index')
 
     def test_nothing_to_page(self):
-        self.assertEqual(self.paging(0, 1), (0, 0, { 'url' : 'index', 'page' : 1, 'pages' : [], 'prev' : 1, 'next' : 1 }))
+        self.assertEqual(self.paging(0, 1), (0, 0, {'url': 'index', 'page': 1, 'pages': [], 'prev': 1, 'next': 1}))
 
     def test_single_page(self):
         start, end, context = self.paging(25, 1)

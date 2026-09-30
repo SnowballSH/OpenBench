@@ -4,18 +4,29 @@ from django.test import TestCase
 
 from OpenBench.models import Machine, Result
 from OpenBench.tests.fixtures import (
-    create_engine_config, create_test, create_user, credentials, ensure_book, register_payload, system_info)
+    create_engine_config,
+    create_test,
+    create_user,
+    credentials,
+    ensure_book,
+    register_payload,
+    system_info,
+)
+
 
 class ApiActiveTests(TestCase):
-
     def setUp(self):
         create_engine_config()
         ensure_book()
         self.worker = create_user('lab-worker')
-        self.admin  = create_user('admin', approver=True)
+        self.admin = create_user('admin', approver=True)
 
     def active(self, blacklist=(), user=None, **info):
-        payload = { **credentials(user or self.worker), 'system_info' : json.dumps(system_info(**info)), 'blacklist' : list(blacklist) }
+        payload = {
+            **credentials(user or self.worker),
+            'system_info': json.dumps(system_info(**info)),
+            'blacklist': list(blacklist),
+        }
         return self.client.post('/api/active/', payload)
 
     def assignable(self, **kwargs):
@@ -25,11 +36,11 @@ class ApiActiveTests(TestCase):
 
     def assigned(self, blacklist=(), **info):
         session = self.client.post('/clientWorkerInfo/', register_payload(self.worker, **info)).json()
-        payload = { 'machine_id' : session['machine_id'], 'secret' : session['secret'], 'blacklist' : list(blacklist) }
+        payload = {'machine_id': session['machine_id'], 'secret': session['secret'], 'blacklist': list(blacklist)}
         return self.client.post('/clientGetWorkload/', payload).json().get('workload', {}).get('test', {}).get('id')
 
     def test_matches_assignment_for_one_and_four_thread_tests(self):
-        one  = create_test(self.admin, threads=1)
+        one = create_test(self.admin, threads=1)
         four = create_test(self.admin, threads=4)
 
         self.assertEqual(self.assignable(concurrency=2, physical_cores=2), 1)
@@ -44,11 +55,11 @@ class ApiActiveTests(TestCase):
     def test_agrees_with_assignment_across_machines(self):
         create_test(self.admin, threads=4)
         machines = [
-            { 'concurrency' : 1, 'physical_cores' : 1 },
-            { 'concurrency' : 4, 'physical_cores' : 4 },
-            { 'concurrency' : 4, 'physical_cores' : 4, 'cpu_flags' : () },
-            { 'concurrency' : 4, 'physical_cores' : 4, 'os_name' : 'Windows' },
-            { 'concurrency' : 4, 'physical_cores' : 4, 'engines' : () },
+            {'concurrency': 1, 'physical_cores': 1},
+            {'concurrency': 4, 'physical_cores': 4},
+            {'concurrency': 4, 'physical_cores': 4, 'cpu_flags': ()},
+            {'concurrency': 4, 'physical_cores': 4, 'os_name': 'Windows'},
+            {'concurrency': 4, 'physical_cores': 4, 'engines': ()},
         ]
         for info in machines:
             with self.subTest(info=info):
@@ -75,7 +86,7 @@ class ApiActiveTests(TestCase):
         disabled = create_user('disabled', enabled=False)
         self.assertEqual(self.active(user=disabled).status_code, 401)
 
-        payload = { 'username' : 'lab-worker', 'password' : 'wrong', 'system_info' : json.dumps(system_info()) }
+        payload = {'username': 'lab-worker', 'password': 'wrong', 'system_info': json.dumps(system_info())}
         self.assertEqual(self.client.post('/api/active/', payload).status_code, 401)
 
     def test_rejects_malformed_input(self):
@@ -84,7 +95,7 @@ class ApiActiveTests(TestCase):
         self.assertEqual(self.active(blacklist=['1; DROP']).status_code, 400)
         self.assertEqual(self.active(focus='Avalanche').status_code, 400)
 
-        missing = { **credentials(self.worker), 'system_info' : json.dumps({ 'concurrency' : 4 }) }
+        missing = {**credentials(self.worker), 'system_info': json.dumps({'concurrency': 4})}
         self.assertEqual(self.client.post('/api/active/', missing).status_code, 400)
         self.assertEqual(self.client.post('/api/active/', credentials(self.worker)).status_code, 400)
 

@@ -4,8 +4,8 @@ from django.test import SimpleTestCase
 
 from OpenBench.utils import TimeControl, workload_uses_time_based_tc
 
-class ParseTests(SimpleTestCase):
 
+class ParseTests(SimpleTestCase):
     def assertParses(self, text, expected):
         self.assertEqual(TimeControl.parse(text), expected, text)
 
@@ -56,8 +56,8 @@ class ParseTests(SimpleTestCase):
             self.assertRejected(text)
         self.assertParses('0.05+0.005', '0.1+0.01')
 
-class ControlTypeTests(SimpleTestCase):
 
+class ControlTypeTests(SimpleTestCase):
     def test_types(self):
         self.assertEqual(TimeControl.control_type('N=25000'), TimeControl.FIXED_NODES)
         self.assertEqual(TimeControl.control_type('D=12'), TimeControl.FIXED_DEPTH)
@@ -70,8 +70,8 @@ class ControlTypeTests(SimpleTestCase):
         self.assertEqual(TimeControl.control_base('8.0+0.08'), 8.0)
         self.assertEqual(TimeControl.control_base('40/60.0+0.60'), 60.0)
 
-class TimeBasedTests(SimpleTestCase):
 
+class TimeBasedTests(SimpleTestCase):
     def workload(self, dev, base, upload_pgns='FALSE'):
         return SimpleNamespace(dev_time_control=dev, base_time_control=base, upload_pgns=upload_pgns)
 

@@ -1,6 +1,7 @@
 from django.http import HttpRequest
 
-TRUSTED_FETCH_SITES = frozenset({ 'same-origin', 'none' })
+TRUSTED_FETCH_SITES = frozenset({'same-origin', 'none'})
+
 
 def is_cross_site(request: HttpRequest) -> bool:
 

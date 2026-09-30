@@ -36,9 +36,7 @@ def latest(moments: Iterable[datetime | None]) -> datetime | None:
     return max((moment for moment in moments if moment is not None), default=None)
 
 
-def user_row(
-    profile: Profile, machines: MachineStats, last_test: datetime | None, now: datetime
-) -> UserRow:
+def user_row(profile: Profile, machines: MachineStats, last_test: datetime | None, now: datetime) -> UserRow:
     last_activity = latest((machines.last_heartbeat, last_test))
     return UserRow(
         username=profile.user.username,
@@ -57,50 +55,29 @@ def load_machine_stats(now: datetime) -> dict[int, MachineStats]:
     online = online_since(now)
     rows = (
         Machine.objects.order_by()
-        .values("user_id")
+        .values('user_id')
         .annotate(
-            online=Count("id", filter=online),
+            online=Count('id', filter=online),
             threads=Sum(threads_of(), filter=online),
-            last_heartbeat=Max("updated"),
+            last_heartbeat=Max('updated'),
         )
     )
-    return {
-        row["user_id"]: MachineStats(
-            row["online"], row["threads"] or 0, row["last_heartbeat"]
-        )
-        for row in rows
-    }
+    return {row['user_id']: MachineStats(row['online'], row['threads'] or 0, row['last_heartbeat']) for row in rows}
 
 
 def load_listed_profiles(online_owners: Collection[int]) -> list[Profile]:
-    listed = (
-        Q(games__gt=0)
-        | Q(tests__gt=0)
-        | Q(approver=True)
-        | Q(user_id__in=online_owners)
-    )
-    return list(
-        Profile.objects.select_related("user")
-        .filter(listed)
-        .order_by("-games", "-tests", "user__username")
-    )
+    listed = Q(games__gt=0) | Q(tests__gt=0) | Q(approver=True) | Q(user_id__in=online_owners)
+    return list(Profile.objects.select_related('user').filter(listed).order_by('-games', '-tests', 'user__username'))
 
 
 def load_latest_tests(usernames: Collection[str]) -> dict[str, datetime]:
-    rows = (
-        Test.objects.filter(author__in=usernames)
-        .order_by()
-        .values("author")
-        .annotate(latest=Max("creation"))
-    )
-    return {row["author"]: row["latest"] for row in rows}
+    rows = Test.objects.filter(author__in=usernames).order_by().values('author').annotate(latest=Max('creation'))
+    return {row['author']: row['latest'] for row in rows}
 
 
 def load_user_rows(now: datetime) -> list[UserRow]:
     machines = load_machine_stats(now)
-    profiles = load_listed_profiles(
-        [user for user, stats in machines.items() if stats.online]
-    )
+    profiles = load_listed_profiles([user for user, stats in machines.items() if stats.online])
     tests = load_latest_tests([profile.user.username for profile in profiles])
 
     return [

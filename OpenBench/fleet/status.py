@@ -4,18 +4,18 @@ from typing import Any, Self
 
 from OpenBench.insights.server import ACTIVE_MACHINE
 
-UNKNOWN = "Unknown"
+UNKNOWN = 'Unknown'
 
 
 class Presence(StrEnum):
-    ONLINE = "online"
-    OFFLINE = "offline"
+    ONLINE = 'online'
+    OFFLINE = 'offline'
 
 
 class OfflineWindow(StrEnum):
-    NONE = "active"
-    DAY = "24h"
-    WEEK = "7d"
+    NONE = 'active'
+    DAY = '24h'
+    WEEK = '7d'
 
     @property
     def span(self) -> timedelta:
@@ -28,9 +28,9 @@ class OfflineWindow(StrEnum):
     @property
     def label(self) -> str:
         return {
-            OfflineWindow.NONE: "Online now",
-            OfflineWindow.DAY: "Seen in 24h",
-            OfflineWindow.WEEK: "Seen in 7d",
+            OfflineWindow.NONE: 'Online now',
+            OfflineWindow.DAY: 'Seen in 24h',
+            OfflineWindow.WEEK: 'Seen in 7d',
         }[self]
 
     @classmethod
@@ -48,15 +48,15 @@ def presence(updated: datetime, now: datetime) -> Presence:
 def relative_age(delta: timedelta) -> str:
     seconds = max(0, int(delta.total_seconds()))
 
-    for unit, size in (("d", 86400), ("h", 3600), ("m", 60)):
+    for unit, size in (('d', 86400), ('h', 3600), ('m', 60)):
         if seconds >= size:
-            return f"{seconds // size}{unit} ago"
+            return f'{seconds // size}{unit} ago'
 
-    return "just now" if seconds < 10 else f"{seconds}s ago"
+    return 'just now' if seconds < 10 else f'{seconds}s ago'
 
 
 def known_text(value: object) -> str | None:
-    return str(value) if value not in (None, "", "None") else None
+    return str(value) if value not in (None, '', 'None') else None
 
 
 def text_of(info: dict[str, Any], key: str) -> str | None:
@@ -66,5 +66,5 @@ def text_of(info: dict[str, Any], key: str) -> str | None:
 def int_of(info: dict[str, Any], key: str) -> int:
     try:
         return int(info.get(key) or 0)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return 0

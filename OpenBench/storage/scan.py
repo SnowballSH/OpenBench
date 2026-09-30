@@ -12,7 +12,7 @@ from OpenBench.storage.domain import (
     MediaScan,
 )
 
-PGN_ARCHIVE_DIR = "PGNs"
+PGN_ARCHIVE_DIR = 'PGNs'
 MAX_ENTRIES = 100_000
 SPOOL_ENTRIES = 10_000
 
@@ -35,7 +35,7 @@ class Walker:
         try:
             with os.scandir(directory) as entries:
                 return list(entries)
-        except (FileNotFoundError, NotADirectoryError):
+        except FileNotFoundError, NotADirectoryError:
             return []
         except OSError:
             self.unreadable_dirs += 1
@@ -78,15 +78,11 @@ def regular_file_size(path: Path) -> int | None:
 
 
 def is_plain_name(name: str) -> bool:
-    return name not in ("", ".", "..") and os.path.basename(name) == name
+    return name not in ('', '.', '..') and os.path.basename(name) == name
 
 
 def network_file_sizes(media_root: Path, shas: Iterable[str]) -> dict[str, int]:
-    sizes = {
-        sha: regular_file_size(media_root / sha)
-        for sha in set(shas)
-        if is_plain_name(sha)
-    }
+    sizes = {sha: regular_file_size(media_root / sha) for sha in set(shas) if is_plain_name(sha)}
     return {sha: size for sha, size in sizes.items() if size is not None}
 
 
@@ -102,8 +98,8 @@ def disk_usage(media_root: Path, data_dir: Path) -> DiskUsage | None:
 def database_usage(path: Path) -> DatabaseUsage:
     return DatabaseUsage(
         main=file_size(path),
-        wal=file_size(path.with_name(path.name + "-wal")),
-        shm=file_size(path.with_name(path.name + "-shm")),
+        wal=file_size(path.with_name(path.name + '-wal')),
+        shm=file_size(path.with_name(path.name + '-shm')),
     )
 
 
@@ -120,7 +116,7 @@ class MediaScanner:
         self.files: list[MediaFile] = []
 
     def scan(self) -> MediaScan:
-        self.scan_level(self.root, prefix="", archive_level=False)
+        self.scan_level(self.root, prefix='', archive_level=False)
         return MediaScan(
             files=tuple(self.files),
             skipped_symlinks=self.walker.skipped_symlinks,
@@ -128,9 +124,7 @@ class MediaScanner:
             truncated=self.walker.exhausted,
         )
 
-    def scan_level(
-        self, directory: Path | str, prefix: str, archive_level: bool
-    ) -> None:
+    def scan_level(self, directory: Path | str, prefix: str, archive_level: bool) -> None:
         for entry in self.walker.entries(directory):
             if not self.walker.take():
                 return
@@ -144,14 +138,12 @@ class MediaScanner:
         elif (size := entry_size(entry)) is not None:
             self.files.append(MediaFile(path=path, size=size))
 
-    def record_directory(
-        self, entry: os.DirEntry[str], path: str, archive_level: bool
-    ) -> None:
+    def record_directory(self, entry: os.DirEntry[str], path: str, archive_level: bool) -> None:
         if not archive_level and entry.name == PGN_ARCHIVE_DIR:
-            self.scan_level(entry.path, prefix=path + "/", archive_level=True)
+            self.scan_level(entry.path, prefix=path + '/', archive_level=True)
         else:
             size = sum(self.walker.file_sizes(entry.path))
-            self.files.append(MediaFile(path=path + "/", size=size, is_dir=True))
+            self.files.append(MediaFile(path=path + '/', size=size, is_dir=True))
 
 
 def scan_media(root: Path, walker: Walker | None = None) -> MediaScan:

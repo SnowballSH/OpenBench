@@ -2,7 +2,6 @@ import os
 import tarfile
 import tempfile
 import threading
-
 from unittest import mock
 
 from django.core.files.base import ContentFile
@@ -12,8 +11,8 @@ from django.test import TestCase, override_settings
 from OpenBench.models import PGN
 from OpenBench.pgn_watcher import PGN_BATCH_SIZE, PGNWatcher
 
-class PGNWatcherTests(TestCase):
 
+class PGNWatcherTests(TestCase):
     def setUp(self):
         self.media = tempfile.TemporaryDirectory()
         self.enterContext(override_settings(MEDIA_ROOT=self.media.name))
@@ -51,7 +50,7 @@ class PGNWatcherTests(TestCase):
     def test_a_missing_file_does_not_block_other_pgns(self):
         missing = self.upload(1, 0, save_file=False)
         present = self.upload(1, 16)
-        other   = self.upload(2, 0)
+        other = self.upload(2, 0)
         with self.assertLogs('OpenBench.pgn_watcher', 'WARNING') as logs:
             self.assertEqual(self.watcher.process_pending(), 3)
         self.assertIn('1.1.0.pgn.bz2', logs.output[0])
@@ -72,7 +71,7 @@ class PGNWatcherTests(TestCase):
         self.assertEqual(self.archive(2), ['2.1.0.pgn.bz2'])
 
     def run_passes(self, handled):
-        stop = mock.Mock(**{ 'is_set.side_effect' : [False] * len(handled) + [True] })
+        stop = mock.Mock(**{'is_set.side_effect': [False] * len(handled) + [True]})
         watcher = PGNWatcher(stop)
         with mock.patch.object(watcher, 'process_pending', side_effect=handled):
             watcher.run()

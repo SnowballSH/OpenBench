@@ -6,9 +6,7 @@ from OpenBench.progress import analysis, sources
 from OpenBench.progress.domain import GREENS_SENT, ProgressReport, Window
 
 
-def progress_report(
-    window: Window, engine: str | None, now: datetime | None = None
-) -> ProgressReport:
+def progress_report(window: Window, engine: str | None, now: datetime | None = None) -> ProgressReport:
     now = now or timezone.now()
     scope = analysis.make_scope(window, engine, now)
 
@@ -24,9 +22,7 @@ def progress_report(
         [
             min(totals, default=None),
             min(outcomes, default=None),
-            min(
-                (analysis.utc_day(green.finished_at) for green in greens), default=None
-            ),
+            min((analysis.utc_day(green.finished_at) for green in greens), default=None),
         ],
     )
     daily = analysis.daily_series(totals, start, scope.today)
@@ -37,9 +33,7 @@ def progress_report(
         window=window,
         start=start,
         end=scope.today,
-        summary=analysis.summarize(
-            greens, outcomes.values(), daily, tests_by_author, games_by_user
-        ),
+        summary=analysis.summarize(greens, outcomes.values(), daily, tests_by_author, games_by_user),
         elo_steps=analysis.elo_steps(greens),
         greens=greens[-GREENS_SENT:],
         greens_omitted=max(0, len(greens) - GREENS_SENT),

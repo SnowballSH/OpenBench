@@ -2,41 +2,55 @@ from typing import Any
 
 from OpenBench.insights.contributions import ResultRow
 from OpenBench.insights.domain import (
-    Outcomes, ProgressPoint, SprtBounds, WorkloadFacts, WorkloadMode, WorkloadStatus, spsa_target_games, tune_completed)
+    Outcomes,
+    ProgressPoint,
+    SprtBounds,
+    WorkloadFacts,
+    WorkloadMode,
+    WorkloadStatus,
+    spsa_target_games,
+    tune_completed,
+)
 from OpenBench.models import Result, SPSARun, Test, WorkloadSnapshot
 
-TRINOMIAL_FIELDS   = ('losses', 'draws', 'wins')
+TRINOMIAL_FIELDS = ('losses', 'draws', 'wins')
 PENTANOMIAL_FIELDS = ('LL', 'LD', 'DD', 'DW', 'WW')
+
 
 def outcomes_of(source: Any, use_penta: bool) -> Outcomes:
     return Outcomes(
-        trinomial   = (source.losses, source.draws, source.wins),
-        pentanomial = (source.LL, source.LD, source.DD, source.DW, source.WW),
-        use_penta   = use_penta,
+        trinomial=(source.losses, source.draws, source.wins),
+        pentanomial=(source.LL, source.LD, source.DD, source.DW, source.WW),
+        use_penta=use_penta,
     )
+
 
 def outcomes_of_row(row: dict[str, Any], use_penta: bool) -> Outcomes:
     losses, draws, wins = (row[field] for field in TRINOMIAL_FIELDS)
-    LL, LD, DD, DW, WW  = (row[field] for field in PENTANOMIAL_FIELDS)
+    LL, LD, DD, DW, WW = (row[field] for field in PENTANOMIAL_FIELDS)
     return Outcomes((losses, draws, wins), (LL, LD, DD, DW, WW), use_penta)
+
 
 def machine_name(info: dict[str, Any]) -> str | None:
     name = info.get('machine_name')
     return name if isinstance(name, str) and name not in ('', 'None') else None
 
+
 def uses_penta(test: Test) -> bool:
     return not test.use_tri
 
+
 def workload_status(test: Test, mode: WorkloadMode, target: int | None) -> WorkloadStatus:
     flags = (
-        (test.deleted,                                               WorkloadStatus.DELETED),
-        (test.passed,                                                WorkloadStatus.PASSED),
-        (test.failed,                                                WorkloadStatus.FAILED),
+        (test.deleted, WorkloadStatus.DELETED),
+        (test.passed, WorkloadStatus.PASSED),
+        (test.failed, WorkloadStatus.FAILED),
         (test.finished and tune_completed(mode, test.games, target), WorkloadStatus.COMPLETED),
-        (test.finished,                                              WorkloadStatus.STOPPED),
-        (not test.approved,                                          WorkloadStatus.PENDING),
+        (test.finished, WorkloadStatus.STOPPED),
+        (not test.approved, WorkloadStatus.PENDING),
     )
     return next((status for flag, status in flags if flag), WorkloadStatus.ACTIVE)
+
 
 def target_games(test: Test, mode: WorkloadMode) -> int | None:
 
@@ -49,24 +63,26 @@ def target_games(test: Test, mode: WorkloadMode) -> int | None:
 
     return None
 
+
 def workload_facts(test: Test) -> WorkloadFacts:
 
-    mode   = WorkloadMode(test.test_mode)
-    sprt   = SprtBounds(test.elolower, test.eloupper, test.lowerllr, test.upperllr) if mode == WorkloadMode.SPRT else None
+    mode = WorkloadMode(test.test_mode)
+    sprt = SprtBounds(test.elolower, test.eloupper, test.lowerllr, test.upperllr) if mode == WorkloadMode.SPRT else None
     target = target_games(test, mode)
 
     return WorkloadFacts(
-        id           = test.id,
-        mode         = mode,
-        status       = workload_status(test, mode, target),
-        created_at   = test.creation,
-        updated_at   = test.updated,
-        finished     = test.finished,
-        outcomes     = outcomes_of(test, uses_penta(test)),
-        llr          = test.currentllr,
-        sprt         = sprt,
-        target_games = target,
+        id=test.id,
+        mode=mode,
+        status=workload_status(test, mode, target),
+        created_at=test.creation,
+        updated_at=test.updated,
+        finished=test.finished,
+        outcomes=outcomes_of(test, uses_penta(test)),
+        llr=test.currentllr,
+        sprt=sprt,
+        target_games=target,
     )
+
 
 def snapshot_points(test: Test) -> list[ProgressPoint]:
     use_penta = uses_penta(test)
@@ -75,19 +91,23 @@ def snapshot_points(test: Test) -> list[ProgressPoint]:
         for snapshot in WorkloadSnapshot.objects.filter(test=test).order_by('created', 'id')
     ]
 
+
 def result_rows(test: Test) -> list[ResultRow]:
 
     use_penta = uses_penta(test)
-    rows = Result.objects.filter(test=test).order_by('id').values(
-        'machine_id', 'machine__user__username', 'machine__info', *TRINOMIAL_FIELDS, *PENTANOMIAL_FIELDS)
+    rows = (
+        Result.objects.filter(test=test)
+        .order_by('id')
+        .values('machine_id', 'machine__user__username', 'machine__info', *TRINOMIAL_FIELDS, *PENTANOMIAL_FIELDS)
+    )
 
     return [
         ResultRow(
-            machine_id   = row['machine_id'],
-            machine_name = machine_name(row['machine__info'] or {}),
-            owner        = row['machine__user__username'],
-            cpu_name     = (row['machine__info'] or {}).get('cpu_name'),
-            outcomes     = outcomes_of_row(row, use_penta),
+            machine_id=row['machine_id'],
+            machine_name=machine_name(row['machine__info'] or {}),
+            owner=row['machine__user__username'],
+            cpu_name=(row['machine__info'] or {}).get('cpu_name'),
+            outcomes=outcomes_of_row(row, use_penta),
         )
         for row in rows
     ]

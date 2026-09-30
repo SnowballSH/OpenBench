@@ -64,23 +64,17 @@ def workload_contribution(result: Result, now: datetime) -> WorkloadContribution
     )
 
 
-def load_machine_detail(
-    machine_id: int, now: datetime, limit: int = CONTRIBUTION_LIMIT
-) -> MachineDetail | None:
-    if not (
-        machine := Machine.objects.select_related("user").filter(id=machine_id).first()
-    ):
+def load_machine_detail(machine_id: int, now: datetime, limit: int = CONTRIBUTION_LIMIT) -> MachineDetail | None:
+    if not (machine := Machine.objects.select_related('user').filter(id=machine_id).first()):
         return None
 
     results = Result.objects.filter(machine=machine)
-    totals = results.aggregate(workloads=Count("id"), games=Sum("games", default=0))
-    recent = results.select_related("test__dev").order_by("-updated", "-id")[:limit]
+    totals = results.aggregate(workloads=Count('id'), games=Sum('games', default=0))
+    recent = results.select_related('test__dev').order_by('-updated', '-id')[:limit]
 
     return MachineDetail(
         machine=machine,
-        row=machine_row(
-            machine, totals["games"], load_workloads([machine.workload]), now
-        ),
-        workloads_total=totals["workloads"],
+        row=machine_row(machine, totals['games'], load_workloads([machine.workload]), now),
+        workloads_total=totals['workloads'],
         contributions=[workload_contribution(result, now) for result in recent],
     )

@@ -28,7 +28,7 @@ from OpenBench.storage.scan import (
     scan_media,
 )
 
-CACHE_KEY = "openbench:storage-report"
+CACHE_KEY = 'openbench:storage-report'
 CACHE_SECONDS = 60
 LARGEST_ITEMS = 10
 
@@ -37,17 +37,15 @@ type ItemBuilder = Callable[[list[Classified]], list[StorageItem]]
 
 
 def networks_url(engine: str, configured: AbstractSet[str]) -> str | None:
-    return f"/networks/{quote(engine, safe='')}/" if engine in configured else None
+    return f'/networks/{quote(engine, safe="")}/' if engine in configured else None
 
 
 def workload_links(test_ids: Iterable[int]) -> dict[int, str]:
-    tests = Test.objects.filter(id__in=set(test_ids)).only("id", "test_mode")
-    return {test.id: f"/{test.workload_type_str()}/{test.id}/" for test in tests}
+    tests = Test.objects.filter(id__in=set(test_ids)).only('id', 'test_mode')
+    return {test.id: f'/{test.workload_type_str()}/{test.id}/' for test in tests}
 
 
-def owner_url(
-    owners: list[tuple[str, str]], configured: AbstractSet[str]
-) -> str | None:
+def owner_url(owners: list[tuple[str, str]], configured: AbstractSet[str]) -> str | None:
     return next(
         (url for engine, _ in owners if (url := networks_url(engine, configured))),
         None,
@@ -64,9 +62,7 @@ def network_items(rows: list[NetworkRow], configured: AbstractSet[str]) -> ItemB
             StorageItem(
                 name=item.file.path,
                 size=item.file.size,
-                detail=", ".join(
-                    f"{engine} / {name}" for engine, name in owners[item.file.path]
-                ),
+                detail=', '.join(f'{engine} / {name}' for engine, name in owners[item.file.path]),
                 url=owner_url(owners[item.file.path], configured),
             )
             for item in files
@@ -77,9 +73,7 @@ def network_items(rows: list[NetworkRow], configured: AbstractSet[str]) -> ItemB
 
 def workload_items(pending: bool) -> ItemBuilder:
     def build(files: list[Classified]) -> list[StorageItem]:
-        links = workload_links(
-            item.test_id for item in files if item.test_id is not None
-        )
+        links = workload_links(item.test_id for item in files if item.test_id is not None)
         return [
             StorageItem(
                 name=item.file.path,
@@ -94,8 +88,8 @@ def workload_items(pending: bool) -> ItemBuilder:
 
 
 def workload_detail(test_id: int | None, exists: bool, pending: bool) -> str:
-    suffix = ", awaiting archive" if pending else ""
-    return f"Workload {test_id}{suffix}{'' if exists else ' (workload deleted)'}"
+    suffix = ', awaiting archive' if pending else ''
+    return f'Workload {test_id}{suffix}{"" if exists else " (workload deleted)"}'
 
 
 def event_log_items(files: list[Classified]) -> list[StorageItem]:
@@ -103,18 +97,14 @@ def event_log_items(files: list[Classified]) -> list[StorageItem]:
         log_file: (pk, summary)
         for log_file, pk, summary in LogEvent.objects.filter(
             log_file__in=[item.file.path for item in files]
-        ).values_list("log_file", "id", "summary")
+        ).values_list('log_file', 'id', 'summary')
     }
     return [
         StorageItem(
             name=item.file.path,
             size=item.file.size,
-            detail=events[item.file.path][1]
-            if item.file.path in events
-            else "No event references this log",
-            url=f"/event/{events[item.file.path][0]}/"
-            if item.file.path in events
-            else None,
+            detail=events[item.file.path][1] if item.file.path in events else 'No event references this log',
+            url=f'/event/{events[item.file.path][0]}/' if item.file.path in events else None,
         )
         for item in files
     ]
@@ -122,10 +112,10 @@ def event_log_items(files: list[Classified]) -> list[StorageItem]:
 
 def other_detail(item: Classified) -> str:
     if item.file.is_dir:
-        return "Directory"
+        return 'Directory'
     if item.unreferenced_network:
-        return "Network file that no Network references"
-    return ""
+        return 'Network file that no Network references'
+    return ''
 
 
 def other_items(files: list[Classified]) -> list[StorageItem]:
@@ -141,14 +131,10 @@ def other_items(files: list[Classified]) -> list[StorageItem]:
 
 
 def largest(files: list[Classified], count: int) -> list[Classified]:
-    return heapq.nlargest(
-        count, files, key=lambda item: (item.file.size, item.file.path)
-    )
+    return heapq.nlargest(count, files, key=lambda item: (item.file.size, item.file.path))
 
 
-def category_usage(
-    category: Category, files: list[Classified], count: int, build: ItemBuilder
-) -> CategoryUsage:
+def category_usage(category: Category, files: list[Classified], count: int, build: ItemBuilder) -> CategoryUsage:
     return CategoryUsage(
         category=category,
         files=len(files),
@@ -187,11 +173,9 @@ def build_report(
     walker: Walker | None = None,
 ) -> StorageReport:
     scan = scan_media(media_root, walker)
-    rows: list[NetworkRow] = list(
-        Network.objects.values_list("engine", "name", "sha256")
-    )
+    rows: list[NetworkRow] = list(Network.objects.values_list('engine', 'name', 'sha256'))
     shas = frozenset(sha256 for _, _, sha256 in rows)
-    configured = frozenset(EngineConfig.objects.values_list("name", flat=True))
+    configured = frozenset(EngineConfig.objects.values_list('name', flat=True))
 
     grouped: defaultdict[Category, list[Classified]] = defaultdict(list)
     for file in scan.files:
@@ -216,12 +200,9 @@ def build_report(
         unreadable_dirs=scan.unreadable_dirs,
         truncated=scan.truncated,
         categories=tuple(
-            category_usage(category, grouped[category], count, builders[category])
-            for category in Category
+            category_usage(category, grouped[category], count, builders[category]) for category in Category
         ),
-        networks_by_engine=tuple(
-            engine_networks(rows, network_file_sizes(media_root, shas), configured)
-        ),
+        networks_by_engine=tuple(engine_networks(rows, network_file_sizes(media_root, shas), configured)),
         upload_spool=directory_usage(spool_dir) if spool_dir else None,
     )
 
@@ -231,7 +212,7 @@ def configured_report() -> StorageReport:
     return build_report(
         media_root=Path(settings.MEDIA_ROOT),
         data_dir=Path(settings.DATA_DIR),
-        database_path=Path(connection.settings_dict["NAME"]),
+        database_path=Path(connection.settings_dict['NAME']),
         spool_dir=Path(spool) if spool else None,
     )
 
