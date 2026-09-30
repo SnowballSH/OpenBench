@@ -76,6 +76,20 @@ class SeedDemoTests(TestCase):
             self.assertEqual((datagen.use_tri, datagen.use_penta), (not datagen.play_reverses, datagen.play_reverses))
 
     @override_settings(DEBUG=True)
+    def test_verdicts_follow_the_counters(self):
+        call_command('seed_demo', stdout=io.StringIO())
+
+        for test in Test.objects.filter(test_mode='SPRT', approved=True):
+            self.assertEqual((test.passed, test.failed), (test.currentllr > test.upperllr, test.currentllr < test.lowerllr))
+            self.assertEqual(test.finished, test.passed or test.failed)
+
+        for test in Test.objects.filter(test_mode='GAMES', finished=True):
+            self.assertEqual((test.passed, test.failed), (test.wins >= test.losses, test.wins < test.losses))
+
+        self.assertTrue(Test.objects.filter(test_mode='SPRT', passed=True).exists())
+        self.assertTrue(Test.objects.filter(test_mode='SPRT', failed=True).exists())
+
+    @override_settings(DEBUG=True)
     def test_histories_end_at_the_workload_counters(self):
         call_command('seed_demo', stdout=io.StringIO())
 

@@ -42,6 +42,12 @@ CPUS = [
 
 FINISHED_STATES = ('passed', 'failed', 'finished')
 
+LLR_BOUND = 2.94
+
+SPRT_BATCH = 50
+
+SPRT_MAX_PAIRS = 40_000
+
 @dataclass(frozen=True)
 class DemoWorkload:
     name          : str
@@ -90,13 +96,13 @@ WORKLOADS = [
     DemoWorkload('lmr-tweak',        'SPRT',  2.5, 5200, 'active', priority=1),
     DemoWorkload('history-bonus',    'SPRT', -1.0, 2600, 'active'),
     DemoWorkload('nezha-v2',         'SPRT',  6.0, 3100, 'passed', bounds=(0.0, 5.0)),
-    DemoWorkload('aspiration-width', 'SPRT', -3.0, 1800, 'failed'),
+    DemoWorkload('aspiration-width', 'SPRT', -6.0, 1800, 'failed'),
     DemoWorkload('smp-scaling',      'GAMES', 12.0, 400, 'active', max_games=4000, tc='20.0+0.2', threads=4),
     DemoWorkload('qsearch-see',      'SPRT',  1.0,    0, 'pending'),
-    DemoWorkload('ltc-regression',   'GAMES', -0.5, 1000, 'passed', max_games=2000, tc='40.0+0.4'),
+    DemoWorkload('ltc-regression',   'GAMES', -0.5, 1000, 'finished', max_games=2000, tc='40.0+0.4'),
     DemoWorkload('nezha-v3-data',    'DATAGEN', 0.0, 2400, 'active', max_games=12000, tc='N=5000', book='NONE',
                  upload_pgns='COMPACT', genfens_args='-randmoves 8'),
-    DemoWorkload('nezha-v2-data',    'DATAGEN', 0.0, 3000, 'passed', max_games=6000, tc='N=5000', book='NONE',
+    DemoWorkload('nezha-v2-data',    'DATAGEN', 0.0, 3000, 'finished', max_games=6000, tc='N=5000', book='NONE',
                  upload_pgns='COMPACT', play_reverses=True),
 ]
 
@@ -262,7 +268,10 @@ def create_workload(spec, author, machines, rng):
     times   = schedule(spec.state, rng)
     is_sprt = spec.mode == 'SPRT'
     is_data = spec.mode == 'DATAGEN'
-    sprt    = { 'elolower' : spec.bounds[0], 'eloupper' : spec.bounds[1], 'alpha' : 0.05, 'beta' : 0.05, 'lowerllr' : -2.94, 'upperllr' : 2.94 }
+    sprt    = {
+        'elolower' : spec.bounds[0], 'eloupper' : spec.bounds[1], 'alpha' : 0.05, 'beta' : 0.05,
+        'lowerllr' : -LLR_BOUND, 'upperllr' : LLR_BOUND,
+    }
 
     test = Test.objects.create(
         author=author.username, book_name=spec.book, upload_pgns=spec.upload_pgns,
@@ -277,8 +286,24 @@ def create_workload(spec, author, machines, rng):
         **(sprt if is_sprt else {}),
     )
 
-    bounds = spec.bounds if is_sprt else None
-    record_outcomes(test, simulate_pairs(spec.elo, spec.pairs, rng), spec.state, bounds, times, machines, rng)
+    bounds   = spec.bounds if is_sprt else None
+    finished = spec.state in FINISHED_STATES
+    outcomes = sprt_to_verdict(spec, rng) if is_sprt and finished else simulate_pairs(spec.elo, spec.pairs, rng)
+    record_outcomes(test, outcomes, finished, bounds, times, machines, rng)
+
+    test.refresh_from_db()
+    if is_sprt and finished and spec.state != ('passed' if test.passed else 'failed'):
+        raise CommandError(f'{spec.name} was meant to have {spec.state}; choose another elo')
+
+def sprt_to_verdict(spec: DemoWorkload, rng: random.Random) -> list[int]:
+
+    # Plays until the LLR leaves the bounds, like update_test would stop it
+    outcomes: list[int] = []
+    while abs(PentanomialSPRT(tally(outcomes), *spec.bounds) if outcomes else 0.0) <= LLR_BOUND:
+        if len(outcomes) >= SPRT_MAX_PAIRS:
+            raise CommandError(f'{spec.name} did not reach a verdict in {SPRT_MAX_PAIRS} pairs; choose another elo')
+        outcomes.extend(simulate_pairs(spec.elo, SPRT_BATCH, rng))
+    return outcomes
 
 def create_tune(spec: DemoTune, author: User, machines: list[Machine], rng: random.Random) -> None:
 
@@ -312,7 +337,7 @@ def create_tune(spec: DemoTune, author: User, machines: list[Machine], rng: rand
 
     outcomes = simulate_tune(spec, run, parameters, rng)
     SPSAParameter.objects.bulk_update(parameters, ['value'])
-    record_outcomes(test, outcomes, spec.state, None, times, machines, rng)
+    record_outcomes(test, outcomes, spec.state in FINISHED_STATES, None, times, machines, rng)
 
 def perturbation(param: SPSAParameter, c_compression: float) -> float:
     return max(param.c_value / c_compression, 0.0 if param.is_float else 0.5)
@@ -348,7 +373,7 @@ def simulate_tune(spec: DemoTune, run: SPSARun, parameters: list[SPSAParameter],
     return outcomes
 
 def record_outcomes(
-    test: Test, outcomes: list[int], state: str, bounds: tuple[float, float] | None,
+    test: Test, outcomes: list[int], finished: bool, bounds: tuple[float, float] | None,
     times: Schedule, machines: list[Machine], rng: random.Random,
 ) -> None:
 
@@ -360,15 +385,32 @@ def record_outcomes(
             create_result(test, machine, share, rng)
 
     wins, losses, draws = trinomial(penta)
+    llr = PentanomialSPRT(penta, *bounds) if bounds and outcomes else 0.0
+    passed, failed = verdict(test.test_mode, finished, llr, wins, losses)
     Test.objects.filter(id=test.id).update(
         wins=wins, losses=losses, draws=draws, LL=penta[0], LD=penta[1], DD=penta[2], DW=penta[3], WW=penta[4], games=2 * sum(penta),
-        currentllr=PentanomialSPRT(penta, *bounds) if bounds and outcomes else 0.0,
-        passed=state == 'passed', failed=state == 'failed', finished=state in FINISHED_STATES,
+        currentllr=llr, passed=passed, failed=failed, finished=finished,
         creation=times.created, updated=times.ended if outcomes else times.created,
     )
 
     create_history(test, bounds, outcomes, times.started, times.ended, rng)
     Result.objects.filter(test=test).update(updated=times.ended)
+
+def verdict(mode: str, finished: bool, llr: float, wins: int, losses: int) -> tuple[bool, bool]:
+
+    # The flags update_test would have set on the report that finished the Workload
+    if not finished:
+        return False, False
+
+    match mode:
+        case 'SPRT':
+            return llr > LLR_BOUND, llr < -LLR_BOUND
+        case 'GAMES':
+            return wins >= losses, wins < losses
+        case 'DATAGEN':
+            return True, False
+        case _:
+            return False, False
 
 def create_history(test, bounds, outcomes, started, ended, rng):
 
