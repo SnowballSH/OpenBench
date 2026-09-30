@@ -81,7 +81,10 @@
         }
 
         sync();
-        toggle.addEventListener('click', open_drawer);
+        toggle.addEventListener('click', () => {
+            document.body.classList.toggle('sidebar-open');
+            open_drawer();
+        });
         drawer_layout.addEventListener('change', () => {
             document.body.classList.remove('sidebar-open');
             sync();
@@ -98,10 +101,111 @@
         });
     }
 
+    function format_stamps(selector, options) {
+        document.querySelectorAll(selector).forEach(element => {
+            const date = new Date(1000 * element.textContent);
+            element.textContent = date.toLocaleString(undefined, options);
+        });
+    }
+
+    function summarise_engine_options() {
+        document.querySelectorAll('.engine-options').forEach(cell => {
+
+            const options = cell.textContent.trim().split(/\s+/);
+            if (options.length <= 2) return;
+
+            const summary = ['Threads=', 'Hash=']
+                .map(prefix => options.find(option => option.startsWith(prefix)))
+                .filter(option => option !== undefined);
+
+            // Options are user input, so they are only ever added as text
+            const popup = document.createElement('div');
+            popup.classList.add('engine-options-popup');
+            options.forEach((option, index) => {
+                if (index) popup.appendChild(document.createElement('br'));
+                popup.appendChild(document.createTextNode(option));
+            });
+
+            cell.textContent = [...summary, '...'].join(' ');
+            cell.appendChild(popup);
+        });
+    }
+
+    function apply_css_fractions() {
+        const properties = { fraction : '--fraction', share : '--share' };
+        Object.entries(properties).forEach(([key, property]) => {
+            document.querySelectorAll(`[data-${key}]`).forEach(element => {
+                element.style.setProperty(property, element.dataset[key]);
+            });
+        });
+    }
+
+    function guard_duplicate_submissions() {
+        document.addEventListener('submit', event => {
+            const form = event.target;
+            if (form.dataset.submitting) {
+                event.preventDefault();
+                return;
+            }
+            form.dataset.submitting = true;
+        }, true);
+
+        window.addEventListener('pageshow', event => {
+            if (!event.persisted) return;
+            document
+                .querySelectorAll('form[data-submitting]')
+                .forEach(form => delete form.dataset.submitting);
+        });
+    }
+
+    function resolve_action_template(template) {
+        return template.replace(/\{([\w-]+)\}/g,
+            (_, id) => encodeURIComponent(document.getElementById(id).value));
+    }
+
+    function init_delegated_actions() {
+        document.addEventListener('click', event => {
+            const confirming = event.target.closest('[data-confirm]');
+            if (confirming && !window.confirm(confirming.dataset.confirm))
+                event.preventDefault();
+
+            const alerting = event.target.closest('[data-alert]');
+            if (alerting)
+                window.alert(alerting.dataset.alert);
+
+            const submitter = event.target.closest('[data-submit-form]');
+            if (submitter) {
+                event.preventDefault();
+                document.getElementById(submitter.dataset.submitForm).submit();
+            }
+        });
+
+        document.addEventListener('submit', event => {
+            const form = event.target.closest('form[data-action-template]');
+            if (!form) return;
+            const duplicate = event.defaultPrevented;
+            event.preventDefault();
+            if (duplicate) return;
+            form.action = resolve_action_template(form.dataset.actionTemplate);
+            form.submit();
+        });
+    }
+
+    guard_duplicate_submissions();
+    init_delegated_actions();
+
     document.addEventListener('DOMContentLoaded', () => {
         init_theme_toggle();
         mark_current_nav();
         init_sidebar_drawer();
+        format_stamps('.timestamp', {
+            year : 'numeric', month : '2-digit', day : '2-digit',
+            hour : '2-digit', minute : '2-digit', second : '2-digit',
+            hour12 : false,
+        });
+        format_stamps('.datestamp', { month : 'short', day : '2-digit' });
+        summarise_engine_options();
+        apply_css_fractions();
     });
 
 })();

@@ -15,7 +15,7 @@
 <td class="statblock-cell">
     <div class="statblock statblock-{{test|testResultColour}}">{{test|shortStatBlock|linebreaksbr}}</div>
     {% if show_progress %}{% with progress=test|workload_progress %}{% if progress %}
-        <div class="row-progress row-progress-{{progress.kind}}" role="meter" aria-valuemin="0" aria-valuemax="1" aria-valuenow="{{progress.fraction|stringformat:'.3f'}}" aria-valuetext="{{progress.label}}" title="{{progress.label}}" style="--fraction: {{progress.fraction|stringformat:'.4f'}}"></div>
+        <div class="row-progress row-progress-{{progress.kind}}" role="meter" aria-valuemin="0" aria-valuemax="1" aria-valuenow="{{progress.fraction|stringformat:'.3f'}}" aria-valuetext="{{progress.label}}" title="{{progress.label}}" data-fraction="{{progress.fraction|stringformat:'.4f'}}"></div>
     {% endif %}{% endwith %}{% endif %}
 </td>
 <td class="test-info"><div>{{test.info}}</div></td>

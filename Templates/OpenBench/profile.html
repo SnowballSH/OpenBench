@@ -4,11 +4,8 @@
 {% load mytags %}
 
 {% block scripts %}
-<script src="{% static 'default_text.js' %}?{{ static_version }}"></script>
-
-<script>
-    enforce_default_text('new-engine-repo', 'https://github.com/');
-</script>
+<script src="{% static 'default_text.js' %}?{{ static_version }}" defer></script>
+<script src="{% static 'profile.js' %}?{{ static_version }}" defer></script>
 {% endblock %}
 
 {% block content %}
@@ -57,8 +54,8 @@
                             {% if profile.engine == engine %}checked{% endif %}>
                     </span>
 
-                    <span onclick="deleteRow(event)">
-                        <i class="fa-solid fa-trash-can icon-danger" data-engine="{{engine}}" ></i>
+                    <span data-delete-repo="{{engine}}">
+                        <i class="fa-solid fa-trash-can icon-danger"></i>
                     </span>
                 </div>
                 {% endfor %}
@@ -74,7 +71,7 @@
                             {% endfor %}
                         </select>
                     </label>
-                    <input id="new-engine-repo" name="new-engine-repo" value="https://github.com/">
+                    <input id="new-engine-repo" name="new-engine-repo" value="https://github.com/" data-default-text="https://github.com/">
                 </div>
 
                 <input type="hidden" name="deleted-repos" id="deleted-repos" value="[]">
@@ -82,32 +79,6 @@
             </div>
         </div>
     </form>
-
-    <script>
-        function deleteRow(event) {
-
-            const button = event.currentTarget.querySelector('i');
-            const engine = button.getAttribute('data-engine');
-            const radio = document.getElementById('radio-' + engine);
-
-            if (engine && radio && radio.checked)
-                return;
-
-            if (engine) {
-
-                // Remove the corresponding row from the DOM
-                const row = button.parentNode.parentNode;
-                row.parentNode.removeChild(row);
-
-                // Update the deleted-repos hidden input field with the deleted engine
-                const deletedReposInput = document.getElementById('deleted-repos');
-                let deletedRepos = JSON.parse(deletedReposInput.value);
-
-                deletedRepos.push(engine);
-                deletedReposInput.value = JSON.stringify(deletedRepos);
-            }
-        }
-    </script>
 
 
 {% endblock %}

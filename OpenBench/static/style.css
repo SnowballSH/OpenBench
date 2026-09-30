@@ -1374,7 +1374,7 @@ a:hover > .icon-muted {
     content: "";
     position: absolute;
     inset: 0 auto 0 0;
-    width: calc(var(--fraction) * 100%);
+    width: calc(var(--fraction, 0) * 100%);
     border-radius: inherit;
     background-color: var(--series-1);
 }
@@ -1391,7 +1391,7 @@ a:hover > .icon-muted {
     content: "";
     position: absolute;
     top: -3px;
-    left: calc(var(--fraction) * 100%);
+    left: calc(var(--fraction, 0) * 100%);
     width: 10px;
     height: 10px;
     margin-left: -5px;
@@ -1513,7 +1513,7 @@ td.contribution-name {
     content: "";
     position: absolute;
     inset: 0 auto 0 0;
-    width: calc(var(--share) * 100%);
+    width: calc(var(--share, 0) * 100%);
     border-radius: inherit;
     background-color: var(--series-1);
 }
@@ -1556,7 +1556,7 @@ td.contribution-name {
     content: "";
     position: absolute;
     inset: 0 auto 0 0;
-    width: calc(var(--fraction) * 100%);
+    width: calc(var(--fraction, 0) * 100%);
     border-radius: inherit;
     background-color: var(--series-1);
 }
@@ -1565,7 +1565,7 @@ td.contribution-name {
     content: "";
     position: absolute;
     top: -3px;
-    left: calc(var(--fraction) * 100%);
+    left: calc(var(--fraction, 0) * 100%);
     width: 3px;
     height: 9px;
     margin-left: -1.5px;

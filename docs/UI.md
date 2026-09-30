@@ -2,7 +2,9 @@
 
 The web interface is server-rendered Django templates styled by a single
 stylesheet, `OpenBench/static/style.css`, plus `OpenBench/static/site.js` for
-the theme toggle, current-page highlighting and the mobile navigation drawer.
+the theme toggle, current-page highlighting, the mobile navigation drawer,
+timestamp formatting and the shared `data-*` behaviours listed in
+[SECURITY.md](SECURITY.md#content-security-policy).
 There is no build step and no CSS framework. The standalone `/Ethereal/` page
 keeps its own `ethereal.css`.
 
@@ -21,9 +23,9 @@ specificity low (`:where()` for element defaults) so components compose.
 
 Dark is the default. Light applies when the system prefers it, or when the
 viewer picks it with the header toggle, which writes `openbench-theme`
-(`light` / `dark`) to `localStorage` and sets `data-theme` on `<html>`. A tiny
-inline script in `base.html` applies the stored choice before the stylesheet
-loads, so there is no flash. Storage access is wrapped in `try/catch`; with
+(`light` / `dark`) to `localStorage` and sets `data-theme` on `<html>`.
+`static/theme-init.js`, loaded synchronously at the top of `<head>`, applies
+the stored choice before the stylesheet loads, so there is no flash. Storage access is wrapped in `try/catch`; with
 storage blocked the toggle still works for the current page.
 
 Light values are declared twice, under `:root[data-theme="light"]` and under
@@ -94,7 +96,9 @@ without relying on fill alone.
 - **Server strip**: `.server-stats` is the compact tile grid at the top of the
   index. `.row-progress` (`-games` fill or `-llr` marker, `--fraction`) is the
   thin bar under an active row's stat block, rendered by the `workload_progress`
-  template filter from the Test's own fields, with no extra queries.
+  template filter from the Test's own fields, with no extra queries. Templates
+  pass these values as `data-fraction` and `data-share`, which `site.js` copies
+  into the custom properties; a missing value draws an empty bar.
 - **Sortable tables**: add `data-sortable` to a `<table>` with a `<thead>`
   and `<tbody>`, and put a `<button class="sort-button">` in each sortable
   header; `data-sort="number"` sorts numerically (largest first on the first
@@ -109,6 +113,9 @@ without relying on fill alone.
 
 ## Conventions
 
+- No inline scripts, `on*=` handlers or `style` attributes: the
+  Content-Security-Policy blocks them. See
+  [SECURITY.md](SECURITY.md#content-security-policy) for what to do instead.
 - Proportional type for interface text; monospace only for machine values
   (hashes, engine options, benches, time controls, stat blocks).
 - Keep class names that scripts use: `table-header`, `active-highlight`,

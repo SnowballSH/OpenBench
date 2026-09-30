@@ -8,14 +8,6 @@
 
     <script src="{% static 'networks.js' %}?{{ static_version }}"></script>
 
-    <script>
-        document.addEventListener(
-            'DOMContentLoaded', function () {
-                sort_networks(['default', 'engine', 'name']);
-            }, false
-        );
-    </script>
-
 {% endblock %}
 
 {% block content %}
@@ -26,11 +18,11 @@
     <table id="network-table" class="hoverable">
 
         <tr class="table-header">
-            <th class="cursor" onclick="sort_networks(['default'])"></th>
-            <th class="cursor" onclick="sort_networks(['engine'])">Engine</th>
-            <th class="cursor" onclick="sort_networks(['author'])">Author</th>
-            <th class="cursor" onclick="sort_networks(['name'])">Name</th>
-            <th class="cursor" onclick="sort_networks(['sha256'])">Hash</th>
+            <th class="cursor" data-sort-networks="default"></th>
+            <th class="cursor" data-sort-networks="engine">Engine</th>
+            <th class="cursor" data-sort-networks="author">Author</th>
+            <th class="cursor" data-sort-networks="name">Name</th>
+            <th class="cursor" data-sort-networks="sha256">Hash</th>
             <th></th>
             <th></th>
         </tr>
@@ -62,10 +54,10 @@
                     {% if not network.default and not network.was_default %}
                         <button class="link-button" form="network-actions" aria-label="Delete"
                             formaction="/networks/{{network.engine}}/DELETE/{{network.sha256}}/"
-                            onclick="return confirm('YOU ARE DELETING THIS NETWORK FILE FOREVER')">
+                            data-confirm="YOU ARE DELETING THIS NETWORK FILE FOREVER">
                         <i class="fa-solid fa-trash-can icon-danger"></i></button>
                     {% else %}
-                        <a onclick="return alert('You must unset the default and previous-default flags manually before deleting')"
+                        <a data-alert="You must unset the default and previous-default flags manually before deleting"
                             href="/networks/{{network.engine}}/EDIT/{{network.sha256}}">
                         <i class="fa-solid fa-trash-can icon-muted"></i></a>
                     {% endif %}

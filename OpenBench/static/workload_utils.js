@@ -212,7 +212,27 @@ async function fetch_spsa_digest(workload_id) {
     }
 
     // Show the data and hide the button
-    tbody.style.display = ''
-    const buttonContainer = document.getElementById('spsa-digest-button-container')
-    buttonContainer.style.display = 'none'
+    tbody.hidden = false
+    document.getElementById('spsa-digest-button-container').hidden = true
 }
+
+const WORKLOAD_ACTIONS = {
+    'copy-statblock'     : () => copy_text_from_element('long-statblock', true),
+    'copy-spsa-inputs'   : copy_spsa_inputs,
+    'copy-spsa-outputs'  : copy_spsa_outputs,
+    'show-spsa-digest'   : fetch_spsa_digest,
+    'fetch-results'      : fetch_results,
+};
+
+document.addEventListener('DOMContentLoaded', () => {
+
+    const container = document.querySelector('.workload-container[data-workload-id]');
+    const workload_id = container.dataset.workloadId;
+
+    fetch_summary(workload_id);
+
+    container.querySelectorAll('[data-workload-action]').forEach(control => {
+        const action = WORKLOAD_ACTIONS[control.dataset.workloadAction];
+        control.addEventListener('click', () => action(workload_id));
+    });
+});

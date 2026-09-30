@@ -2,34 +2,6 @@
 
 {% load mytags %}
 
-{% block scripts %}
-
-    <script>
-
-        document.addEventListener(
-            'DOMContentLoaded', function () {
-
-                var form = document.getElementById("book-form");
-                if (!form) return; // Only Managers are served the form
-
-                form.addEventListener("submit", function(event) {
-
-                    event.preventDefault(); // Stop event from hitting the wrong URL
-
-                    // Adjust the Form endpoint based on the new Book's name
-                    var book_name = encodeURIComponent(document.getElementById("book-name").value);
-
-                    // OpenBench Endpoint: manage/books/name/create/
-                    form.action = '/manage/books/' + book_name + '/create/'
-                    form.submit()
-                });
-            }, false
-        );
-
-    </script>
-
-{% endblock %}
-
 {% block manage %}
 
     {% if can_manage %}
@@ -70,7 +42,7 @@
                     {% if can_manage %}
                         <button class="link-button" form="manage-actions" aria-label="Delete"
                             formaction="/manage/books/{{book.name}}/delete/"
-                            onclick="return confirm('YOU ARE DELETING THIS BOOK FOREVER')">
+                            data-confirm="YOU ARE DELETING THIS BOOK FOREVER">
                         <i class="fa-solid fa-trash-can icon-danger"></i></button>
                     {% endif %}
                 </td>
@@ -81,7 +53,7 @@
     </div>
 
     {% if can_manage %}
-        <form method="POST" id="book-form" class="mt-4">
+        <form method="POST" id="book-form" class="mt-4" data-action-template="/manage/books/{book-name}/create/">
             {% csrf_token %}
             <div class="form">
                 <div class="col">

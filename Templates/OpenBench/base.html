@@ -8,13 +8,7 @@
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <meta name="color-scheme" content="dark light">
 
-        <script>
-            try {
-                const theme = localStorage.getItem('openbench-theme');
-                if (theme === 'light' || theme === 'dark')
-                    document.documentElement.dataset.theme = theme;
-            } catch (err) {}
-        </script>
+        <script src="{% static 'theme-init.js' %}?{{ static_version }}"></script>
 
         <link rel="icon" type="image/svg+xml" href="{% static 'logo.svg' %}?{{ static_version }}">
 
@@ -32,95 +26,6 @@
 
         {% block scripts %}
         {% endblock %}
-
-        <script>
-            document.addEventListener('DOMContentLoaded', function() {
-
-                {
-                    var timestamps = document.getElementsByClassName('timestamp');
-
-                    var options = {
-                        year   : 'numeric', month  : '2-digit',
-                        day    : '2-digit', hour   : '2-digit',
-                        minute : '2-digit', second : '2-digit',
-                        hour12 : false,
-                    };
-
-                    for (var i = 0; i < timestamps.length; i++) {
-                        var date = new Date(1000 * timestamps[i].textContent);
-                        timestamps[i].textContent = date.toLocaleString(undefined, options);
-                    }
-                }
-
-                {
-                    var datestamps = document.getElementsByClassName('datestamp');
-
-                    var options = {
-                        month  : 'short',
-                        day    : '2-digit',
-                    };
-
-                    for (var i = 0; i < datestamps.length; i++) {
-                        var date = new Date(1000 * datestamps[i].textContent);
-                        datestamps[i].textContent = date.toLocaleString(undefined, options);
-                    }
-                }
-
-                {
-                    const cells = document.querySelectorAll('.engine-options');
-
-                    cells.forEach(cell => {
-
-                        // Only have Threads= and Hash= settings
-                        const options = cell.textContent.trim().split(/\s+/);
-                        if (options.length <= 2)
-                            return;
-
-                        // Only display Threads=X Hash=X ...
-                        const summary = ['Threads=', 'Hash=']
-                            .map(prefix => options.find(option => option.startsWith(prefix)))
-                            .filter(option => option !== undefined);
-
-                        // Options are user input, so they are only ever added as text
-                        const popup = document.createElement('div');
-                        popup.classList.add('engine-options-popup');
-                        options.forEach((option, index) => {
-                            if (index) popup.appendChild(document.createElement('br'));
-                            popup.appendChild(document.createTextNode(option));
-                        });
-
-                        // Prune text, and append popup
-                        cell.textContent = [...summary, '...'].join(' ');
-                        cell.appendChild(popup);
-                    });
-                }
-
-            }, false);
-
-            document.addEventListener('submit', event => {
-
-                // Prevent duplicate <form> submissions
-                const form = event.target;
-                if (form.dataset.submitting) {
-                    event.preventDefault();
-                    return;
-                }
-
-                form.dataset.submitting = true;
-            }, true);
-
-            window.addEventListener('pageshow', event => {
-                if (event.persisted) {
-                    document
-                        .querySelectorAll('form[data-submitting]')
-                        .forEach(form => delete form.dataset.submitting);
-                }
-            });
-
-            function toggle_sidebar() {
-                document.body.classList.toggle('sidebar-open')
-            }
-        </script>
     </head>
 
     <body>
@@ -132,7 +37,7 @@
                 {% if user.is_authenticated %}
                     <li>
                         <form id="logout-form" class="logout-form" method="post" action="/logout/" hidden>{% csrf_token %}</form>
-                        <a href="/logout/" onclick="event.preventDefault(); document.getElementById('logout-form').submit();"><i class="fa-solid fa-right-from-bracket fa-fw"></i> Logout</a>
+                        <a href="/logout/" data-submit-form="logout-form"><i class="fa-solid fa-right-from-bracket fa-fw"></i> Logout</a>
                     </li>
                     <li><a href="/profile/"><i class="fa-solid fa-user fa-fw"></i> Profile</a></li>
                 {% else %}
@@ -195,7 +100,7 @@
 
         <div id="content-parent">
             <div id="content-header">
-                <button id="sidebar-toggle" class="icon-button" type="button" aria-label="Toggle navigation" aria-controls="sidebar" onclick="toggle_sidebar()">
+                <button id="sidebar-toggle" class="icon-button" type="button" aria-label="Toggle navigation" aria-controls="sidebar">
                     <i class="fa-solid fa-bars fa-fw" aria-hidden="true"></i>
                 </button>
                 <h2>
