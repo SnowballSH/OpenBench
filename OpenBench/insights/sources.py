@@ -52,13 +52,20 @@ def workload_status(test: Test, mode: WorkloadMode, target: int | None) -> Workl
     return next((status for flag, status in flags if flag), WorkloadStatus.ACTIVE)
 
 
+def spsa_run_of(test: Test) -> SPSARun | None:
+    try:
+        return test.spsa_run
+    except SPSARun.DoesNotExist:
+        return None
+
+
 def target_games(test: Test, mode: WorkloadMode) -> int | None:
 
     if mode in (WorkloadMode.GAMES, WorkloadMode.DATAGEN):
         return test.max_games
 
     if mode == WorkloadMode.SPSA:
-        run = SPSARun.objects.filter(tune=test).only('pairs_per', 'iterations').first()
+        run = spsa_run_of(test)
         return None if run is None else spsa_target_games(run.pairs_per, run.iterations)
 
     return None
