@@ -22,12 +22,46 @@
 
 import argparse
 import os
-import re
 import requests
+
+from html.parser import HTMLParser
 
 def url_join(*args):
     # Join a set of URL paths while maintaining the correct format
     return '/'.join([f.lstrip('/').rstrip('/') for f in args]) + '/'
+
+class BannerParser(HTMLParser):
+
+
+    BANNERS = ('error-message', 'warning-message', 'status-message')
+
+    def __init__(self):
+        super().__init__()
+        self.banners = {}
+        self.current = None
+        self.in_pre  = False
+
+    def handle_starttag(self, tag, attrs):
+        classes = (dict(attrs).get('class') or '').split()
+        if tag == 'div' and (banner := next((x for x in self.BANNERS if x in classes), None)):
+            self.current = banner
+            self.banners.setdefault(banner, '')
+        self.in_pre = self.in_pre or (tag == 'pre' and self.current is not None)
+
+    def handle_endtag(self, tag):
+        if tag == 'pre':
+            self.in_pre = False
+        elif tag == 'div':
+            self.current = None
+
+    def handle_data(self, data):
+        if self.in_pre:
+            self.banners[self.current] += data
+
+def page_banners(html):
+    parser = BannerParser()
+    parser.feed(html)
+    return { name : text.strip() for name, text in parser.banners.items() }
 
 def upload_network():
 
@@ -73,15 +107,11 @@ def upload_network():
         r = requests.post(url, data=data, files={ 'netfile' : network })
         print ('Code  : %s' % (r.status_code))
 
-    # Report any error messages
-    pattern = r'<div class="error-message">\s*<pre>(.*?)</pre>\s*</div>'
-    if matches := re.findall(pattern, r.text, re.DOTALL):
-        print ('Error : %s' % (matches[0].strip()))
-
-    # Report any status messages
-    pattern = r'<div class="status-message">\s*<pre>(.*?)</pre>\s*</div>'
-    if matches := re.findall(pattern, r.text, re.DOTALL):
-        print ('Status: %s' % (matches[0].strip()))
+    # Report any error, warning or status messages
+    banners = page_banners(r.text)
+    for label, banner in (('Error ', 'error-message'), ('Warn  ', 'warning-message'), ('Status', 'status-message')):
+        if banner in banners:
+            print ('%s: %s' % (label, banners[banner]))
 
 if __name__ == '__main__':
     upload_network()

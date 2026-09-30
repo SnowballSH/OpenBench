@@ -32,6 +32,10 @@
 
 {% block manage %}
 
+    {% if can_manage %}
+        <form id="manage-actions" method="post" hidden>{% csrf_token %}</form>
+    {% endif %}
+
     <div class="table-wrap w-100">
     <table class="hoverable w-100">
 
@@ -64,9 +68,10 @@
 
                 <td>
                     {% if can_manage %}
-                        <a onclick="return confirm('YOU ARE DELETING THIS ENGINE FOREVER')"
-                            href="/manage/engines/{{config.name}}/delete/">
-                        <i class="fa-solid fa-trash-can icon-danger"></i></a>
+                        <button class="link-button" form="manage-actions" aria-label="Delete"
+                            formaction="/manage/engines/{{config.name}}/delete/"
+                            onclick="return confirm('YOU ARE DELETING THIS ENGINE FOREVER')">
+                        <i class="fa-solid fa-trash-can icon-danger"></i></button>
                     {% endif %}
                 </td>
             </tr>

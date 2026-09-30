@@ -82,31 +82,33 @@
         <!-- Dev vs Base [Git Diff Link] -->
         <h4><a href="{{workload|gitDiffLink}}">{{workload|git_diff_text}}</a></h4>
 
+        <form id="workload-actions" method="post" hidden>{% csrf_token %}</form>
+
         <div class="anchor-container">
 
             <!-- Approve Button: For Admins, or Cross-approvers -->
             {% if not workload.approved and profile.approver and profile.user.username != workload.author %}
-                <a class="anchorbutton btn-blue" href="/{{type|lower}}/{{workload.id}}/APPROVE">Approve</a>
+                <button class="anchorbutton btn-blue" form="workload-actions" formaction="/{{type|lower}}/{{workload.id}}/APPROVE/">Approve</button>
             {% elif not workload.approved and request.user.is_superuser %}
-                <a class="anchorbutton btn-blue" href="/{{type|lower}}/{{workload.id}}/APPROVE">Approve</a>
+                <button class="anchorbutton btn-blue" form="workload-actions" formaction="/{{type|lower}}/{{workload.id}}/APPROVE/">Approve</button>
             {% else %}
                 <a class="anchorbutton btn-disabled">Approve</a>
             {% endif %}
 
             <!-- Restart Button: For Approvers or Workload Authors of finished workloads -->
             {% if workload.finished and not workload.passed and not workload.failed and profile.approver %}
-                <a class="anchorbutton btn-yellow" href="/{{type|lower}}/{{workload.id}}/RESTART">Restart</a>
+                <button class="anchorbutton btn-yellow" form="workload-actions" formaction="/{{type|lower}}/{{workload.id}}/RESTART/">Restart</button>
             {% elif workload.finished and not workload.passed and not workload.failed and profile.user.username == workload.author %}
-                <a class="anchorbutton btn-yellow" href="/{{type|lower}}/{{workload.id}}/RESTART">Restart</a>
+                <button class="anchorbutton btn-yellow" form="workload-actions" formaction="/{{type|lower}}/{{workload.id}}/RESTART/">Restart</button>
             {% elif workload.finished %}
                 <a class="anchorbutton btn-disabled">Restart</a>
             {% endif %}
 
             <!-- Stop Button: For Approvers or Workload Authors of active workloads -->
             {% if not workload.finished and profile.approver %}
-                <a class="anchorbutton btn-yellow" href="/{{type|lower}}/{{workload.id}}/STOP">Stop</a>
+                <button class="anchorbutton btn-yellow" form="workload-actions" formaction="/{{type|lower}}/{{workload.id}}/STOP/">Stop</button>
             {% elif not workload.finished and profile.user.username == workload.author %}
-                <a class="anchorbutton btn-yellow" href="/{{type|lower}}/{{workload.id}}/STOP">Stop</a>
+                <button class="anchorbutton btn-yellow" form="workload-actions" formaction="/{{type|lower}}/{{workload.id}}/STOP/">Stop</button>
             {% elif not workload.finished %}
                 <a class="anchorbutton btn-disabled">Stop</a>
             {% endif %}
@@ -114,9 +116,9 @@
             <!-- Delete/Restore Button: For Approvers or Workload Authors -->
             {% if profile.approver or profile.user.username == workload.author %}
                 {% if workload.deleted %}
-                    <a class="anchorbutton btn-preset" href="/{{type|lower}}/{{workload.id}}/RESTORE">Restore</a>
+                    <button class="anchorbutton btn-preset" form="workload-actions" formaction="/{{type|lower}}/{{workload.id}}/RESTORE/">Restore</button>
                 {% else %}
-                    <a class="anchorbutton btn-red" href="/{{type|lower}}/{{workload.id}}/DELETE">Delete</a>
+                    <button class="anchorbutton btn-red" form="workload-actions" formaction="/{{type|lower}}/{{workload.id}}/DELETE/" onclick="return confirm('Delete this Workload?')">Delete</button>
                 {% endif %}
             {% else %}
                 {% if workload.deleted %}

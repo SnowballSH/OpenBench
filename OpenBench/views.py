@@ -38,6 +38,7 @@ from OpenBench.insights.api import workload_payload
 
 from OpenBench.config import OPENBENCH_CONFIG, OPENBENCH_STATIC_VERSION
 from OpenBench.security import throttle
+from OpenBench.security.csrf import fails_session_csrf
 from OpenBench.security.fetch_metadata import is_cross_site
 from OpenSite.settings import PROJECT_PATH
 
@@ -525,6 +526,8 @@ def machines(request, pk=None):
 def workload(request, workload_type, pk, action=None):
 
     if action != None:
+        if request.method != 'POST':
+            return redirect(request, '/%s/%d/' % (workload_type, int(pk)), error='Workload actions must be submitted from the Workload page')
         if is_cross_site(request):
             return redirect(request, '/index/', error='Workload actions must be made from OpenBench itself')
         return modify_workload(request, pk, action)
@@ -549,6 +552,8 @@ def new_workload(request, workload_type):
 #                          NETWORK MANAGEMENT VIEWS                           #
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 
+NETWORK_CHANGES = frozenset({ 'UPLOAD', 'DEFAULT', 'DELETE' })
+
 def networks(request, engine=None, action=None, name=None, client=False):
 
     # Without an identifier and a valid action, all we can do is view the list
@@ -566,8 +571,13 @@ def networks(request, engine=None, action=None, name=None, client=False):
     if not client and not Profile.objects.get(user=request.user).approver:
         return django.http.HttpResponseRedirect('/index/')
 
-    # Changes are made by plain links, so refuse any a foreign site could trigger
-    if action.upper() in ['DEFAULT', 'DELETE'] and is_cross_site(request):
+    # Changes are CSRF-protected forms. A GET is an old link, so change nothing
+    if action.upper() in NETWORK_CHANGES and request.method != 'POST':
+        return redirect(request, '/networks/%s/' % (engine), error='Network changes must be submitted from the Networks page')
+
+    # Defense in depth, for browsers that report where the request came from
+    is_change = action.upper() in NETWORK_CHANGES or (action.upper() == 'EDIT' and request.method == 'POST')
+    if is_change and is_cross_site(request):
         return redirect(request, '/networks/', error='Network changes must be made from OpenBench itself')
 
     # Split out Uploads, since there is no logic to disambiguate the name
@@ -628,6 +638,10 @@ def manage_books(request, name=None, action=None):
         data = { 'books' : Book.objects.order_by('name'), 'can_manage' : can_manage }
         return render(request, 'manage_books.html', data)
 
+    # Changes are CSRF-protected forms. A GET is an old link, so change nothing
+    if action and request.method != 'POST':
+        return redirect(request, '/manage/books/', error='Book changes must be submitted from the Books page')
+
     # Creating is the only action for a Book that does not exist yet
     if action and action.upper() == 'CREATE':
         if not can_manage:
@@ -664,6 +678,10 @@ def manage_engines(request, name=None, action=None):
     if not name:
         data = { 'configs' : EngineConfig.objects.order_by('name'), 'can_manage' : can_manage }
         return render(request, 'manage_engines.html', data)
+
+    # Changes are CSRF-protected forms. A GET is an old link, so change nothing
+    if action and request.method != 'POST':
+        return redirect(request, '/manage/engines/', error='Engine changes must be submitted from the Engines page')
 
     # Creating is the only action for an Engine that does not exist yet
     if action and action.upper() == 'CREATE':
@@ -1144,6 +1162,9 @@ def api_network_delete(request, engine, identifier):
     # Exempt from CSRF, so refuse a foreign page riding on a browser session
     if is_cross_site(request):
         return api_response({ 'error' : 'Cross-site requests are refused' }, status=403)
+
+    if fails_session_csrf(request):
+        return api_response({ 'error' : 'Browser sessions must send a CSRF token' }, status=403)
 
     # Matches the website, where only Approvers may delete Networks
     if not (user := api_user(request)) or not Profile.objects.filter(user=user, approver=True).exists():
