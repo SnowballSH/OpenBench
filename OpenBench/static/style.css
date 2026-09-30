@@ -979,6 +979,7 @@ tr + tr.table-header th {
 }
 
 .table-wrap {
+    position: relative;
     width: fit-content;
     max-width: 100%;
     overflow-x: auto;

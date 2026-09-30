@@ -70,7 +70,8 @@ without relying on fill alone.
   rings and read-only state.
 - **Tables**: wrap every table in `<div class="table-wrap">`, which provides
   the card border and horizontal scrolling on narrow screens (add `w-100` for a
-  full-width table). `tr.table-header` is a header row; `.stripes` and
+  full-width table). It is positioned, so `.visually-hidden` text inside
+  a scrolled row stays clipped by it instead of widening the page. `tr.table-header` is a header row; `.stripes` and
   `.hoverable` add zebra striping and row hover; `.numeric` right-aligns
   tabular figures. Cells do not wrap by default. In `.test-list`,
   `tr.table-header` is a group heading and `tr.table-small-header` a subgroup.
