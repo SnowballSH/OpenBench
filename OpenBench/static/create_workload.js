@@ -279,3 +279,66 @@ function set_test_type() {
         document.getElementById('test_max_games' ).value = base.test_max_games || stc.test_max_games || 40000;
     }
 }
+
+function prefill_select(element, value) {
+
+    const known = Array.from(element.options).some(option => option.value === value);
+
+    if (known)
+        element.value = value;
+
+    return known;
+}
+
+function prefill_field(name, value) {
+
+    const element = document.getElementById(name);
+
+    if (element == null)
+        return false;
+
+    if (element.tagName.toLowerCase() == 'select')
+        return prefill_select(element, value);
+
+    element.value = value;
+    return true;
+}
+
+function field_label(name) {
+    const label = document.querySelector('label[for="' + name + '"]');
+    return label ? label.textContent.trim() : name;
+}
+
+function report_unrestored(names) {
+
+    const banner = document.createElement('div');
+    banner.classList.add('warning-message');
+    banner.setAttribute('role', 'status');
+
+    const text = document.createElement('span');
+    text.textContent = 'Not available, so left at the preset: ' + names.map(field_label).join(', ');
+    banner.appendChild(text);
+
+    const form = document.getElementById('workload-form');
+    form.parentNode.insertBefore(banner, form);
+}
+
+function apply_prefill(workload_type) {
+
+    const fields = JSON.parse(document.getElementById('json-prefill').textContent);
+
+    if (fields === null)
+        return;
+
+    change_engine(fields.dev_engine, 'dev', workload_type);
+
+    if (fields.base_engine !== undefined && fields.base_engine !== fields.dev_engine)
+        change_engine(fields.base_engine, 'base', workload_type);
+
+    const unrestored = Object.entries(fields)
+        .filter(([name, value]) => !prefill_field(name, value))
+        .map(([name, value]) => name);
+
+    if (unrestored.length)
+        report_unrestored(unrestored);
+}

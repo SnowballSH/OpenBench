@@ -8,6 +8,7 @@
     {{ engine_configs|json_script:"json-engines" }}
     {{ networks|json_script:"json-networks" }}
     {{ profile.repos|json_script:"json-repos" }}
+    {{ prefill_fields|json_script:"json-prefill" }}
 
     <script src="{% static 'create_workload.js' %}?{{ static_version }}"></script>
     <script src="{% static 'default_text.js' %}?{{ static_version }}"></script>
@@ -18,6 +19,7 @@
                 change_engine('{{ profile.engine }}', 'dev', '{{workload}}');
                 enforce_default_text('dev_repo', 'https://github.com/');
                 enforce_default_text('base_repo', 'https://github.com/');
+                apply_prefill('{{workload}}');
             }, false
         );
     </script>
@@ -25,8 +27,15 @@
 
 {% block content %}
 
-    <form method="POST" action="{{submit_endpoint}}">
+    <form id="workload-form" method="POST" action="{{submit_endpoint}}">
         {% csrf_token %}
+
+        {% if clone_source %}
+            <input type="hidden" name="clone_of" value="{{clone_source.id}}">
+            <div class="status-message" role="status" id="clone-notice">
+                <span>Cloned from <a href="{{clone_source.url}}">#{{clone_source.id}} {{clone_source.name}}</a></span>
+            </div>
+        {% endif %}
 
         <div class="form w-100">
             <div class="col">
@@ -67,7 +76,7 @@
                     <label for="dev_branch" > {{dev_text}} Branch </label> <input id="dev_branch" name="dev_branch" autofocus>
                 </div>
                 <div class="row">
-                    <label for="dev_bench" > {{dev_text}} Bench </label> <input value="Autofill" id="dev_bench" name="dev_bench">
+                    <label for="dev_bench" > {{dev_text}} Bench </label> <input placeholder="Autofill" id="dev_bench" name="dev_bench">
                 </div>
                 <div class="row">
                     <label for="dev_network" > {{dev_text}} Network </label> <select id="dev_network" name="dev_network"></select>
@@ -87,7 +96,7 @@
                         <label for="base_branch"> Base Branch </label> <input id="base_branch" name="base_branch">
                     </div>
                     <div class="row">
-                        <label for="base_bench"> Base Bench </label> <input value="Autofill" id="base_bench" name="base_bench">
+                        <label for="base_bench"> Base Bench </label> <input placeholder="Autofill" id="base_bench" name="base_bench">
                     </div>
                     <div class="row">
                         <label for="base_network"> Base Network </label> <select id="base_network" name="base_network"></select>

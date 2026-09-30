@@ -127,6 +127,12 @@
                     <a class="anchorbutton btn-disabled">Delete</a>
                 {% endif %}
             {% endif %}
+
+            {% if profile.enabled %}
+                <a class="anchorbutton btn-blue" href="/{{type|lower}}/new/?clone={{workload.id}}">Clone</a>
+            {% else %}
+                <a class="anchorbutton btn-disabled">Clone</a>
+            {% endif %}
         </div>
 
         <!-- Copy Button: Copy the current results statblock -->

@@ -1,3 +1,5 @@
+import html
+import re
 from unittest import mock
 
 from django.test import TestCase
@@ -10,6 +12,10 @@ REPO = 'https://github.com/SnowballSH/Avalanche'
 def github_commit(url, **kwargs):
     branch = { 'sha' : 'c' * 40, 'commit' : { 'message' : 'Change things\n\nBench: 1234567' } }
     return mock.Mock(**{ 'json.return_value' : { 'commit' : branch } })
+
+def rendered_error(response):
+    match = re.search(r'class="error-message"[^>]*>\s*<pre>(.*?)</pre>', response.content.decode(), re.DOTALL)
+    return html.unescape(match.group(1)) if match else None
 
 def shared_fields(**overrides):
     return {
@@ -47,11 +53,19 @@ class CreateWorkloadTests(TestCase):
     def create(self, kind, fields):
         with mock.patch('requests.get', side_effect=github_commit):
             response = self.client.post('/%s/new/' % (kind), fields)
+        if response.status_code == 200:
+            self.assertIsNotNone(error := rendered_error(response))
+            return error
         self.assertEqual(response.status_code, 302)
         session = self.client.session
         error   = session.pop('error_message', None)
         session.save()
         return error
+
+    def test_bench_fields_submit_empty_so_the_commit_bench_is_used(self):
+        content = self.client.get('/test/new/').content.decode()
+        self.assertNotIn('value="Autofill"', content)
+        self.assertEqual(content.count('placeholder="Autofill"'), 2)
 
     def test_valid_test_is_created(self):
         self.assertIsNone(self.create('test', test_fields()))
@@ -89,6 +103,11 @@ class CreateWorkloadTests(TestCase):
     def test_valid_tune_is_created(self):
         self.assertIsNone(self.create('tune', tune_fields()))
         self.assertEqual(SPSARun.objects.get().a_ratio, 0.1)
+
+    def test_tune_form_without_info_is_created(self):
+        fields = { name : value for name, value in tune_fields().items() if not name.startswith('base_') }
+        self.assertIsNone(self.create('tune', fields))
+        self.assertEqual(Test.objects.get().info, '')
 
     def test_malformed_a_ratio_is_an_error_not_a_crash(self):
         for value in ['abc', '-1']:
