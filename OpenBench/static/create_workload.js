@@ -121,7 +121,7 @@ function add_defaults_to_preset(engine, preset, workload_type) {
 function set_engine(engine, target) {
 
     document.getElementById(target + '_engine').value = engine;
-    document.getElementById(target + '_repo'  ).value = repos[engine] || engines[engine].source
+    document.getElementById(target + '_repo'  ).value = repos?.[engine] || engines[engine].source
 
     create_network_options(target + '_network', engine);
 }
@@ -222,7 +222,16 @@ function apply_preset(preset, workload_type) {
     }
 }
 
-function change_engine(engine, target, workload_type) {
+function known_engine(engine) {
+    return engine in engines ? engine : Object.keys(engines)[0];
+}
+
+function change_engine(requested, target, workload_type) {
+
+    const engine = known_engine(requested);
+
+    if (engine === undefined)
+        return;
 
     set_engine(engine, target);
 
