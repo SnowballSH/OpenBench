@@ -302,6 +302,7 @@ def index(request, page=1):
         'completed' : completed[start:end],
         'paging'    : paging,
         'status'    : OpenBench.utils.getMachineStatus(),
+        'server_insights' : True,
     }
 
     return render(request, 'index.html', data)

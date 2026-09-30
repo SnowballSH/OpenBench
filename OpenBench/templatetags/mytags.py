@@ -18,6 +18,7 @@
 #                                                                             #
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 
+import dataclasses
 import django
 import re
 
@@ -283,6 +284,29 @@ def test_is_time_odds(test):
 def test_is_fischer(test):
     return 'FRC' in test.book_name.upper() or '960' in test.book_name.upper()
 
+@dataclasses.dataclass(frozen=True)
+class RowProgress:
+    kind     : str
+    fraction : float
+    label    : str
+
+def _clamped(value: float) -> float:
+    return min(1.0, max(0.0, value))
+
+def workload_progress(test) -> RowProgress | None:
+
+    if test.test_mode == 'SPRT' and test.upperllr > test.lowerllr:
+        fraction = (test.currentllr - test.lowerllr) / (test.upperllr - test.lowerllr)
+        label = 'LLR %0.2f between bounds %0.2f and %0.2f' % (test.currentllr, test.lowerllr, test.upperllr)
+        return RowProgress('llr', _clamped(fraction), label)
+
+    if test.test_mode in ('GAMES', 'DATAGEN') and test.max_games > 0:
+        fraction = _clamped(test.games / test.max_games)
+        label = '{:,} of {:,} games ({:.0%})'.format(test.games, test.max_games, fraction)
+        return RowProgress('games', fraction, label)
+
+    return None
+
 register.filter('book_download_link', book_download_link)
 register.filter('network_download_link', network_download_link)
 
@@ -294,6 +318,8 @@ register.filter('git_diff_text', git_diff_text)
 register.filter('test_is_smp_odds'  , test_is_smp_odds  )
 register.filter('test_is_time_odds' , test_is_time_odds )
 register.filter('test_is_fischer'   , test_is_fischer   )
+
+register.filter('workload_progress', workload_progress)
 
 
 @register.filter
