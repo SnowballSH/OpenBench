@@ -10,3 +10,6 @@ urlpatterns = [
 ]
 
 urlpatterns += staticfiles_urlpatterns()
+handler403 = 'OpenBench.security.error_pages.permission_denied'
+handler404 = 'OpenBench.security.error_pages.page_not_found'
+handler500 = 'OpenBench.security.error_pages.server_error'

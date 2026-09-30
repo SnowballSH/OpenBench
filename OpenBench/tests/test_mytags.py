@@ -1,7 +1,13 @@
 from django.test import TestCase
 
 from OpenBench.models import Network
-from OpenBench.templatetags.mytags import prettyDevName, shortStatBlock, testResultColour
+from OpenBench.templatetags.mytags import (
+    longStatBlock,
+    prettyDevName,
+    shortStatBlock,
+    test_is_smp_odds,
+    testResultColour,
+)
 from OpenBench.tests.fixtures import create_engine_config, create_test, create_user, ensure_book
 
 
@@ -62,3 +68,29 @@ class StatBlockTests(TestCase):
         self.assertEqual(testResultColour(create_test(self.author, failed=True, wins=5, losses=5)), 'yellow')
         self.assertEqual(testResultColour(create_test(self.author, failed=True, wins=4, losses=5)), 'red')
         self.assertEqual(testResultColour(create_test(self.author)), '')
+
+
+class MissingOptionTests(TestCase):
+    def setUp(self):
+        create_engine_config()
+        ensure_book()
+        self.author = create_user('author')
+
+    def settings_line(self, dev_options):
+        test = create_test(self.author, test_mode='SPRT', dev_options=dev_options, dev_time_control='8.0+0.08')
+        return longStatBlock(test).split('\n')[1]
+
+    def test_long_block_shows_the_options_it_can_read(self):
+        self.assertEqual(self.settings_line('Threads=2 Hash=16'), 'SPRT  | 8.0+0.08s Threads=2 Hash=16MB')
+        self.assertEqual(self.settings_line('Threads=2'), 'SPRT  | 8.0+0.08s Threads=2')
+        self.assertEqual(self.settings_line('Hash=abc Threads=x'), 'SPRT  | 8.0+0.08s')
+        self.assertEqual(self.settings_line(''), 'SPRT  | 8.0+0.08s')
+
+    def test_thread_odds_tolerate_missing_threads(self):
+        def odds(dev, base):
+            return test_is_smp_odds(create_test(self.author, dev_options=dev, base_options=base))
+
+        self.assertFalse(odds('Hash=16', 'Hash=16'))
+        self.assertTrue(odds('Threads=2', 'Hash=16'))
+        self.assertFalse(odds('Threads=2', 'Threads=2 Hash=8'))
+        self.assertTrue(odds('Threads=2', 'Threads=1'))

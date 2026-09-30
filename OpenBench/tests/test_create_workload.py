@@ -15,6 +15,13 @@ def github_commit(url, **kwargs):
     return mock.Mock(**{'json.return_value': {'commit': branch}})
 
 
+def github_listing(url, **kwargs):
+    # GitHub answers a nameless /branches or /commits with a list of them
+    if url.endswith(('/branches', '/commits')):
+        return mock.Mock(**{'json.return_value': [{'name': 'main', 'commit': {'sha': 'c' * 40}}]})
+    return github_commit(url, **kwargs)
+
+
 def rendered_error(response):
     match = re.search(r'class="error-message"[^>]*>\s*<pre>(.*?)</pre>', response.content.decode(), re.DOTALL)
     return html.unescape(match.group(1)) if match else None
@@ -80,6 +87,17 @@ def tune_fields(**overrides):
     )
 
 
+def datagen_fields(**overrides):
+    return shared_fields(
+        **{
+            'datagen_max_games': '1000',
+            'datagen_custom_genfens': '',
+            'datagen_play_reverses': 'NO',
+            **overrides,
+        }
+    )
+
+
 class CreateWorkloadTests(TestCase):
     def setUp(self):
         create_engine_config()
@@ -87,8 +105,8 @@ class CreateWorkloadTests(TestCase):
         self.author = create_user('author')
         self.client.login(username='author', password=PASSWORD)
 
-    def create(self, kind, fields):
-        with mock.patch('requests.get', side_effect=github_commit):
+    def create(self, kind, fields, github=github_commit):
+        with mock.patch('requests.get', side_effect=github):
             response = self.client.post(f'/{kind}/new/', fields)
         if response.status_code == 200:
             self.assertIsNotNone(error := rendered_error(response))
@@ -181,4 +199,14 @@ class CreateWorkloadTests(TestCase):
     def test_unusable_supplied_bench_is_an_error(self):
         for bench in [str(2**31), 'abc']:
             self.assertIn('Bench for dev', self.create('test', test_fields(dev_bench=bench)))
+        self.assertFalse(Test.objects.exists())
+
+    def test_empty_branch_is_rejected_before_asking_github(self):
+        for kind, fields in (('datagen', datagen_fields), ('test', test_fields)):
+            github = mock.Mock(side_effect=github_listing)
+            with self.subTest(kind=kind), mock.patch('traceback.print_exc') as print_exc:
+                self.assertIn('Base Branch is required', self.create(kind, fields(base_branch=''), github))
+                print_exc.assert_not_called()
+                requested = [call.args[0] for call in github.call_args_list]
+                self.assertFalse([url for url in requested if url.endswith(('/branches', '/commits'))])
         self.assertFalse(Test.objects.exists())

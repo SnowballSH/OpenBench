@@ -100,20 +100,30 @@ def shortStatBlock(test):
 
     return '\n'.join(statlines)
 
+def option_integer(options, option):
+
+    # Options edited outside the create form may lack a value, or hold a bad one
+    try: return int(OpenBench.utils.extract_option(options, option))
+    except (TypeError, ValueError): return None
+
 def longStatBlock(test):
 
     assert test.test_mode != 'SPSA'
 
-    threads     = int(OpenBench.utils.extract_option(test.dev_options, 'Threads'))
-    hashmb      = int(OpenBench.utils.extract_option(test.dev_options, 'Hash'))
+    threads     = option_integer(test.dev_options, 'Threads')
+    hashmb      = option_integer(test.dev_options, 'Hash')
     timecontrol = test.dev_time_control + ['s', '']['=' in test.dev_time_control]
     type_text   = 'SPRT' if test.test_mode == 'SPRT' else 'Conf'
+
+    settings = [ timecontrol ]
+    if threads is not None: settings.append('Threads=%d' % (threads))
+    if hashmb  is not None: settings.append('Hash=%dMB' % (hashmb))
 
     lower, elo, upper = OpenBench.stats.Elo(test.results())
 
     lines = [
         'Elo   | %0.2f +- %0.2f (95%%)' % (elo, max(upper - elo, elo - lower)),
-        '%-5s | %s Threads=%d Hash=%dMB' % (type_text, timecontrol, threads, hashmb),
+        '%-5s | %s' % (type_text, ' '.join(settings)),
     ]
 
     if test.test_mode == 'SPRT':
@@ -292,8 +302,8 @@ def git_diff_text(workload, N=24):
 
 
 def test_is_smp_odds(test):
-    dev_threads  = int(OpenBench.utils.extract_option(test.dev_options , 'Threads'))
-    base_threads = int(OpenBench.utils.extract_option(test.base_options, 'Threads'))
+    dev_threads  = option_integer(test.dev_options , 'Threads')
+    base_threads = option_integer(test.base_options, 'Threads')
     return dev_threads != base_threads
 
 def test_is_time_odds(test):

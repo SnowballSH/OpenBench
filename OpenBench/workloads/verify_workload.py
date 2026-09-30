@@ -410,6 +410,11 @@ def collect_github_info(errors, request, field):
     branch = request.POST['{0}_branch'.format(field)]
     bysha  = bool(re.search('^[0-9a-fA-F]{40}$', branch))
 
+    # A nameless lookup would list every branch or commit instead of one
+    if not branch.strip():
+        errors.append('%s Branch is required' % (field.capitalize()))
+        return
+
     # All API requests will share this common path. Some engines are private.
     base    = request.POST['%s_repo' % (field)].replace('github.com', 'api.github.com/repos')
     engine  = request.POST['%s_engine' % (field)]

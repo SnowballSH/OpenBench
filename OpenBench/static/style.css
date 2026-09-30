@@ -325,6 +325,10 @@ body {
     grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
 }
 
+body.standalone {
+    display: block;
+}
+
 #sidebar {
     position: sticky;
     top: 0;

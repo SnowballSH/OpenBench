@@ -973,7 +973,8 @@ logged in: the response sets `sessionid` and `csrftoken` cookies (see
 | Outcome | Answer |
 |---|---|
 | `Sec-Fetch-Site` is `cross-site` or `same-site` (a browser on another site) | 403, plain text, nobody is logged in |
-| `GET`, missing, wrong or not-enabled credentials | 302 to `/login/`, banner "Unable to authenticate user" |
+| `GET` (or any method but `POST`) | 302 to `/login/`, no banner and no session |
+| Missing, wrong or not-enabled credentials | 302 to `/login/`, banner "Unable to authenticate user" |
 | Throttled | 302 to `/login/`, banner "Too many failed logins. Try again later" |
 | Any `action` other than the two below | 302 to `/index/`, banner "Unknown scripts action" |
 
@@ -1013,7 +1014,7 @@ datagen.
 | Outcome | Answer |
 |---|---|
 | Created | 302 to `/index/`; a warning banner if dev appears behind base |
-| Rejected | 200, the create form with every reason in the error banner, one per line, for example "no-such-branch-xyz could not be found" |
+| Rejected | 200, the create form with every reason in the error banner, one per line, for example "no-such-branch-xyz could not be found", or "Base Branch is required" for an empty branch, which is refused without asking GitHub |
 
 A field left out of the POST is rejected like an invalid one, for example
 `"Priority" is not an Integer`. A missing `dev_branch`, `dev_repo` or

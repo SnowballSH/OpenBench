@@ -166,6 +166,10 @@ THROTTLED_MESSAGE = 'Too many failed logins. Try again later'
 
 def register(request):
 
+    # A bare redirect for GETs, so an anonymous visit stores no session row
+    if OPENBENCH_CONFIG['require_manual_registration'] and request.method == 'GET':
+        return redirect(request, '/login/')
+
     if OPENBENCH_CONFIG['require_manual_registration']:
         return redirect(request, '/login/', error=ERROR_MESSAGES['manual_registration'])
 
@@ -717,6 +721,11 @@ def scripts(request):
     # Exempt from CSRF, so a foreign page must not log a browser into its own account
     if is_cross_site(request):
         return HttpResponse('Cross-site requests are refused', status=403, content_type='text/plain')
+
+    # Credentials only arrive in a POST body; a browser's GET gets no banner,
+    # so it never creates a session row
+    if request.method != 'POST':
+        return redirect(request, '/login/')
 
     # Exempt from CSRF, so the request must carry its own credentials
     try: user = authenticate(request, requireEnabled=True)
