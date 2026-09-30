@@ -390,3 +390,29 @@ its start and its finish (or now), with jittered arrival rates and LLRs
 computed at every point, ending exactly at the Workload's counters. It also
 credits each Profile with the games its Machines played, so the server
 payload's `top_contributors` is populated.
+
+## Fleet pages
+
+`OpenBench/fleet/` backs `/machines/`, `/machines/<id>/` and `/users/`.
+`status.py` holds the pure rules, `machines.py`, `machine_detail.py` and
+`users.py` each pair pure summaries with one loader.
+
+- **Online** is the same rule as the server payload's `fleet`: a heartbeat
+  within the last 2 minutes (`ACTIVE_MACHINE`). `/machines/?show=24h` and
+  `?show=7d` also list Machines last seen within that window, marked offline.
+  Summary tiles, threads and MNPS (`Σ concurrency · mnps`) count online
+  Machines only; `Games, last 24h` is `games_last_24h` above.
+- **Lifetime games** is the sum of a Machine's `Result.games`, computed by a
+  correlated subquery in the Machine query.
+- **Workload** is `Machine.workload`: the current one while online, the last
+  one once offline.
+- **Machine detail** lists the newest 50 Results of the Machine by
+  `Result.updated`. Elo is that Machine's own interval from its Result counters
+  (pentanomial unless the Workload is trinomial, none for SPSA); NPS is
+  `1000 · dev_nodes / dev_time`.
+- **Users** lists Profiles with games, tests, approver rights or an online
+  Machine. Last activity is the latest of the last login, the newest Machine
+  heartbeat and the newest Workload the user authored.
+
+Each page runs a fixed number of queries whatever the row count
+(`OpenBench/tests/test_fleet.py` asserts it).

@@ -95,6 +95,12 @@ without relying on fill alone.
   index. `.row-progress` (`-games` fill or `-llr` marker, `--fraction`) is the
   thin bar under an active row's stat block, rendered by the `workload_progress`
   template filter from the Test's own fields, with no extra queries.
+- **Sortable tables**: add `data-sortable` to a `<table>` with a `<thead>`
+  and `<tbody>`, and put a `<button class="sort-button">` in each sortable
+  header; `data-sort="number"` sorts numerically (largest first on the first
+  click). A cell's `data-sort-value` overrides its text as the sort key.
+  `OpenBench/static/fleet.js` wires them up; load it from the page's
+  `scripts` block.
 - **Banners**: `.error-message`, `.warning-message`, `.status-message` render
   the session messages in `base.html`.
 - **Small pieces**: `.flag-*` for the test-list markers, `.icon-ok`,
