@@ -109,3 +109,9 @@ class CreateWorkloadTests(TestCase):
         self.assertIsNone(self.create('tune', tune_fields(spsa_inputs=inputs)))
         params = SPSARun.objects.get().parameters.order_by('index')
         self.assertEqual([(p.name, p.is_float, p.value) for p in params], [('Knight', False, 300.0), ('Bishop', True, 3.5)])
+
+    def test_github_requests_are_bounded(self):
+        with mock.patch('requests.get', side_effect=github_commit) as get:
+            self.client.post('/test/new/', test_fields())
+        self.assertEqual(get.call_count, 3)
+        self.assertTrue(all(call.kwargs.get('timeout') for call in get.call_args_list))

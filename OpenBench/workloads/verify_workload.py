@@ -45,6 +45,9 @@ import OpenBench.utils
 
 from OpenBench.models import *
 
+# Bounds how long a slow Github API can hold up a workload submission
+GITHUB_TIMEOUT_SECONDS = 15
+
 # The portable range of a Django IntegerField, which every integer input is stored in
 INTEGER_FIELD_RANGE = (-2**31, 2**31 - 1)
 
@@ -433,12 +436,12 @@ def collect_github_info(errors, request, field):
 
         # Lookup branch or commit sha, but will fail for tags
         url  = OpenBench.utils.path_join(base, 'commits' if bysha else 'branches', branch)
-        data = requests.get(url, headers=headers).json()
+        data = requests.get(url, headers=headers, timeout=GITHUB_TIMEOUT_SECONDS).json()
 
         # Check to see if the branch name was actually a tag name
         if not bysha and 'commit' not in data:
             url  = OpenBench.utils.path_join(base, 'commits', branch)
-            data = requests.get(url, headers=headers).json()
+            data = requests.get(url, headers=headers, timeout=GITHUB_TIMEOUT_SECONDS).json()
 
         # Actual branches have to go one layer deeper
         elif not bysha: data = data['commit']
