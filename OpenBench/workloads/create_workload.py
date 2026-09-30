@@ -55,7 +55,7 @@ def create_workload(request, workload_type):
     if not Profile.objects.get(user=request.user).enabled:
         return OpenBench.views.redirect(request, '/login/', error='Only enabled users can create tests')
 
-    if request.method == 'GET':
+    if request.method in ('GET', 'HEAD'):
         source, warning = find_clone_source(request.GET.get('clone'), workload_type)
         return render_form(request, workload_type, source, source and source.fields, warning=warning)
 
