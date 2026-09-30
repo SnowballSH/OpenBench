@@ -354,7 +354,7 @@ def network_download(request, engine, network, identifier=None):
 
 def network_edit(request, engine, network):
 
-    if request.method == 'GET':
+    if request.method in ('GET', 'HEAD'):
         return OpenBench.views.render(request, 'network.html', { 'network' : network })
 
     new_name        = request.POST['name']

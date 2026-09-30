@@ -167,13 +167,13 @@ THROTTLED_MESSAGE = 'Too many failed logins. Try again later'
 def register(request):
 
     # A bare redirect for GETs, so an anonymous visit stores no session row
-    if OPENBENCH_CONFIG['require_manual_registration'] and request.method == 'GET':
+    if OPENBENCH_CONFIG['require_manual_registration'] and request.method in ('GET', 'HEAD'):
         return redirect(request, '/login/')
 
     if OPENBENCH_CONFIG['require_manual_registration']:
         return redirect(request, '/login/', error=ERROR_MESSAGES['manual_registration'])
 
-    if request.method == 'GET':
+    if request.method in ('GET', 'HEAD'):
         return render(request, 'register.html', always_allow=True)
 
     if request.POST['password1'] != request.POST['password2']:
@@ -197,7 +197,7 @@ def register(request):
 
 def login(request):
 
-    if request.method == 'GET':
+    if request.method in ('GET', 'HEAD'):
         return render(request, 'login.html', always_allow=True)
 
     try:
@@ -227,7 +227,7 @@ def profile(request):
     if not OpenBench.page_queries.request_profile(request):
         return redirect(request, '/index/')
 
-    if request.method == 'GET':
+    if request.method in ('GET', 'HEAD'):
         return render(request, 'profile.html')
 
     changes_message = ''
@@ -255,7 +255,7 @@ def profile_config(request):
     if not (profile := OpenBench.page_queries.request_profile(request)):
         return redirect(request, '/index/')
 
-    if request.method == 'GET':
+    if request.method in ('GET', 'HEAD'):
         return render(request, 'profile.html')
 
     changes = ''
@@ -606,7 +606,7 @@ def network_form(request):
         return django.http.HttpResponseRedirect('/index/')
 
     # Get requests should not be reaching this point
-    if request.method == 'GET':
+    if request.method in ('GET', 'HEAD'):
         return render(request, 'uploadnet.html', {})
 
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
