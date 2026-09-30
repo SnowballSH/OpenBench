@@ -9,7 +9,7 @@ from unittest import mock
 from django.core.cache import cache
 from django.test import SimpleTestCase, TestCase, override_settings
 
-from OpenBench.models import LogEvent, Network
+from OpenBench.models import LogEvent, Network, Profile
 from OpenBench.storage.classify import classify
 from OpenBench.storage.domain import GIB, Category, DiskUsage, MediaFile
 from OpenBench.storage.present import format_bytes, storage_page
@@ -322,6 +322,12 @@ class CachedReportTests(TestCase):
         self.assertEqual((spool_usage.files, spool_usage.size, spool_usage.truncated), (1, 25, False))
 
 
+def create_manager(username):
+    user = create_user(username)
+    Profile.objects.filter(user=user).update(superuser=True)
+    return user
+
+
 class StorageViewTests(TestCase):
     def setUp(self):
         self.media = MediaTree(self)
@@ -335,7 +341,7 @@ class StorageViewTests(TestCase):
             )
         )
         create_engine_config('Avalanche')
-        self.user = create_user('viewer')
+        self.user = create_manager('viewer')
         self.media.write('AAAAAAAA', 2048)
         Network.objects.create(engine='Avalanche', name='net-a', sha256='AAAAAAAA', author='viewer')
 
@@ -348,7 +354,13 @@ class StorageViewTests(TestCase):
         response = self.client.get('/manage/storage/')
         self.assertRedirects(response, '/index/', fetch_redirect_response=False)
 
-    def test_logged_in_users_see_the_overview(self):
+    def test_enabled_users_who_do_not_manage_are_refused(self):
+        self.client.force_login(create_user('worker'))
+        response = self.client.get('/manage/storage/')
+        self.assertRedirects(response, '/manage/books/', fetch_redirect_response=False)
+        self.assertNotContains(self.client.get('/manage/books/'), 'href="/manage/storage/"')
+
+    def test_managers_see_the_overview(self):
         self.client.force_login(self.user)
         response = self.client.get('/manage/storage/')
         self.assertEqual(response.status_code, 200)
@@ -386,7 +398,7 @@ class StorageApiTests(TestCase):
         self.enterContext(override_settings(MEDIA_ROOT=str(self.media.root), FILE_UPLOAD_TEMP_DIR=None))
         cache.delete(CACHE_KEY)
         self.addCleanup(cache.delete, CACHE_KEY)
-        self.user = create_user('viewer')
+        self.user = create_manager('viewer')
         self.media.write('event3.log', 12)
 
     def test_anonymous_requests_are_refused(self):
@@ -396,6 +408,19 @@ class StorageApiTests(TestCase):
     def test_disabled_users_are_refused(self):
         self.client.force_login(create_user('disabled', enabled=False))
         self.assertEqual(self.client.get('/api/storage/').status_code, 401)
+
+    def test_enabled_users_who_do_not_manage_are_forbidden(self):
+        self.client.force_login(create_user('worker'))
+        response = self.client.get('/api/storage/')
+        self.assertEqual(response.status_code, 403)
+        self.assertNotIn('storage', json.loads(response.content))
+
+    def test_django_superusers_are_managers(self):
+        user = create_user('root')
+        user.is_superuser = True
+        user.save()
+        self.client.force_login(user)
+        self.assertEqual(self.client.get('/api/storage/').status_code, 200)
 
     def test_session_users_get_the_documented_schema(self):
         self.client.force_login(self.user)
