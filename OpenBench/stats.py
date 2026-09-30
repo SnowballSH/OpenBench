@@ -30,6 +30,11 @@ import math
 import scipy.stats
 from scipy import optimize
 
+# MLE_tvalue() starts from the uniform pdf, for which the secular equation has no
+# root once |t| >= 2*sqrt(2)/3, ie. once the normalized Elo reaches 2/3 * 800/ln(10),
+# which is about 231.6. Bounds are kept clear of that numerically unstable edge.
+PENTANOMIAL_NELO_LIMIT = 230.0
+
 def TrinomialSPRT(results, elo0, elo1):
 
     # Needs at least 1 Loss, 1 Draw, and 1 Win

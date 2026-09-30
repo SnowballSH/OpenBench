@@ -81,6 +81,11 @@ class CreateWorkloadTests(TestCase):
         self.assertIn('Dev Engine was not found', self.create('test', test_fields(dev_engine='Nonexistent')))
         self.assertFalse(Test.objects.exists())
 
+    def test_sprt_bounds_outside_the_pentanomial_domain_are_rejected(self):
+        self.assertIn('SPRT Bounds', self.create('test', test_fields(test_bounds='[0.00, 230.01]')))
+        self.assertIn('SPRT Bounds', self.create('test', test_fields(test_bounds='[-230.01, 0.00]')))
+        self.assertIsNone(self.create('test', test_fields(test_bounds='[-229.99, 229.99]')))
+
     def test_valid_tune_is_created(self):
         self.assertIsNone(self.create('tune', tune_fields()))
         self.assertEqual(SPSARun.objects.get().a_ratio, 0.1)

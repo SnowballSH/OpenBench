@@ -40,6 +40,7 @@ import requests
 import traceback
 
 import OpenBench.config
+import OpenBench.stats
 import OpenBench.utils
 
 from OpenBench.models import *
@@ -292,8 +293,11 @@ def verify_sprt_bounds(errors, request, field):
         if request.POST['test_mode'] != 'SPRT': return
         pattern = r'^\[(-?\d+(?:\.\d+)?), (-?\d+(?:\.\d+)?)\]$'
         match   = re.match(pattern, request.POST['test_bounds'])
-        assert float(match.group(1)) < float(match.group(2))
-    except: errors.append('SPRT Bounds must be formatted as [float1, float2]')
+        lower, upper = float(match.group(1)), float(match.group(2))
+        assert lower < upper
+        assert max(abs(lower), abs(upper)) < OpenBench.stats.PENTANOMIAL_NELO_LIMIT
+    except: errors.append('SPRT Bounds must be formatted as [float1, float2], within (-%.1f, %.1f)' % (
+        OpenBench.stats.PENTANOMIAL_NELO_LIMIT, OpenBench.stats.PENTANOMIAL_NELO_LIMIT))
 
 def verify_sprt_conf(errors, request, field):
     try:
