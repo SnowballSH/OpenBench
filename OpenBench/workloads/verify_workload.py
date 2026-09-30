@@ -44,6 +44,14 @@ import OpenBench.utils
 
 from OpenBench.models import *
 
+# The portable range of a Django IntegerField, which every integer input is stored in
+INTEGER_FIELD_RANGE = (-2**31, 2**31 - 1)
+
+def parse_integer(value: str | None) -> int | None:
+    try: number = int(value)
+    except (TypeError, ValueError): return None
+    return number if INTEGER_FIELD_RANGE[0] <= number <= INTEGER_FIELD_RANGE[1] else None
+
 def verify_workload(request, workload_type):
 
     assert workload_type in [ 'TEST', 'TUNE', 'DATAGEN' ]
@@ -97,6 +105,7 @@ def verify_test_creation(errors, request):
 
         # Verify everything about the General Settings
         (verify_integer        , 'priority', 'Priority'),
+        (verify_integer        , 'throughput', 'Throughput'),
         (verify_greater_than   , 'throughput', 'Throughput', 0),
         (verify_syzygy_field   , 'syzygy_wdl', 'Syzygy WDL'),
 
@@ -141,6 +150,7 @@ def verify_tune_creation(errors, request):
 
         # Verify everything about the General Settings
         (verify_integer               , 'priority', 'Priority'),
+        (verify_integer               , 'throughput', 'Throughput'),
         (verify_greater_than          , 'throughput', 'Throughput', 0),
         (verify_syzygy_field          , 'syzygy_wdl', 'Syzygy WDL'),
 
@@ -199,6 +209,7 @@ def verify_datagen_creation(errors, request):
 
         # Verify everything about the General Settings
         (verify_integer        , 'priority', 'Priority'),
+        (verify_integer        , 'throughput', 'Throughput'),
         (verify_greater_than   , 'throughput', 'Throughput', 0),
         (verify_syzygy_field   , 'syzygy_wdl', 'Syzygy WDL'),
 
@@ -222,8 +233,8 @@ def verify_datagen_creation(errors, request):
 
 
 def verify_integer(errors, request, field, field_name):
-    try: int(request.POST[field])
-    except: errors.append('"{0}" is not an Integer'.format(field_name))
+    if parse_integer(request.POST.get(field)) is None:
+        errors.append('"{0}" is not an Integer'.format(field_name))
 
 def verify_float(errors, request, field, field_name):
     try: float(request.POST[field])
@@ -296,7 +307,7 @@ def verify_sprt_conf(errors, request, field):
 def verify_max_games(errors, request, field):
     try:
         if request.POST['test_mode'] != 'GAMES': return
-        assert int(request.POST['test_max_games']) > 0
+        assert parse_integer(request.POST['test_max_games']) > 0
     except: errors.append('Fixed Games Tests must last at least one game')
 
 def verify_syzygy_field(errors, request, field, field_name):
@@ -348,7 +359,7 @@ def verify_upload_pgns(errors, request, field, field_name):
     except: errors.append('"%s" must be FALSE, COMPACT, or VERBOSE' % (field_name))
 
 def verify_datagen_games(errors, request, field):
-    try: assert int(request.POST[field]) > 0
+    try: assert parse_integer(request.POST[field]) > 0
     except: errors.append('Data Generation must last for at least one game')
 
 def verify_datagen_genfens(errors, request, field):
@@ -455,13 +466,13 @@ def requests_illegal_fork(request, field):
 def determine_bench(request, field, message):
 
     # Use the provided bench if possible
-    try: return int(request.POST['{0}_bench'.format(field)])
-    except: pass
+    if (bench := parse_integer(request.POST.get('{0}_bench'.format(field)))) is not None:
+        return bench
 
     # Fallback to try to parse the Bench from the commit
     try:
         benches = re.findall('(?:BENCH|NODES)[ :=]+([0-9,]+)', message, re.IGNORECASE)
-        return int(benches[-1].replace(',', ''))
+        return parse_integer(benches[-1].replace(',', ''))
     except: return None
 
 def strip_message(message):

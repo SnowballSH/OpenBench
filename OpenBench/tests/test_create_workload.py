@@ -63,6 +63,20 @@ class CreateWorkloadTests(TestCase):
         self.assertIn('Upload PGNs', self.create('test', test_fields(upload_pgns='SOMETIMES')))
         self.assertFalse(Test.objects.exists())
 
+    def test_fractional_throughput_is_rejected(self):
+        self.assertIn('Throughput', self.create('test', test_fields(throughput='2.5')))
+        self.assertFalse(Test.objects.exists())
+
+    def test_fractional_throughput_is_rejected_for_tunes(self):
+        self.assertIn('Throughput', self.create('tune', tune_fields(throughput='2.5')))
+        self.assertFalse(Test.objects.exists())
+
+    def test_out_of_range_integers_are_rejected(self):
+        for field in ['priority', 'throughput', 'workload_size', 'scale_nps']:
+            error = self.create('test', test_fields(**{ field : str(10 ** 30) }))
+            self.assertIsNotNone(error, field)
+        self.assertFalse(Test.objects.exists())
+
     def test_unknown_engine_is_an_error_not_a_crash(self):
         self.assertIn('Dev Engine was not found', self.create('test', test_fields(dev_engine='Nonexistent')))
         self.assertFalse(Test.objects.exists())
