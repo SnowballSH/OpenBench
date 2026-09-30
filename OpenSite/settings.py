@@ -40,10 +40,30 @@ if not SECRET_KEY:
 ALLOWED_HOSTS        = env_list('OPENBENCH_ALLOWED_HOSTS')
 CSRF_TRUSTED_ORIGINS = ['https://%s' % (host) for host in ALLOWED_HOSTS if not host.startswith('.')]
 
-if env_flag('OPENBENCH_BEHIND_TLS_PROXY'):
+OPENBENCH_BEHIND_TLS_PROXY = env_flag('OPENBENCH_BEHIND_TLS_PROXY')
+
+if OPENBENCH_BEHIND_TLS_PROXY:
     SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
     SESSION_COOKIE_SECURE   = True
     CSRF_COOKIE_SECURE      = True
+
+# Failed-login counters (OpenBench/security/throttle.py) live here. The cache is
+# per process, so each gunicorn worker keeps its own counters. See docs/SECURITY.md
+CACHES = {
+    'default': {
+        'BACKEND'  : 'django.core.cache.backends.locmem.LocMemCache',
+        'LOCATION' : 'openbench',
+    }
+}
+
+AUTHENTICATION_BACKENDS = ['OpenBench.security.backends.ThrottledModelBackend']
+
+LOGGING = {
+    'version'                  : 1,
+    'disable_existing_loggers' : False,
+    'handlers' : { 'console' : { 'class' : 'logging.StreamHandler' } },
+    'loggers'  : { 'OpenBench' : { 'handlers' : ['console'], 'level' : 'INFO' } },
+}
 
 HTML_MINIFY   = True
 APPEND_SLASH  = True

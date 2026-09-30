@@ -18,7 +18,7 @@
 #                                                                             #
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 
-import csv, io, os, json, secrets
+import csv, io, os, json, logging, secrets
 
 import django.http
 import django.shortcuts
@@ -37,6 +37,7 @@ from OpenBench.workloads.view_workload import view_workload, fetch_results, fetc
 from OpenBench.insights.api import workload_payload
 
 from OpenBench.config import OPENBENCH_CONFIG, OPENBENCH_STATIC_VERSION
+from OpenBench.security import throttle
 from OpenSite.settings import PROJECT_PATH
 
 from OpenBench.models import *
@@ -54,6 +55,8 @@ from django.utils import timezone
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 #                              GENERAL UTILITIES                              #
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
+
+logger = logging.getLogger(__name__)
 
 ERROR_MESSAGES = {
     'disabled'            : 'Account has not been enabled. Contact an Administrator',
@@ -121,22 +124,30 @@ def redirect(request, destination, error=None, warning=None, status=None):
 
 def authenticate(request, requireEnabled=False):
 
-    try:
-        user = django.contrib.auth.authenticate(
-            username = request.POST['username'],
-            password = request.POST['password'])
+    # Credentials only ever come from the POST body, never from the session
 
-        if requireEnabled:
-            profile = OpenBench.models.Profile.objects.get(user=user)
-            if not profile.enabled: raise UnableToAuthenticate()
+    username = request.POST.get('username', '')
+    password = request.POST.get('password', '')
 
-    except Exception:
+    if not username or not password:
         raise UnableToAuthenticate()
 
+    user = django.contrib.auth.authenticate(request, username=username, password=password)
+
+    if user and requireEnabled and not Profile.objects.filter(user=user, enabled=True).exists():
+        user = None
+
     if user is None:
+        logger.warning('Authentication failed for username %r from %s on %s',
+            username[:150], throttle.client_ip(request), request.path)
         raise UnableToAuthenticate()
 
     return user
+
+def authentication_error(request):
+    if throttle.is_throttled(request, request.POST.get('username', '')):
+        return 'Too many failed logins. Try again later'
+    return 'Unable to authenticate user'
 
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 #                            ADMINISTRATIVE VIEWS                             #
@@ -178,7 +189,7 @@ def login(request):
         return redirect(request, '/index/')
 
     except UnableToAuthenticate:
-        return redirect(request, '/login/', error='Unable to authenticate user')
+        return redirect(request, '/login/', error=authentication_error(request))
 
 def logout(request):
 
@@ -939,31 +950,25 @@ def client_submit_pgn(request, machine):
 def api_response(data, status=200):
     return HttpResponse(json.dumps(data, indent=4), content_type='application/json', status=status)
 
+def api_user(request):
+
+    # The enabled User behind an API request, from the browser session or else
+    # from credentials in the POST body. None if there is no such User
+
+    if request.user.is_authenticated:
+        return request.user if Profile.objects.filter(user=request.user, enabled=True).exists() else None
+
+    try: return authenticate(request, requireEnabled=True)
+    except UnableToAuthenticate: return None
+
 @csrf_exempt
 def api_authenticate(request, require_enabled=False):
 
-    try:
+    # Force requiring an enabled user when require_login_to_view is set
+    require_enabled = require_enabled or OPENBENCH_CONFIG['require_login_to_view']
 
-        # Force requiring an enabled user when require_login_to_view is set
-        require_enabled = require_enabled or OPENBENCH_CONFIG['require_login_to_view']
-
-        # Don't require a login for Public frameworks
-        if not require_enabled:
-            return True
-
-        # Request is made from a browser, and is already logged in
-        if request.user.is_authenticated:
-            return Profile.objects.get(user=request.user).enabled
-
-        # Request might be made from the command line. Check the headers
-        user = django.contrib.auth.authenticate(
-            username=request.POST['username'], password=request.POST['password'])
-        return Profile.objects.get(user=user).enabled
-
-    except Exception:
-        import traceback
-        traceback.print_exc()
-        return False
+    # Don't require a login for Public frameworks
+    return not require_enabled or api_user(request) is not None
 
 ACTIVE_INFO_TYPES = {
     'concurrency'    : int,
@@ -1067,9 +1072,7 @@ def api_networks(request, engine):
 @csrf_exempt
 def api_network_download(request, engine, identifier):
 
-    if not api_authenticate(request):
-        return api_response({ 'error' : 'API requires authentication for this server' })
-
+    # Checked once, so a bad password counts as a single failure
     if not api_authenticate(request, require_enabled=True):
         return api_response({ 'error' : 'API requires authentication for this endpoint' })
 

@@ -13,6 +13,7 @@ import OpenBench.views
 
 from OpenBench.config import OPENBENCH_CONFIG, verify_general_config
 from OpenBench.models import LogEvent, Machine, Network, PGN, Result, Test
+from OpenBench.security import throttle
 from OpenBench.tests.fixtures import (
     PASSWORD, create_engine_config, create_test, create_user, credentials, ensure_book, register_payload,
 )
@@ -39,3 +40,111 @@ class EngineOptionsPopupTests(TestCase):
         self.assertIn('&lt;img/src=x/onerror=alert(1)&gt;', content)
         self.assertNotIn('innerHTML', content)
         self.assertIn('createTextNode(option)', content)
+
+class ApiAuthenticationLoggingTests(TestCase):
+
+    def setUp(self):
+        clear_throttle(self)
+        create_engine_config()
+        self.user = create_user('reader')
+
+    def test_failure_logs_one_line_without_the_password(self):
+        with self.assertLogs('OpenBench.views', 'WARNING') as logs:
+            response = self.client.post('/api/config/', { 'username' : 'reader', 'password' : 'hunter2-guess' })
+
+        self.assertIn('error', json.loads(response.content))
+        self.assertEqual(len(logs.output), 1)
+        self.assertIn("'reader'", logs.output[0])
+        self.assertNotIn('hunter2-guess', logs.output[0])
+        self.assertNotIn('Traceback', logs.output[0])
+
+    def test_valid_credentials_succeed_without_logging(self):
+        with self.assertNoLogs('OpenBench.views', 'WARNING'):
+            response = self.client.post('/api/config/', credentials(self.user))
+        self.assertIn('engines', json.loads(response.content))
+
+class ThrottleTests(TestCase):
+
+    def setUp(self):
+        clear_throttle(self)
+        self.user = create_user('lab-worker')
+
+    def fail_logins(self, count, username='lab-worker', **extra):
+        for _ in range(count):
+            self.client.post('/login/', { 'username' : username, 'password' : 'wrong' }, **extra)
+
+    def login(self, **extra):
+        return self.client.post('/login/', credentials(self.user), **extra)
+
+    def test_valid_login_survives_fewer_failures_than_the_limit(self):
+        self.fail_logins(throttle.FAILURE_LIMIT - 1)
+        self.assertRedirects(self.login(), '/index/', fetch_redirect_response=False)
+
+    def test_username_is_locked_after_the_limit(self):
+        self.fail_logins(throttle.FAILURE_LIMIT, REMOTE_ADDR='203.0.113.1')
+
+        response = self.login(REMOTE_ADDR='203.0.113.2')
+        self.assertRedirects(response, '/login/', fetch_redirect_response=False)
+        self.assertEqual(self.client.session['error_message'], 'Too many failed logins. Try again later')
+
+    def test_address_is_locked_after_the_limit(self):
+        for index in range(throttle.FAILURE_LIMIT):
+            self.fail_logins(1, username='guess%d' % (index))
+        self.assertRedirects(self.login(), '/login/', fetch_redirect_response=False)
+
+    def test_other_addresses_and_users_are_unaffected(self):
+        self.fail_logins(throttle.FAILURE_LIMIT, username='someone-else', REMOTE_ADDR='203.0.113.1')
+        self.assertRedirects(self.login(REMOTE_ADDR='203.0.113.2'), '/index/', fetch_redirect_response=False)
+
+    def test_worker_registration_is_throttled(self):
+        payload = register_payload(self.user)
+        for _ in range(throttle.FAILURE_LIMIT):
+            self.client.post('/clientWorkerInfo/', { **payload, 'password' : 'wrong' })
+
+        self.assertIn('error', self.client.post('/clientWorkerInfo/', payload).json())
+        self.assertFalse(Machine.objects.exists())
+
+    def test_api_is_throttled(self):
+        for _ in range(throttle.FAILURE_LIMIT):
+            self.client.post('/api/config/', { 'username' : 'lab-worker', 'password' : 'wrong' })
+        self.assertIn('error', json.loads(self.client.post('/api/config/', credentials(self.user)).content))
+
+    def test_admin_login_is_throttled(self):
+        self.user.is_staff = True
+        self.user.save()
+        self.fail_logins(throttle.FAILURE_LIMIT)
+
+        response = self.client.post('/admin/login/', { **credentials(self.user), 'next' : '/admin/' })
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(self.client.session.get('_auth_user_id'))
+
+class ClientAddressTests(TestCase):
+
+    def request(self, forwarded=None):
+        headers = { 'HTTP_X_FORWARDED_FOR' : forwarded } if forwarded is not None else {}
+        return RequestFactory().get('/', REMOTE_ADDR='10.0.2.100', **headers)
+
+    @override_settings(OPENBENCH_BEHIND_TLS_PROXY=False)
+    def test_forwarded_header_is_ignored_without_a_proxy(self):
+        self.assertEqual(throttle.client_ip(self.request('198.51.100.7')), '10.0.2.100')
+
+    @override_settings(OPENBENCH_BEHIND_TLS_PROXY=True)
+    def test_rightmost_forwarded_hop_is_used_behind_the_proxy(self):
+        self.assertEqual(throttle.client_ip(self.request('1.1.1.1, 198.51.100.7')), '198.51.100.7')
+
+    @override_settings(OPENBENCH_BEHIND_TLS_PROXY=True)
+    def test_missing_forwarded_header_falls_back_to_the_peer(self):
+        self.assertEqual(throttle.client_ip(self.request()), '10.0.2.100')
+        self.assertEqual(throttle.client_ip(self.request('')), '10.0.2.100')
+
+class ApiNetworkDownloadTests(TestCase):
+
+    def setUp(self):
+        clear_throttle(self)
+        create_engine_config()
+        create_user('reader')
+
+    def test_bad_password_counts_as_one_failure(self):
+        with self.assertLogs('OpenBench.views', 'WARNING') as logs:
+            self.client.post('/api/networks/Avalanche/r1/', { 'username' : 'reader', 'password' : 'wrong' })
+        self.assertEqual(len(logs.output), 1)
