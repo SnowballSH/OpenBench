@@ -61,6 +61,11 @@ the admin login, and a `user_login_failed` receiver counts the failures.
   reports `Sec-Fetch-Site` as `cross-site` or `same-site`, so another site,
   including another subdomain, cannot trigger them through a logged-in browser.
   Scripts and the Client send no such header and are unaffected.
+- That guard is partial. A link opened from outside the browser, such as from
+  Discord or a mail client, arrives with `Sec-Fetch-Site: none` and is allowed,
+  as is any request from a browser that does not send the header. The
+  complete fix is to turn these GET actions into CSRF-protected POST forms,
+  which is planned once the Templates' restyling lands.
 - `/scripts/` is exempt from CSRF, so it acts only as the user named by the
   `username` and `password` in its POST body, which must be enabled.
 - Only Approvers may delete Networks through the API, as on the website.
