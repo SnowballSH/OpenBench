@@ -608,6 +608,15 @@ body {
     text-decoration: none;
 }
 
+.link-button {
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--accent);
+    font: inherit;
+    cursor: pointer;
+}
+
 .anchorbutton.btn-start {
     --btn-bg: var(--accent-solid);
     --btn-bg-hover: var(--accent-solid-hover);
