@@ -6,8 +6,7 @@ from datetime import datetime, timedelta
 from django.db.models import Max, Min
 from django.utils import timezone
 
-from OpenBench.insights.domain import WorkloadMode
-from OpenBench.insights.sources import reached_target
+from OpenBench.insights.domain import WorkloadMode, spsa_target_games, tune_completed
 from OpenBench.models import Machine, Profile, Test, WorkloadSnapshot
 
 ACTIVE_MACHINE   = timedelta(minutes=2)
@@ -132,7 +131,8 @@ def load_finished_since(since: datetime) -> list[FinishedWorkload]:
     rows = Test.objects.filter(finished=True, deleted=False, updated__gte=since).values_list(
         'test_mode', 'passed', 'failed', 'games', 'spsa_run__pairs_per', 'spsa_run__iterations')
     return [
-        FinishedWorkload(WorkloadMode(mode), passed, failed, reached_target(games, 2 * pairs_per * iterations if pairs_per else None))
+        FinishedWorkload(WorkloadMode(mode), passed, failed, tune_completed(
+            WorkloadMode(mode), games, spsa_target_games(pairs_per, iterations) if pairs_per is not None else None))
         for mode, passed, failed, games, pairs_per, iterations in rows
     ]
 

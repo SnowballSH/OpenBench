@@ -187,6 +187,12 @@ class TuneStatusTests(TestCase):
         self.assertEqual(self.status(self.tune(800)), 'stopped')
         self.assertEqual(self.status(self.tune(800, finished=False)), 'active')
 
+    def test_only_tunes_are_ever_completed(self):
+        datagen = create_test(self.reader, test_mode='DATAGEN', max_games=800, games=800, finished=True, LL=200, DD=200)
+        self.assertEqual(self.status(datagen), 'stopped')
+        finished = self.client.get('/api/insights/server/').json()['server']['finished_last_7d']
+        self.assertEqual((finished['completed'], finished['stopped']), (0, 1))
+
     def test_server_counts_completed_tunes_apart_from_stopped_ones(self):
         self.tune(1600)
         self.tune(800)

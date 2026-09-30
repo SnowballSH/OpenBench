@@ -240,8 +240,11 @@ From the Workload's `Result` rows, grouped by Machine and by `cpu_name`
   and touched within 7 days". `completed` counts finished SPSA tunes that
   played all their iterations (`update_test` never marks a tune passed or
   failed), and `stopped` the remaining finished Workloads that neither passed
-  nor failed. The index strip names completed tunes only when there are any. `sprt_pass_rate = sprt_passed / (sprt_passed + sprt_failed)`,
-  `null` without a decided SPRT.
+  nor failed. Both this count and a Workload's `completed` status use
+  `domain.tune_completed`, which only ever applies to SPSA. The index strip
+  names completed tunes only when there are any.
+  `sprt_pass_rate = sprt_passed / (sprt_passed + sprt_failed)`, `null` without
+  a decided SPRT.
 - `top_contributors`: the ten Profiles with the most lifetime games.
 
 ## API
