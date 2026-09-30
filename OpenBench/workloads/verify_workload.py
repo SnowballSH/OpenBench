@@ -427,6 +427,12 @@ def collect_github_info(errors, request, field):
         errors.append('OpenBench may only reach Github\'s API')
         return
 
+    # A supplied bench must be usable, rather than silently replaced by the commit's
+    supplied = request.POST.get('%s_bench' % (field), '').strip()
+    if supplied and parse_integer(supplied) is None:
+        errors.append('Bench for %s is not an Integer in range' % (branch or 'Branch'))
+        return
+
     ## Step 2: Connect to the Github API for the given Branch or Commit SHA.
     ## - Parse the most recent commit message for a bench, unless one was supplied.
     ## - We will translate any branch name into a commit SHA for later use

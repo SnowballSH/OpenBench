@@ -115,3 +115,12 @@ class CreateWorkloadTests(TestCase):
             self.client.post('/test/new/', test_fields())
         self.assertEqual(get.call_count, 3)
         self.assertTrue(all(call.kwargs.get('timeout') for call in get.call_args_list))
+
+    def test_supplied_bench_is_used(self):
+        self.assertIsNone(self.create('test', test_fields(dev_bench='7654321')))
+        self.assertEqual(Test.objects.get().dev.bench, 7654321)
+
+    def test_unusable_supplied_bench_is_an_error(self):
+        for bench in [str(2 ** 31), 'abc']:
+            self.assertIn('Bench for dev', self.create('test', test_fields(dev_bench=bench)))
+        self.assertFalse(Test.objects.exists())
