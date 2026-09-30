@@ -161,6 +161,7 @@ The read endpoints and `POST api/active/` change nothing and do not check CSRF.
 | GET, POST | `/api/workload/<id>/info/` | view | The workload's fields |
 | GET, POST | `/api/workload/<id>/summary/` | view | Results grouped by user, CPU, ISA |
 | GET, POST | `/api/workload/<id>/insights/` | view | Progress, ETA, strength, history |
+| GET, POST | `/api/workload/<id>/history.csv` | view | The insights history as CSV |
 | GET, POST | `/api/spsa/<id>/<inputs\|outputs\|digest\|perturbation>/` | view | SPSA tune parameters |
 | GET, POST | `/api/pgns/<id>/` | view | The workload's PGN archive |
 | GET, POST | `/api/insights/server/` | view | Fleet and workload counters |
@@ -654,6 +655,27 @@ numbers. The full schema, including every `eta.kind` and `reason`, is in
 
 (`history.points` trimmed from 150 entries to the last, `machines` from 5 and
 `cpus` from 4 to the first; objects reformatted compactly.)
+
+### `GET|POST /api/workload/<id>/history.csv`
+
+The `insights` history (`history.points`) as a CSV download, one row per
+point in time order, with the same authentication and the same failures as
+`api/workload/<id>/<query>/`: 401 or 404 with a JSON `{"error": "..."}` body.
+The id is at most 18 digits; a longer one does not match the route.
+
+```
+Content-Type: text/csv; charset=utf-8
+Content-Disposition: attachment; filename="workload-<id>-history.csv"
+```
+
+```csv
+timestamp,games,llr,elo,elo_lower,elo_upper
+2026-09-28T12:02:11.482913+00:00,64,0.089,43.7,-21.2,111.7
+2026-09-28T12:03:14.020117+00:00,128,,,,
+```
+
+The columns and their empty cells are described in
+[INSIGHTS.md](INSIGHTS.md#history-csv).
 
 ### `GET|POST /api/spsa/<id>/<query>/`
 

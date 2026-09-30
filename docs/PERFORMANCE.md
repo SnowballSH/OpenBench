@@ -16,6 +16,8 @@ there first.
 | `/test/<id>/` | 11 |
 | `/api/workload/<id>/summary/`, `/results/` | 5 |
 | `/api/workload/<id>/insights/` | 6 |
+| `/api/workload/<id>/history.csv` | 5 |
+| `/compare/?a=<id>&b=<id>` | 7 |
 | `/api/insights/server/` | 11 |
 
 Budgets include the session, user and Profile lookups every logged-in page

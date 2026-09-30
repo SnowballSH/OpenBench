@@ -133,6 +133,13 @@
             {% endif %}
         </div>
 
+        <form class="workload-compare-form" method="get" action="/compare/">
+            <input type="hidden" name="a" value="{{workload.id}}">
+            <label for="compare-with">Compare with workload</label>
+            <input id="compare-with" name="b" inputmode="numeric" pattern="[0-9]{1,18}" maxlength="18" placeholder="id" required>
+            <button type="submit" class="anchorbutton btn-blue">Compare&hellip;</button>
+        </form>
+
         <!-- Copy Button: Copy the current results statblock -->
         {% if type == "TEST" or type == "DATAGEN" %}
             <div class="anchor-container">
@@ -216,6 +223,7 @@
         <div class="insights-header">
             <h2 id="insights-title" class="insights-title">Insights</h2>
             <p class="insights-status" data-insights-status>Loading&hellip;</p>
+            <a class="insights-download" href="/api/workload/{{workload.id}}/history.csv" download>Download history (CSV)</a>
         </div>
         <p class="insights-error" data-insights-error role="alert" hidden></p>
         <p class="visually-hidden" role="status" data-insights-announcer></p>

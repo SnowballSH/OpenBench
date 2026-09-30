@@ -1,0 +1,146 @@
+{% extends "OpenBench/base.html" %}
+
+{% load static %}
+
+{% block title %}{% if page %}Compare #{{page.a.id}} and #{{page.b.id}}{% else %}Compare workloads{% endif %} · OpenBench{% endblock %}
+
+{% block page_heading %}{% endblock %}
+
+{% block scripts %}
+    {% if page %}
+        <script src="{% static 'vendor/chartjs-4.5.1/chart.umd.min.js' %}" defer></script>
+        <script src="{% static 'compare.js' %}?{{ static_version }}" defer></script>
+    {% endif %}
+{% endblock %}
+
+{% block content %}
+
+    <div class="progress-page compare-page" data-compare>
+
+        <header class="progress-heading">
+            <div class="progress-heading-text">
+                <h1>Compare workloads</h1>
+                <p class="muted">Two workloads side by side, from their recorded history.</p>
+            </div>
+
+            <form class="compare-form" method="get" action="/compare/">
+                <span class="compare-field">
+                    <label for="compare-a">Workload A</label>
+                    <input id="compare-a" name="a" value="{{query.a_text}}" inputmode="numeric" pattern="[0-9]{1,18}" maxlength="18" required{% if query.errors %} aria-describedby="compare-errors"{% endif %}>
+                </span>
+                <span class="compare-field">
+                    <label for="compare-b">Workload B</label>
+                    <input id="compare-b" name="b" value="{{query.b_text}}" inputmode="numeric" pattern="[0-9]{1,18}" maxlength="18" required{% if query.errors %} aria-describedby="compare-errors"{% endif %}>
+                </span>
+                <button type="submit" class="anchorbutton btn-blue">Compare</button>
+            </form>
+        </header>
+
+        {% if query.errors %}
+            <div class="error-message" role="alert" id="compare-errors">
+                <ul class="compare-errors">
+                    {% for error in query.errors %}<li>{{error}}</li>{% endfor %}
+                </ul>
+            </div>
+        {% endif %}
+
+        {% if page %}
+
+            <section class="card progress-section" aria-labelledby="compare-summary-title">
+                <div class="card-header">
+                    <h2 id="compare-summary-title" class="card-title">Summary</h2>
+                    <span class="muted">Figures as of now; Elo and LOS as on each workload page</span>
+                </div>
+                <div class="table-wrap w-100">
+                    <table class="stripes w-100 compare-table" id="compare-summary">
+                        <caption class="visually-hidden">Workload #{{page.a.id}} and workload #{{page.b.id}} compared</caption>
+                        <thead>
+                            <tr class="table-header">
+                                <th scope="col">Metric</th>
+                                {% for entry in page.sides %}
+                                    <th scope="col" class="compare-workload">
+                                        <span class="compare-key compare-key-{{entry.key}}" aria-hidden="true"></span>
+                                        <a href="{{entry.url}}">#{{entry.id}} {{entry.name}}</a>
+                                    </th>
+                                {% endfor %}
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for row in page.rows %}
+                                <tr>
+                                    <th scope="row">{{row.label}}</th>
+                                    <td class="mono">{{row.a}}</td>
+                                    <td class="mono">{{row.b}}</td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% if page.show_elo %}
+                    <p class="compare-difference">
+                        <span class="stat-label">Elo(A) − Elo(B), approximate</span>
+                        <span class="stat-value mono">{{page.difference}}</span>
+                        <span class="chart-subtitle">The two workloads are independent samples, so the half-widths of their 95% intervals are combined as the square root of the sum of their squares. Each measures its own dev against its own base: the difference is only meaningful when both share a base.</span>
+                    </p>
+                {% endif %}
+            </section>
+
+            <section aria-labelledby="compare-charts-title" class="compare-charts-section">
+                <h2 id="compare-charts-title" class="visually-hidden">Charts</h2>
+                <div class="progress-charts">
+
+                    {% if page.show_elo %}
+                        <figure class="card chart-card">
+                            <figcaption class="chart-caption">
+                                <span class="card-title">Elo</span>
+                                <span class="chart-subtitle" id="compare-elo-description">Each workload's Elo estimate with its 95% interval, against games played.</span>
+                            </figcaption>
+                            <div class="chart-box" data-compare-chart="elo">
+                                <canvas role="img" aria-label="Elo chart" aria-describedby="compare-elo-description" aria-details="compare-summary"></canvas>
+                            </div>
+                            <p class="chart-empty" hidden></p>
+                        </figure>
+
+                        <figure class="card chart-card">
+                            <figcaption class="chart-caption">
+                                <span class="card-title">Elo difference (A − B)</span>
+                                <span class="chart-subtitle" id="compare-difference-description">At equal games, with an approximate 95% band: both histories interpolated, half-widths combined in quadrature.</span>
+                            </figcaption>
+                            <div class="chart-box" data-compare-chart="difference">
+                                <canvas role="img" aria-label="Elo difference chart" aria-describedby="compare-difference-description" aria-details="compare-summary"></canvas>
+                            </div>
+                            <p class="chart-empty" hidden></p>
+                        </figure>
+                    {% endif %}
+
+                    {% if page.show_llr %}
+                        <figure class="card chart-card">
+                            <figcaption class="chart-caption">
+                                <span class="card-title">LLR</span>
+                                <span class="chart-subtitle" id="compare-llr-description">Log-likelihood ratio against games played; each workload has its own bounds, listed in the summary.</span>
+                            </figcaption>
+                            <div class="chart-box" data-compare-chart="llr">
+                                <canvas role="img" aria-label="LLR chart" aria-describedby="compare-llr-description" aria-details="compare-summary"></canvas>
+                            </div>
+                            <p class="chart-empty" hidden></p>
+                        </figure>
+                    {% endif %}
+
+                    <figure class="card chart-card">
+                        <figcaption class="chart-caption">
+                            <span class="card-title">Games played</span>
+                            <span class="chart-subtitle" id="compare-games-description">Cumulative games against the time since each workload's first recorded point; the slope is the throughput.</span>
+                        </figcaption>
+                        <div class="chart-box" data-compare-chart="games">
+                            <canvas role="img" aria-label="Games played chart" aria-describedby="compare-games-description" aria-details="compare-summary"></canvas>
+                        </div>
+                        <p class="chart-empty" hidden></p>
+                    </figure>
+                </div>
+            </section>
+
+        {% endif %}
+    </div>
+
+    {% if page %}{{ payload|json_script:"compare-data" }}{% endif %}
+{% endblock %}

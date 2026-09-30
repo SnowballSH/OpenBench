@@ -100,13 +100,23 @@ def summarize_progress(facts: WorkloadFacts) -> Progress:
     )
 
 
+def has_elo(facts: WorkloadFacts) -> bool:
+    return facts.mode != WorkloadMode.SPSA
+
+
+def build_history(facts: WorkloadFacts, snapshots: Sequence[ProgressPoint]) -> History:
+    points = with_current(facts, snapshots)
+    return History(
+        synthetic=bool(points) and not snapshots,
+        points=build_series(points, facts.sprt is not None, has_elo(facts)),
+    )
+
+
 def build_insights(
     facts: WorkloadFacts, snapshots: Sequence[ProgressPoint], rows: Sequence[ResultRow], now: datetime
 ) -> WorkloadInsights:
 
-    points = with_current(facts, snapshots)
     timing, eta = timing_and_eta(facts, timeline(facts, snapshots), now)
-    elo = facts.mode != WorkloadMode.SPSA
     elapsed = timing.elapsed_seconds if timing else None
 
     return WorkloadInsights(
@@ -117,13 +127,19 @@ def build_insights(
         progress=summarize_progress(facts),
         timing=timing,
         eta=eta,
-        strength=summarize_strength(facts.outcomes) if elo else None,
-        history=History(
-            synthetic=bool(points) and not snapshots, points=build_series(points, facts.sprt is not None, elo)
-        ),
+        strength=summarize_strength(facts.outcomes) if has_elo(facts) else None,
+        history=build_history(facts, snapshots),
         contributions=summarize_contributions(rows, facts.outcomes.use_penta, elapsed),
     )
 
 
 def workload_insights(test: Test, now: datetime | None = None) -> WorkloadInsights:
     return build_insights(workload_facts(test), snapshot_points(test), result_rows(test), now or timezone.now())
+
+
+def insights_without_contributions(test: Test, now: datetime | None = None) -> WorkloadInsights:
+    return build_insights(workload_facts(test), snapshot_points(test), (), now or timezone.now())
+
+
+def workload_history(test: Test) -> History:
+    return build_history(workload_facts(test), snapshot_points(test))

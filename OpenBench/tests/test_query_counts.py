@@ -48,7 +48,10 @@ WORKLOAD_QUERIES = {
     '/api/workload/{}/summary/': 5,
     '/api/workload/{}/results/': 5,
     '/api/workload/{}/insights/': 6,
+    '/api/workload/{}/history.csv': 5,
 }
+
+COMPARE_QUERIES = 7
 
 
 class QueryBudgetTests(TestCase):
@@ -74,6 +77,10 @@ class QueryBudgetTests(TestCase):
     def test_workload_pages(self) -> None:
         for url, queries in WORKLOAD_QUERIES.items():
             self.assert_page_queries(url.format(self.data.workload.id), queries)
+
+    def test_compare_page(self) -> None:
+        other = next(test for test in self.data.tests if test.test_mode == 'SPRT' and test != self.data.workload)
+        self.assert_page_queries(f'/compare/?a={self.data.workload.id}&b={other.id}', COMPARE_QUERIES)
 
 
 class LargerQueryBudgetTests(QueryBudgetTests):

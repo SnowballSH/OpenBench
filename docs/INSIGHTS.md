@@ -21,6 +21,7 @@ Code lives in `OpenBench/insights/`:
 | `sources.py` | Reads a Workload's Test, snapshots and Results and turns them into domain values. |
 | `workload.py`, `server.py` | Assemble the two payloads; `server.py` runs its own aggregate queries over Machines, Tests, snapshots and Profiles. |
 | `serialize.py`, `api.py`, `views.py` | JSON conversion and the HTTP endpoints. |
+| `export.py` | The history as CSV. |
 
 Everything except `sources.py`, `recorder.py`, the loaders in `server.py`, and
 the views is a pure function of domain values, and is unit tested without a
@@ -354,6 +355,25 @@ each, and computes one Elo interval per history point (about 25 ms for 150
 points; `OpenBench.stats.Elo` dominates). The server endpoint runs a fixed
 number of aggregate queries.
 
+### `GET|POST /api/workload/<id>/history.csv`
+
+<a id="history-csv"></a>The same `history.points` as a CSV file
+(`export.py`), with the same authentication and errors as the insights
+endpoint; [API.md](API.md#getpost-apiworkloadidhistorycsv) has the headers.
+It reads the Test and its snapshots and nothing else (no Results).
+
+| Column | Value |
+|---|---|
+| `timestamp` | ISO-8601 in UTC with a `+00:00` offset |
+| `games` | cumulative games |
+| `llr` | the LLR at that point; empty outside SPRT |
+| `elo`, `elo_lower`, `elo_upper` | the Elo estimate and its 95% interval; empty for SPSA or with fewer than 2 pairs |
+
+Numbers are written with Python's shortest round-trip `repr`, and non-finite
+values as empty cells. Every cell is built from a number or a timestamp, and
+`cell_text` raises on anything else (a string, a boolean), so a cell can never
+begin a spreadsheet formula: a leading `-` only ever starts a negative number.
+
 ## Where it shows
 
 - **Workload page** (`Templates/OpenBench/workload.html`, `OpenBench/static/insights.js`):
@@ -381,6 +401,10 @@ number of aggregate queries.
     two points show a single notice instead.
   - Contributions: per-CPU and per-machine tables with a share bar, games,
     pairs per hour and Elo (not SPSA).
+  - A **Download history (CSV)** link beside the Insights heading.
+  - A **Compare with workload** form under the actions: a plain GET form to
+    `/compare/` with `a` set to this workload and `b` typed in, so it works
+    without JavaScript.
 - **Index** (`Templates/OpenBench/index.html`): a strip of server tiles from
   `/api/insights/server/` (machines online with threads and MNPS, active and
   pending workloads, games in the last 24 h, Workloads finished in 7 days and
@@ -389,6 +413,63 @@ number of aggregate queries.
   template filter: the LLR's position between the SPRT bounds, or games over
   `max_games` for GAMES and DATAGEN. It reads only the Test's fields; SPSA rows
   have none, since their stat block already states iterations.
+
+## Comparing workloads
+
+`/compare/?a=<id>&b=<id>` shows two workloads side by side
+(`OpenBench/compare/`, `Templates/OpenBench/compare.html`,
+`OpenBench/static/compare.js`). Any two modes can be compared.
+
+| Module | Role |
+|---|---|
+| `analysis.py` | Pure functions: parsing the query, the final Elo difference, and the difference series. |
+| `present.py` | The summary rows and the chart data island. |
+| `views.py` | The page. |
+
+- **Access and validation.** The page goes through `render()`, so it follows
+  `require_login_to_view`, and an anonymous viewer is redirected before any
+  workload is looked up. With neither id the page shows only its form. An id
+  that is not 1 to 18 digits, a missing id, or the same id twice answers 400
+  with the form and the reasons. An id with no workload answers 404.
+- **Reuse.** Each side is `insights.workload.insights_without_contributions`:
+  the workload endpoint's payload built by the same `build_insights`, with no
+  Result rows, since the page shows no contributions.
+- **Summary table** (the text alternative for every chart): name (linking to
+  the workload), mode, status, games (of the target), elapsed, games per hour
+  and time left, with the workload page's wording. Elo and normalized Elo with
+  their 95% intervals and the LOS appear only when both workloads have a
+  strength (neither is SPSA); the LLR with its bounds appears when either is
+  SPRT, with a dash for the other.
+- **Elo(A) − Elo(B)**, below the table, from the two current Elo intervals:
+  `d = elo_A − elo_B ± √(h_A² + h_B²)`, where `h` is half the width of each
+  95% interval. It is labelled approximate: the two workloads are treated as
+  independent samples, the Elo intervals are not exactly symmetric, and each
+  workload measures its own dev against its own base, so the difference only
+  means something when both share a base.
+- **Charts**, from each side's `history.points`, with `--series-1` for A and
+  `--series-2` (dashed) for B, and a legend since each chart but one has two
+  series. The pair passes the categorical palette checks against `--surface`
+  in both themes.
+  - *Elo* against games, each with its 95% band, when both have a strength;
+    the y range is fitted as on the workload page.
+  - *Elo difference (A − B)* against games, in `--series-3` with its
+    approximate band: at every game count either history has within the range
+    both cover, each side's Elo and half-width are interpolated linearly
+    between its neighbouring points, then combined as above.
+  - *LLR* against games when both are SPRT, with the pass and fail bounds of
+    each (drawn once when they agree).
+  - *Games played* against the time since each workload's first history point.
+  - The tooltip picks the nearest point of every series whose range covers
+    the cursor, since the two series have points at different games.
+- **Data island.** One `json_script` island, `compare-data`, holds each side's
+  history as columns (`games`, `elapsed` in seconds from its first point,
+  `llr`, `elo`, `elo_lower`, `elo_upper`, rounded to 3 decimals) and the
+  difference series as columns (`games`, `value`, `lower`, `upper`). The page
+  has no other inline script, handler or style.
+- **Cost.** Seven queries whatever the history sizes: the session, the user,
+  both Tests in one query (with `dev`, `base` and `spsa_run` joined), each
+  Test's snapshots, and the Profile and engine list `render()` reads.
+  `test_query_counts.py` pins it at two dataset sizes.
 
 ## Listings
 

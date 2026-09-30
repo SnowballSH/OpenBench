@@ -19,6 +19,7 @@
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 
 import django.urls, OpenBench.converters, OpenBench.views, OpenBench.insights.views, OpenBench.progress.views, OpenBench.storage.views
+import OpenBench.compare.views
 
 urlpatterns = [
 
@@ -32,26 +33,29 @@ urlpatterns = [
     # Links for viewing test tables. Page numbers and ids are bounded, so int()
     # and SQLite's 64-bit integers never see an oversized number; <id:...>
     # applies the same bound to the other routes
-    django.urls.re_path(r'^index(?:/(?P<page>\d{1,10}))?/$', OpenBench.views.index),
-    django.urls.re_path(r'^user/(?P<username>[^/]+)(?:/(?P<page>\d{1,10}))?/$', OpenBench.views.user),
-    django.urls.re_path(r'^greens(?:/(?P<page>\d{1,10}))?/$', OpenBench.views.greens),
+    django.urls.re_path(r'^index(?:/(?P<page>[0-9]{1,10}))?/$', OpenBench.views.index),
+    django.urls.re_path(r'^user/(?P<username>[^/]+)(?:/(?P<page>[0-9]{1,10}))?/$', OpenBench.views.user),
+    django.urls.re_path(r'^greens(?:/(?P<page>[0-9]{1,10}))?/$', OpenBench.views.greens),
 
-    django.urls.re_path(r'^search(?:/(?P<page>\d{1,10}))?/$', OpenBench.views.search),
+    django.urls.re_path(r'^search(?:/(?P<page>[0-9]{1,10}))?/$', OpenBench.views.search),
 
     # Engine progress over time, for every engine or one
     django.urls.path(r'progress/', OpenBench.progress.views.progress),
     django.urls.path(r'progress/<str:engine>/', OpenBench.progress.views.progress),
 
+    # Two Workloads side by side
+    django.urls.path(r'compare/', OpenBench.compare.views.compare),
+
     # Links for viewing general information tables
     django.urls.path(r'users/', OpenBench.views.users),
     django.urls.path(r'event/<id:pk>/', OpenBench.views.event),
-    django.urls.re_path(r'^events(?:/(?P<page>\d{1,10}))?/$', OpenBench.views.events_actions),
-    django.urls.re_path(r'^errors(?:/(?P<page>\d{1,10}))?/$', OpenBench.views.events_errors),
-    django.urls.re_path(r'^machines(?:/(?P<pk>\d{1,18}))?/$', OpenBench.views.machines),
+    django.urls.re_path(r'^events(?:/(?P<page>[0-9]{1,10}))?/$', OpenBench.views.events_actions),
+    django.urls.re_path(r'^errors(?:/(?P<page>[0-9]{1,10}))?/$', OpenBench.views.events_errors),
+    django.urls.re_path(r'^machines(?:/(?P<pk>[0-9]{1,18}))?/$', OpenBench.views.machines),
 
     # Links to create, view or manage Workloads (Tests, Tunes, Datagen)
     django.urls.re_path(r'^(?P<workload_type>tune|test|datagen)/new/$', OpenBench.views.new_workload),
-    django.urls.re_path(r'^(?P<workload_type>tune|test|datagen)/(?P<pk>\d{1,18})(?:/(?P<action>\w+))?/$', OpenBench.views.workload),
+    django.urls.re_path(r'^(?P<workload_type>tune|test|datagen)/(?P<pk>[0-9]{1,18})(?:/(?P<action>\w+))?/$', OpenBench.views.workload),
 
     # Links for viewing and managing Networks
     django.urls.path(r'networks/', OpenBench.views.networks),
@@ -100,6 +104,7 @@ urlpatterns = [
     django.urls.path(r'api/buildinfo/', OpenBench.views.api_build_info),
     django.urls.path(r'api/pgns/<id:pgn_id>/', OpenBench.views.api_pgns),
     django.urls.path(r'api/spsa/<id:workload_id>/<str:query>/', OpenBench.views.api_spsa),
+    django.urls.re_path(r'^api/workload/(?P<workload_id>[0-9]{1,18})/history\.csv$', OpenBench.insights.views.api_workload_history_csv),
     django.urls.path(r'api/workload/<id:workload_id>/<str:query>/', OpenBench.views.api_workload),
     django.urls.path(r'api/insights/server/', OpenBench.insights.views.api_server_insights),
     django.urls.path(r'api/storage/', OpenBench.storage.views.api_storage),
