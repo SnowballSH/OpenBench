@@ -9,4 +9,16 @@ You can join OpenBench's [Discord server](https://discord.com/invite/9MVg7fBTpM)
 
 Documentation for OpenBench is available in the [Wiki](https://github.com/AndyGrant/OpenBench/wiki)
 
-This fork documents its own behaviour in [`docs/`](docs/); its HTTP API for scripts is in [docs/API.md](docs/API.md), and linting, tests and the fork-owned boundary are in [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
+## This fork
+
+SnowballSH/OpenBench runs the testing server for the [Avalanche](https://github.com/SnowballSH/Avalanche) chess engine. It keeps upstream's Client and wire protocol unchanged, so any OpenBench Client of the same version works against it, and adds:
+
+- **Insights**: per-workload progress history, time left, rates, Elo with intervals, LOS and per-machine and per-CPU contributions, drawn as charts ([docs/INSIGHTS.md](docs/INSIGHTS.md)); time taken and time left on every listing.
+- **Engine progress** (`/progress/`): Elo gained from greens, weekly SPRT outcomes and games per day, per engine.
+- **Compare** two workloads side by side, **Clone** a workload into a prefilled form, and export a workload's history as CSV.
+- **Fleet pages**: machines online and recently offline, per-machine history, per-user activity; a manager-only storage overview.
+- **Security**: POST-only state changes with CSRF, a strict Content-Security-Policy, login throttling, worker report ownership and payload checks ([docs/SECURITY.md](docs/SECURITY.md)).
+- **A refreshed interface** with light and dark themes, a responsive layout and axe-clean accessibility ([docs/UI.md](docs/UI.md)).
+- **An HTTP API** with meaningful status codes ([docs/API.md](docs/API.md)), and a container image published by CI ([docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)).
+
+Tests, ruff, mypy strict and the boundary between fork-owned and upstream code are described in [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
