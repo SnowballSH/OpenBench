@@ -80,7 +80,8 @@ class TimeControl(object):
         pattern = r'(?:(?P<moves>\d+)/)?(?P<base>%s)(?:\+(?P<inc>%s))?' % (seconds, seconds)
         if results := re.fullmatch(pattern, time_str):
             moves, base, inc = results.group('moves', 'base', 'inc')
-            base, inc = float(base), float(inc or 0.0)
+            # Rounded to the precision stored, before checking the control is not empty
+            base, inc = round(float(base), 1), round(float(inc or 0.0), 2)
 
             # Format the time control for match runner cleanly
             if moves is None and base + inc > 0:

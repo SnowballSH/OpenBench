@@ -51,6 +51,11 @@ class ParseTests(SimpleTestCase):
         for text in ['0', '0+0', '0/10+1', '40/0+1', 'N=0', 'D=0', 'MT=0']:
             self.assertRejected(text)
 
+    def test_controls_that_round_to_zero_are_rejected(self):
+        for text in ['0.01+0.001', '0.04', '40/0.04+1']:
+            self.assertRejected(text)
+        self.assertParses('0.05+0.005', '0.1+0.01')
+
 class ControlTypeTests(SimpleTestCase):
 
     def test_types(self):
