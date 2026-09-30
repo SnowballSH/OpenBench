@@ -42,7 +42,7 @@
     function mark_current_nav() {
         const here = strip_slash(window.location.pathname);
 
-        document.querySelectorAll('#sidebar a[href]').forEach(link => {
+        document.querySelectorAll('#sidebar a[href], [data-current-nav] a[href]').forEach(link => {
             const url = new URL(link.href, window.location.href);
             if (url.origin !== window.location.origin) return;
 
@@ -121,14 +121,65 @@
             // Options are user input, so they are only ever added as text
             const popup = document.createElement('div');
             popup.classList.add('engine-options-popup');
+            popup.setAttribute('aria-hidden', 'true');
             options.forEach((option, index) => {
                 if (index) popup.appendChild(document.createElement('br'));
                 popup.appendChild(document.createTextNode(option));
             });
 
-            cell.textContent = [...summary, '...'].join(' ');
-            cell.appendChild(popup);
+            const full = document.createElement('span');
+            full.classList.add('visually-hidden');
+            full.textContent = options.join(' ');
+
+            const shown = document.createElement('span');
+            shown.setAttribute('aria-hidden', 'true');
+            shown.textContent = [...summary, '...'].join(' ');
+
+            cell.tabIndex = 0;
+            cell.replaceChildren(full, shown, popup);
         });
+    }
+
+    function scroll_region_label(wrap) {
+        if (wrap.dataset.regionLabel) return wrap.dataset.regionLabel;
+        const caption = wrap.querySelector('caption');
+        if (caption) return caption.textContent.trim();
+        const titled = wrap.closest('[aria-labelledby]');
+        const title = titled && document.getElementById(titled.getAttribute('aria-labelledby'));
+        return title ? `${title.textContent.trim()} table` : 'Scrollable table';
+    }
+
+    function sync_scroll_region(wrap) {
+        const scrolls = wrap.scrollWidth > wrap.clientWidth + 1;
+        if (scrolls && !wrap.hasAttribute('tabindex')) {
+            wrap.tabIndex = 0;
+            wrap.setAttribute('role', 'region');
+            wrap.setAttribute('aria-label', scroll_region_label(wrap));
+            wrap.dataset.scrollRegion = '';
+        }
+        else if (!scrolls && 'scrollRegion' in wrap.dataset) {
+            wrap.removeAttribute('tabindex');
+            wrap.removeAttribute('role');
+            wrap.removeAttribute('aria-label');
+            delete wrap.dataset.scrollRegion;
+        }
+    }
+
+    function init_scroll_regions() {
+        const observer = new ResizeObserver(entries => entries.forEach(entry => sync_scroll_region(entry.target)));
+        const watch = scope => scope.querySelectorAll('.table-wrap').forEach(wrap => {
+            if (wrap.dataset.scrollWatched) return;
+            wrap.dataset.scrollWatched = 'true';
+            observer.observe(wrap);
+            new MutationObserver(() => sync_scroll_region(wrap)).observe(wrap, { childList : true, subtree : true });
+        });
+
+        watch(document);
+        new MutationObserver(records => records.forEach(record => record.addedNodes.forEach(node => {
+            if (node.nodeType !== Node.ELEMENT_NODE) return;
+            if (node.matches('.table-wrap')) watch(node.parentNode);
+            else watch(node);
+        }))).observe(document.body, { childList : true, subtree : true });
     }
 
     function apply_css_fractions() {
@@ -210,6 +261,7 @@
         format_stamps('.datestamp', { month : 'short', day : '2-digit' });
         summarise_engine_options();
         apply_css_fractions();
+        init_scroll_regions();
     });
 
 })();

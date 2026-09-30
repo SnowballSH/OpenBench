@@ -60,7 +60,7 @@ function populate_results(results) {
 }
 
 async function fetch_results(workload_id) {
-    fetch(`/api/workload/${workload_id}/results/`)
+    return fetch(`/api/workload/${workload_id}/results/`)
         .then(r => r.json())
         .then(data => populate_results(data.results))
 }
@@ -217,12 +217,30 @@ async function fetch_spsa_digest(workload_id) {
 }
 
 const WORKLOAD_ACTIONS = {
-    'copy-statblock'     : () => copy_text_from_element('long-statblock', true),
-    'copy-spsa-inputs'   : copy_spsa_inputs,
-    'copy-spsa-outputs'  : copy_spsa_outputs,
-    'show-spsa-digest'   : fetch_spsa_digest,
-    'fetch-results'      : fetch_results,
+    'copy-statblock'     : { run : () => copy_text_from_element('long-statblock', true), done : 'Stat block copied' },
+    'copy-spsa-inputs'   : { run : copy_spsa_inputs,  done : 'SPSA inputs copied' },
+    'copy-spsa-outputs'  : { run : copy_spsa_outputs, done : 'SPSA outputs copied' },
+    'show-spsa-digest'   : { run : fetch_spsa_digest, done : 'SPSA digest loaded' },
+    'fetch-results'      : { run : fetch_results,     done : 'Individual results loaded' },
 };
+
+function announce(message) {
+    const region = document.querySelector('[data-workload-announcer]');
+    if (!region) return;
+    region.textContent = '';
+    window.setTimeout(() => { region.textContent = message; }, 50);
+}
+
+async function run_workload_action(action, workload_id) {
+    try {
+        await action.run(workload_id);
+        announce(action.done);
+    }
+    catch (err) {
+        announce('That action failed');
+        console.error(err);
+    }
+}
 
 document.addEventListener('DOMContentLoaded', () => {
 
@@ -233,6 +251,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
     container.querySelectorAll('[data-workload-action]').forEach(control => {
         const action = WORKLOAD_ACTIONS[control.dataset.workloadAction];
-        control.addEventListener('click', () => action(workload_id));
+        control.addEventListener('click', () => run_workload_action(action, workload_id));
     });
 });
