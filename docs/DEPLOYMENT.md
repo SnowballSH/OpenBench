@@ -65,3 +65,106 @@ address in `OPENBENCH_ALLOWED_HOSTS` (for example
 Each gunicorn worker tries once, at start, to take the PGN watcher lockfile,
 so exactly one runs the watcher. The lock dies with its process, and gunicorn
 replaces an exited worker with a new one that takes it over.
+
+## Storage
+
+`/manage/storage/` shows what fills the data directory. Any logged-in user may
+view it, like the rest of `/manage/`; anonymous visitors are sent to the login
+page. It has no forms and changes nothing.
+
+| Section | Contents |
+|---|---|
+| Tiles | Free space on the filesystem holding `Media/` (warning edge and a banner when under 2 GiB or 15% free), the database (`db.sqlite3` plus its `-wal` and `-shm` files), everything under `Media/`, and the network files. |
+| Media by category | Files and bytes per category, with each category's share of `Media/`. |
+| Networks by engine | Networks, distinct files, rows whose file is missing, and bytes, linked to that engine's Networks page. A file shared by several engines counts once per engine here and once in the totals. |
+| Largest items | The ten largest files per category, linked to the owning network list, workload or event. |
+
+Categories come from the file layout in `Media/`:
+
+| Category | Files |
+|---|---|
+| Networks | `<SHA>` at the top level, the first eight hex digits of a network's sha256, named by a `Network` row. |
+| Archived PGNs | `PGNs/<workload>.pgn.tar`, appended to by the PGN watcher. |
+| Pending PGN batches | `<workload>.<result>.<book index>.pgn.bz2`, uploads the watcher has not archived yet. |
+| Event logs | `event<id>.log`, a Client error's log. |
+| Other | Anything else. A top-level eight-hex-digit file no `Network` names is flagged; a directory other than `PGNs/` is one item with the sum of its files. |
+
+The upload spool (`OPENBENCH_UPLOAD_TEMP_DIR`, `/data/upload-tmp` in the
+container) is reported beside the tiles. Symbolic links are never followed, so
+nothing outside `Media/` is counted. The scan reads directory entries and
+`stat` results only, never file contents, stops after 100,000 entries (the page
+then says the totals are partial), and is cached for 60 seconds per process.
+
+### Freeing space safely
+
+- **Networks**: delete retired networks from the engine's Networks page (or
+  `POST /api/networks/<engine>/<name>/delete/`), as an Approver. Default and
+  previous default networks cannot be deleted. The file goes once no network of
+  any engine uses it, and a workload still naming it can no longer fetch it.
+- **Archived PGNs**: only for finished workloads, since the watcher keeps
+  appending to an active one's archive. Download `/api/pgns/<workload>/` first
+  if the games are wanted, then remove `Media/PGNs/<workload>.pgn.tar` on the
+  host. Nothing else refers to the file; the download then reports it missing.
+- **Pending PGN batches**: leave them. The watcher archives and removes them;
+  a growing count means it is not running (see the lockfile note above).
+- **Event logs**: an `event<id>.log` can be removed on the host once no one
+  needs it; the event row stays, and opening it reports that no logs exist.
+- **Database**: the `-wal` file shrinks at checkpoints. Reclaiming space from
+  deleted rows needs `VACUUM`, which takes the write lock and temporarily needs
+  free space equal to the database, so run it in a quiet period after a backup.
+- **Upload spool**: files there belong to uploads in progress. A file left by a
+  crashed worker can be removed once no upload is running.
+
+Never delete from `Media/` by pattern; remove named files only.
+
+### `GET /api/storage/`
+
+Needs an enabled user: a browser session, or `username` and `password` in a
+POST body like the other API endpoints. Otherwise it answers 401 with
+`{"error": ...}`. Sizes are bytes.
+
+```json
+{
+    "storage": {
+        "generated_at": "2026-09-30T12:00:00+00:00",
+        "cache_seconds": 60,
+        "disk": {
+            "total_bytes": 32212254720,
+            "used_bytes": 26843545600,
+            "free_bytes": 5368709120,
+            "free_fraction": 0.1667,
+            "low": false
+        },
+        "database": { "bytes": 52428800, "main_bytes": 50331648, "wal_bytes": 2064384, "shm_bytes": 32768 },
+        "media": {
+            "files": 412,
+            "bytes": 1610612736,
+            "skipped_symlinks": 0,
+            "truncated": false,
+            "categories": [
+                {
+                    "key": "networks",
+                    "label": "Networks",
+                    "files": 12,
+                    "bytes": 402653184,
+                    "largest": [
+                        { "name": "0A1B2C3D", "bytes": 33554432, "detail": "Avalanche / net-42", "url": "/networks/Avalanche/" }
+                    ]
+                }
+            ]
+        },
+        "networks_by_engine": [
+            { "engine": "Avalanche", "networks": 12, "files": 12, "missing_files": 0, "bytes": 402653184, "url": "/networks/Avalanche/" }
+        ],
+        "upload_spool": { "files": 0, "bytes": 0 }
+    }
+}
+```
+
+| Field | Meaning |
+|---|---|
+| `disk` | `null` when no ancestor of `Media/` can be measured. `low` is true under 2 GiB or 15% free. |
+| `media.categories` | Always all five, in order: `networks`, `pgn_archives`, `pgn_pending`, `event_logs`, `other`. `largest` holds up to ten items, biggest first. |
+| `largest[].url` | The owning page, or `null` when nothing owns the file (a deleted workload, an unreferenced log or network file, anything in `other`). |
+| `media.truncated` | The scan hit its entry limit, so totals are low. |
+| `upload_spool` | `null` when `OPENBENCH_UPLOAD_TEMP_DIR` is unset. |
