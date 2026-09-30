@@ -18,7 +18,7 @@
 #                                                                             #
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 
-import django.urls, OpenBench.views
+import django.urls, OpenBench.views, OpenBench.insights.views
 
 urlpatterns = [
 
@@ -93,6 +93,7 @@ urlpatterns = [
     django.urls.path(r'api/pgns/<int:pgn_id>/', OpenBench.views.api_pgns),
     django.urls.path(r'api/spsa/<int:workload_id>/<str:query>/', OpenBench.views.api_spsa),
     django.urls.path(r'api/workload/<int:workload_id>/<str:query>/', OpenBench.views.api_workload),
+    django.urls.path(r'api/insights/server/', OpenBench.insights.views.api_server_insights),
 
     # Liveness and database readiness, for the reverse proxy and deployers
     django.urls.path(r'health/', OpenBench.views.health),

@@ -23,8 +23,9 @@ import json
 
 from django.db.models import CharField, IntegerField, BigIntegerField, BooleanField, FloatField
 from django.db.models import JSONField, ForeignKey, DateTimeField, OneToOneField
-from django.db.models import CASCADE, PROTECT, Model, TextChoices
+from django.db.models import CASCADE, PROTECT, Index, Model, TextChoices
 from django.contrib.auth.models import User
+from django.utils import timezone
 
 class Engine(Model):
 
@@ -285,6 +286,30 @@ class Test(Model):
 
     def workload_type_str(self):
         return {'SPSA' : 'tune', 'DATAGEN' : 'datagen'}.get(self.test_mode, 'test')
+
+class WorkloadSnapshot(Model):
+
+    # Cumulative Test counters at a point in time; see docs/INSIGHTS.md. Derived
+    # entirely from the Test, so the history is removed along with its Test.
+    test    = ForeignKey('Test', CASCADE, related_name='snapshots', db_index=False)
+    created = DateTimeField(default=timezone.now, db_index=True)
+
+    games  = IntegerField(default=0)
+    losses = IntegerField(default=0)
+    draws  = IntegerField(default=0)
+    wins   = IntegerField(default=0)
+    LL     = IntegerField(default=0)
+    LD     = IntegerField(default=0)
+    DD     = IntegerField(default=0)
+    DW     = IntegerField(default=0)
+    WW     = IntegerField(default=0)
+    llr    = FloatField(default=0.0)
+
+    class Meta:
+        indexes = [Index(fields=['test', 'created'], name='snapshot_test_created')]
+
+    def __str__(self):
+        return '{0} @ {1} ({2} games)'.format(self.test_id, self.created, self.games)
 
 class LogEvent(Model):
 
