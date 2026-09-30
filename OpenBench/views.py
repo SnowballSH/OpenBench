@@ -26,6 +26,7 @@ import django.contrib.auth
 
 import OpenBench.config
 import OpenBench.model_utils
+import OpenBench.page_queries
 import OpenBench.spsa_utils
 import OpenBench.utils
 
@@ -90,13 +91,13 @@ def render(request, template, content={}, always_allow=False, error=None, warnin
 
     if request.user.is_authenticated:
 
-        profile = Profile.objects.filter(user=request.user)
-        data.update({'profile' : profile.first()})
+        profile = OpenBench.page_queries.request_profile(request)
+        data.update({'profile' : profile})
 
-        if profile.first() and not profile.first().enabled:
+        if profile and not profile.enabled:
             request.session['error_message'] = ERROR_MESSAGES['disabled']
 
-        elif request.user.is_authenticated and not profile.first():
+        elif not profile:
             request.session['error_message'] = ERROR_MESSAGES['fakeuser']
 
     if error:
@@ -217,7 +218,7 @@ def profile(request):
     if not request.user.is_authenticated:
         return redirect(request, '/login/')
 
-    if not Profile.objects.filter(user=request.user).first():
+    if not OpenBench.page_queries.request_profile(request):
         return redirect(request, '/index/')
 
     if request.method == 'GET':
@@ -245,7 +246,7 @@ def profile_config(request):
     if not request.user.is_authenticated:
         return redirect(request, '/login/')
 
-    if not (profile := Profile.objects.filter(user=request.user).first()):
+    if not (profile := OpenBench.page_queries.request_profile(request)):
         return redirect(request, '/index/')
 
     if request.method == 'GET':
@@ -295,50 +296,30 @@ def profile_config(request):
 
 def index(request, page=1):
 
-    pending   = OpenBench.utils.get_pending_tests()
-    active    = OpenBench.utils.get_active_tests()
+    front = OpenBench.page_queries.FrontPage(
+        OpenBench.utils.get_pending_tests(), OpenBench.utils.get_active_tests(), OpenBench.utils.getMachineStatus)
+
     completed = OpenBench.utils.get_completed_tests()
-
-    start, end, paging = OpenBench.utils.getPaging(completed, int(page), 'index')
-
-    data = {
-        'pending'   : pending,
-        'active'    : OpenBench.utils.group_active_tests_by_priority(active),
-        'completed' : completed[start:end],
-        'paging'    : paging,
-        'status'    : OpenBench.utils.getMachineStatus(),
-        'server_insights' : True,
-    }
-
-    return render(request, 'index.html', data)
+    data      = OpenBench.page_queries.workload_list_data(completed, int(page), 'index', front)
+    return render(request, 'index.html', { **data, 'server_insights' : True })
 
 def user(request, username, page=1):
 
-    pending   = OpenBench.utils.get_pending_tests().filter(author=username)
-    active    = OpenBench.utils.get_active_tests().filter(author=username)
+    front = OpenBench.page_queries.FrontPage(
+        OpenBench.utils.get_pending_tests().filter(author=username),
+        OpenBench.utils.get_active_tests().filter(author=username),
+        lambda: OpenBench.utils.getMachineStatus(username))
+
     completed = OpenBench.utils.get_completed_tests().filter(author=username)
-
-    start, end, paging = OpenBench.utils.getPaging(completed, int(page), 'user/%s' % (username))
-
-    data = {
-        'pending'   : pending,
-        'active'    : OpenBench.utils.group_active_tests_by_priority(active),
-        'completed' : completed[start:end],
-        'paging'    : paging,
-        'status'    : OpenBench.utils.getMachineStatus(username),
-    }
-
+    data      = OpenBench.page_queries.workload_list_data(completed, int(page), 'user/%s' % (username), front)
     return render(request, 'index.html', data)
 
 def greens(request, page=1):
 
     completed = OpenBench.utils.get_completed_tests().filter(passed=True)
-    start, end, paging = OpenBench.utils.getPaging(completed, int(page), 'greens')
+    return render(request, 'index.html', OpenBench.page_queries.workload_list_data(completed, int(page), 'greens'))
 
-    data = { 'completed' : completed[start:end], 'paging' : paging }
-    return render(request, 'index.html', data)
-
-def search(request):
+def search(request, page=1):
 
     # Search uses GET so the parameters live in the URL and can be shared.
     # With no parameters at all, simply present the empty search form.
@@ -447,7 +428,9 @@ def search(request):
     if tc_value := params.get('tc-value-input', ''):
         tests = tests.filter(dev_time_control__contains=tc_value)
 
-    filtered = list(tests)
+    tests = OpenBench.page_queries.listing_tests(tests.order_by('-id'))
+    start, end, paging = OpenBench.utils.getPaging(tests, int(page), 'search')
+    shown = list(tests[start:end])
 
     # Echo the submitted values back so the form stays populated for tweaking
 
@@ -472,8 +455,8 @@ def search(request):
         'show_deleted'  : 'show-deleted' in params,
     }
 
-    error = 'No matching tests found' if not len(filtered) else None
-    data  = { 'tests' : reversed(filtered), 'form' : form, 'books' : books }
+    error = 'No matching tests found' if not shown else None
+    data  = { 'tests' : shown, 'form' : form, 'books' : books, 'paging' : { **paging, 'query' : '?' + params.urlencode() } }
     return render(request, 'search.html', data, error=error)
 
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
@@ -496,7 +479,7 @@ def events_actions(request, page=1):
     events = LogEvent.objects.all().filter(machine_id=0).order_by('-id')
     start, end, paging = OpenBench.utils.getPaging(events, int(page), 'events')
 
-    data = { 'events' : events[start:end], 'paging' : paging };
+    data = { 'events' : OpenBench.page_queries.attach_event_workloads(events[start:end]), 'paging' : paging };
     return render(request, 'events.html', data)
 
 def events_errors(request, page=1):
@@ -504,7 +487,7 @@ def events_errors(request, page=1):
     events = LogEvent.objects.all().exclude(machine_id=0).order_by('-id')
     start, end, paging = OpenBench.utils.getPaging(events, int(page), 'errors')
 
-    data = { 'events' : events[start:end], 'paging' : paging };
+    data = { 'events' : OpenBench.page_queries.attach_event_workloads(events[start:end]), 'paging' : paging };
     return render(request, 'errors.html', data)
 
 def machines(request, pk=None):

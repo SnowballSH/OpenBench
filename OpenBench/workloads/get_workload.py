@@ -238,8 +238,9 @@ def workload_to_dictionary(test, result, machine):
 
     # Looked up by name without regard for the enabled flag, so that disabling
     # an Engine does not strand the Workloads already running against it
-    dev_config  = EngineConfig.objects.get(name=test.dev_engine)
-    base_config = EngineConfig.objects.get(name=test.base_engine)
+    configs     = EngineConfig.objects.in_bulk({ test.dev_engine, test.base_engine }, field_name='name')
+    dev_config  = configs[test.dev_engine]
+    base_config = configs[test.base_engine]
 
     workload['test']['dev'] = {
         'id'           : test.dev.id,

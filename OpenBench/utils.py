@@ -32,7 +32,9 @@ from django.contrib.auth import authenticate
 from django.core.files.base import ContentFile
 from django.core.files.storage import FileSystemStorage
 from django.db import transaction
-from django.db.models import F, Q
+from django.db.models import Count, F, FloatField, IntegerField, Q, Sum
+from django.db.models.fields.json import KT
+from django.db.models.functions import Cast
 from django.http import FileResponse, HttpResponse
 from django.utils import timezone
 from wsgiref.util import FileWrapper
@@ -216,9 +218,17 @@ def getMachineStatus(username=None):
     if username != None:
         machines = machines.filter(user__username=username)
 
-    return ": {0} Machines / ".format(len(machines)) + \
-           "{0} Threads / ".format(sum([f.info['concurrency'] for f in machines])) + \
-           "{0} MNPS ".format(round(sum([f.info['concurrency'] * f.mnps for f in machines]), 2))
+    # Summed in the database, so no Machine's info blob is ever deserialized
+    threads = Cast(KT('info__concurrency'), IntegerField())
+    totals  = machines.aggregate(
+        count   = Count('id'),
+        threads = Sum(threads),
+        mnps    = Sum(threads * F('mnps'), output_field=FloatField()),
+    )
+
+    return ": {0} Machines / ".format(totals['count']) + \
+           "{0} Threads / ".format(totals['threads'] or 0) + \
+           "{0} MNPS ".format(round(totals['mnps'] or 0, 2))
 
 def getPaging(content, page, url, pagelen=25):
 
@@ -521,6 +531,12 @@ def engine_delete(request, config):
     return OpenBench.views.redirect(request, '/manage/engines/', status='Deleted Engine %s' % (config.name))
 
 
+# Every Test column that update_test() may change, so the rest are never rewritten
+UPDATE_TEST_FIELDS = [
+    'losses', 'draws', 'wins', 'LL', 'LD', 'DD', 'DW', 'WW', 'games',
+    'error', 'currentllr', 'passed', 'failed', 'finished', 'updated',
+]
+
 def update_test(request, machine):
 
     # Extract error information
@@ -621,7 +637,7 @@ def update_test(request, machine):
             # Finished, and always passing, for a completed DATAGEN Workload
             test.passed = test.finished = test.games >= test.max_games
 
-        test.save()
+        test.save(update_fields=UPDATE_TEST_FIELDS)
 
         # Update Result object; No risk from concurrent access
         Result.objects.filter(id=result_id).update(
@@ -640,7 +656,7 @@ def update_test(request, machine):
         )
 
         # Update Profile object; Some risk from concurrent access
-        Profile.objects.filter(user=Machine.objects.select_for_update().get(id=machine_id).user).update(
+        Profile.objects.filter(user_id=machine.user_id).update(
             games=F('games') + games,
             updated=timezone.now()
         )
