@@ -105,6 +105,7 @@ def render_form(request, workload_type, clone_source, prefill_fields, error=None
         # Applied by create_workload.js after the presets, so these values win
         'clone_source'   : clone_source,
         'prefill_fields' : prefill_fields,
+        'bench_hints'    : clone_source.bench_hints if clone_source else None,
     }
 
     if workload_type == 'TEST':

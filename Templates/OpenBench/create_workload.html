@@ -13,6 +13,7 @@
     {{ networks|json_script:"json-networks" }}
     {{ profile.repos|json_script:"json-repos" }}
     {{ prefill_fields|json_script:"json-prefill" }}
+    {{ bench_hints|json_script:"json-bench-hints" }}
 
     <script src="{% static 'create_workload.js' %}?{{ static_version }}" defer></script>
     <script src="{% static 'default_text.js' %}?{{ static_version }}" defer></script>

@@ -324,6 +324,17 @@ function report_unrestored(names) {
     form.parentNode.insertBefore(banner, form);
 }
 
+function apply_bench_hints() {
+
+    const hints = JSON.parse(document.getElementById('json-bench-hints').textContent) ?? {};
+
+    for (const [name, bench] of Object.entries(hints)) {
+        const input = document.getElementById(name);
+        if (input !== null && input.value === '')
+            input.placeholder = `Autofill · was ${bench}`;
+    }
+}
+
 function apply_prefill(workload_type) {
 
     const fields = JSON.parse(document.getElementById('json-prefill').textContent);
@@ -357,4 +368,5 @@ document.addEventListener('DOMContentLoaded', () => {
 
     change_engine(form.dataset.profileEngine, 'dev', workload_type);
     apply_prefill(workload_type);
+    apply_bench_hints();
 });
