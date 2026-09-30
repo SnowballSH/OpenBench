@@ -334,6 +334,10 @@ class FleetPageTests(TestCase):
         self.assertTrue(page.truncated)
         self.assertEqual((page.offline_listed, page.summary.offline), (3, 6))
         self.assertEqual(sum(group.machines for group in page.cpus), 7)
+        self.assertEqual(
+            {group.cpu_name: group.lifetime_games for group in page.cpus},
+            {"Ryzen 9": 2 * sum(PENTA), "Apple M4": 18},
+        )
 
         self.login()
         with mock.patch("OpenBench.fleet.machines.OFFLINE_LISTED", 2):

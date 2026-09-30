@@ -13,7 +13,7 @@ from django.db.models import (
     Subquery,
     Sum,
 )
-from django.db.models.fields.json import KT
+from django.db.models.fields.json import KT, KeyTextTransform
 from django.db.models.functions import Cast, Coalesce
 
 from OpenBench.fleet.status import (
@@ -216,7 +216,7 @@ def load_cpu_groups(now: datetime, window: OfflineWindow) -> list[CpuGroup]:
     )
     games = (
         Result.objects.filter(machine__updated__gte=now - window.span)
-        .values(cpu=KT("machine__info__cpu_name"))
+        .values(cpu=KeyTextTransform("cpu_name", "machine__info"))
         .annotate(games=Sum("games"))
     )
     return merge_cpu_groups(machines, games)

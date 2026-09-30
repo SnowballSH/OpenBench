@@ -14,7 +14,7 @@
             <div class="stat-tile stat-tile-pass">
                 <span class="stat-label">Online machines</span>
                 <span class="stat-value">{{page.summary.online}}</span>
-                {% if page.summary.offline %}<span class="stat-meta">{{page.summary.offline}} offline shown</span>{% endif %}
+                {% if page.summary.offline %}<span class="stat-meta">{{page.summary.offline|insertCommas}} offline</span>{% endif %}
             </div>
             <div class="stat-tile stat-tile-info">
                 <span class="stat-label">Threads</span>
