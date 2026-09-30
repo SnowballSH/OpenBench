@@ -661,7 +661,9 @@ numbers. The full schema, including every `eta.kind` and `reason`, is in
 The `insights` history (`history.points`) as a CSV download, one row per
 point in time order, with the same authentication and the same failures as
 `api/workload/<id>/<query>/`: 401 or 404 with a JSON `{"error": "..."}` body.
-The id is at most 18 digits; a longer one does not match the route.
+The id is at most 18 digits; a longer one does not match the route and gets
+the site's HTML 404 page, as on the other `<id>` routes. Rows end in CRLF, as
+RFC 4180 specifies.
 
 ```
 Content-Type: text/csv; charset=utf-8
