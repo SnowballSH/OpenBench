@@ -43,7 +43,7 @@ PAGE_QUERIES = {
 }
 
 WORKLOAD_QUERIES = {
-    "/test/{}/": 11,
+    "/test/{}/": 10,
     "/api/workload/{}/summary/": 5,
     "/api/workload/{}/results/": 5,
     "/api/workload/{}/insights/": 6,
