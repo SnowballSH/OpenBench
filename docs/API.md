@@ -1,0 +1,1031 @@
+# HTTP API
+
+Every endpoint a script or dashboard can call on this fork: the JSON API under
+`/api/`, the `/scripts/` form endpoint that `Scripts/*.py` use to upload
+networks and create tests, and `/health/`. Routes are in `OpenBench/urls.py`;
+the views are in `OpenBench/views.py`, `OpenBench/insights/views.py` and
+`OpenBench/storage/views.py`.
+
+The examples below were captured from a local server filled by
+`manage.py seed_demo`. Long arrays are trimmed, and marked as trimmed.
+
+## Contents
+
+- [Conventions](#conventions)
+- [Authentication](#authentication)
+- [Endpoint summary](#endpoint-summary)
+- [Configuration](#configuration): `api/config/`, `api/config/<engine>/`, `api/buildinfo/`
+- [Networks](#networks): list, download, delete
+- [Workloads](#workloads): `api/workload/<id>/<query>/`, `api/spsa/<id>/<query>/`, `api/pgns/<id>/`
+- [Server](#server): `api/insights/server/`, `api/storage/`, `api/active/`
+- [`/scripts/`](#scripts): upload a network, create a test
+- [`/health/`](#health)
+- [Client worker endpoints](#client-worker-endpoints)
+- [Scripting](#scripting)
+
+## Conventions
+
+- Every path ends in `/`. Django's `APPEND_SLASH` redirects a `GET` without the
+  slash, but not a `POST`: that is a 500 with `OPENBENCH_DEBUG` on, and
+  otherwise a 301 that the client follows as a `GET` without the body. Always
+  send the slash.
+- JSON bodies are indented with four spaces, except
+  `api/workload/<id>/results/`, which is compact. Content type is
+  `application/json`.
+- Errors are `{"error": "<message>"}`. Many endpoints keep upstream
+  OpenBench's habit of answering an error with **status 200**; the tables
+  below give the status of every error. Check for an `error` key, not only the
+  status code.
+- The Host header must be one of `OPENBENCH_ALLOWED_HOSTS`; any other host
+  gets Django's 400.
+
+## Authentication
+
+### Two ways to authenticate
+
+1. **Credentials in the POST body**: form fields `username` and `password`
+   (`application/x-www-form-urlencoded` or `multipart/form-data`). They are
+   read from the POST body only, never from the query string, headers or
+   cookies, so a script must `POST` even to read-only endpoints.
+2. **A logged-in browser session**: the `sessionid` cookie set by `/login/`,
+   `/scripts/` or `/clientGetNetwork/`. With a session, `GET` works too.
+
+A session takes precedence: when the request carries a logged-in session, the
+POSTed credentials are ignored (`api_user` in `OpenBench/views.py`).
+
+In both cases the account's Profile must be **enabled**. A correct password
+for an account that is not enabled is treated like a wrong one.
+
+### Which endpoints need a login
+
+`Config/config.json` sets `require_login_to_view`, and this fork ships it as
+`true`. Most read endpoints use `api_authenticate`, which demands an enabled
+user only when that flag is set; the rest always demand one.
+
+| Rule | Endpoints |
+|---|---|
+| Enabled user when `require_login_to_view` is `true`, otherwise public | `api/config/`, `api/config/<engine>/`, `api/buildinfo/`, `api/networks/<engine>/`, `api/workload/…`, `api/spsa/…`, `api/pgns/<id>/`, `api/insights/server/` |
+| Always an enabled user | `api/active/`, `api/networks/<engine>/<id>/` (download), `api/storage/`, `/scripts/` |
+| Always an enabled **Approver** | `api/networks/<engine>/<id>/delete/`, and `UPLOAD_NETWORK` through `/scripts/` |
+| None | `/health/` |
+
+When `require_login_to_view` is `false`, the public endpoints in the first row
+never check credentials at all, so a wrong password there is not an error and
+is not counted by the throttle.
+
+### Failed authentication
+
+What a failed login returns depends on the endpoint:
+
+| Endpoints | Status | Body |
+|---|---|---|
+| `api/config/…`, `api/buildinfo/`, `api/networks/<engine>/`, `api/workload/…`, `api/spsa/…`, `api/pgns/…` | **200** | `{"error": "API requires authentication for this server"}` |
+| `api/networks/<engine>/<id>/` (download) | **200** | `{"error": "API requires authentication for this endpoint"}` |
+| `api/insights/server/` | 401 | `{"error": "API requires authentication for this server"}` |
+| `api/storage/` | 401 | `{"error": "API requires authentication for this endpoint"}` |
+| `api/active/` | 401 | `{"error": "Bad Credentials"}` |
+| `api/networks/<engine>/<id>/delete/` | **200** | `{"error": "Only Approvers may delete Networks"}` (also for a valid non-Approver) |
+| `/scripts/` | 302 | Redirect to `/login/` with "Unable to authenticate user" in the session banner |
+
+### Throttling
+
+Every password check is throttled (details in
+[SECURITY.md](SECURITY.md#failed-login-throttle)). Within a 15-minute window
+fixed from the first failure, a username is refused after 10 failures from one
+client address, and an address after 50 failures for any usernames. A refused
+check never tests the password. Every `/api/` endpoint that checks a password
+then answers
+
+```
+HTTP/1.1 429 Too Many Requests
+Content-Type: application/json
+
+{"error": "Too many failed logins"}
+```
+
+and `/scripts/` redirects to `/login/` with "Too many failed logins. Try again
+later". Back off for the rest of the window. Counters are per gunicorn process
+and reset when the container restarts.
+
+### CSRF
+
+All `/api/` views and `/scripts/` are exempt from Django's CSRF middleware so
+that scripts can call them with credentials alone. The one state-changing API
+endpoint, `POST api/networks/<engine>/<id>/delete/`, adds its own checks
+([SECURITY.md](SECURITY.md#sessions-and-state-changing-requests)):
+
+- A request whose `Sec-Fetch-Site` header is `cross-site` or `same-site` is
+  refused with 403 `{"error": "Cross-site requests are refused"}`. Scripts do
+  not send that header.
+- A request that carries a **logged-in session cookie** must also carry a
+  valid CSRF token (the `csrftoken` cookie echoed in an `X-CSRFToken` header,
+  or a `csrfmiddlewaretoken` form field), or it is refused with 403
+  `{"error": "Browser sessions must send a CSRF token"}`, even when the body
+  also holds valid credentials.
+
+This matters to scripts: `/scripts/` logs the caller in and sets a
+`sessionid` cookie. A `requests.Session` that called `/scripts/` and then
+calls the delete endpoint must send the CSRF token, or use a fresh session (or
+plain `requests.post`) with credentials only.
+
+The read endpoints and `POST api/active/` change nothing and do not check CSRF.
+
+## Endpoint summary
+
+| Method | Path | Auth | Returns |
+|---|---|---|---|
+| GET, POST | `/api/config/` | view | Enabled engines and books |
+| GET, POST | `/api/config/<engine>/` | view | One engine's configuration |
+| GET, POST | `/api/buildinfo/` | view | Every enabled engine's configuration and default network |
+| GET, POST | `/api/networks/<engine>/` | view | An engine's networks |
+| GET, POST | `/api/networks/<engine>/<sha-or-name>/` | user | The network file |
+| POST | `/api/networks/<engine>/<name-or-sha>/delete/` | Approver | Deletes a network |
+| GET, POST | `/api/workload/<id>/results/` | view | Per-machine results |
+| GET, POST | `/api/workload/<id>/info/` | view | The workload's fields |
+| GET, POST | `/api/workload/<id>/summary/` | view | Results grouped by user, CPU, ISA |
+| GET, POST | `/api/workload/<id>/insights/` | view | Progress, ETA, strength, history |
+| GET, POST | `/api/spsa/<id>/<inputs\|outputs\|digest\|perturbation>/` | view | SPSA tune parameters |
+| GET, POST | `/api/pgns/<id>/` | view | The workload's PGN archive |
+| GET, POST | `/api/insights/server/` | view | Fleet and workload counters |
+| GET, POST | `/api/storage/` | user | Disk usage of the data directory |
+| POST | `/api/active/` | user | Workloads a described machine could be assigned |
+| POST | `/scripts/` | user / Approver | Upload a network or create a test (HTML) |
+| GET, HEAD | `/health/` | none | Database readiness |
+
+"view" means an enabled user while `require_login_to_view` is `true` (the
+default here), otherwise public. "GET" works only with a browser session,
+since credentials must be POSTed.
+
+## Configuration
+
+### `GET|POST /api/config/`
+
+Enabled engines (sorted by name) and enabled books, keyed by name.
+
+```json
+{
+    "engines": [
+        "Avalanche"
+    ],
+    "books": {
+        "2moves_v1.epd": {
+            "sha": "7bec98239836f219dc41944a768c0506abed950aaec48da69a0782643e90f237",
+            "source": "https://raw.githubusercontent.com/AndyGrant/openbench-books/master/2moves_v1.epd.zip"
+        },
+        "UHO_Lichess_4852_v1.epd": {
+            "sha": "7a7f6470615a69c6cf23d565417701d38732876f480af90d67b42abade35644a",
+            "source": "https://raw.githubusercontent.com/AndyGrant/openbench-books/master/UHO_Lichess_4852_v1.epd.zip"
+        }
+    }
+}
+```
+
+(`books` trimmed from 18 entries.)
+
+### `GET|POST /api/config/<engine>/`
+
+One engine's configuration, in the shape of the `Engines/<name>.json` files it
+replaced. Unlike `/api/config/`, it also answers for disabled engines.
+`build.compilers`, `build.cpuflags` and `build.systems` are lists; the
+`*_presets` objects hold whatever presets the engine defines.
+
+```json
+{
+    "private": false,
+    "nps": 1500000,
+    "source": "https://github.com/SnowballSH/Avalanche",
+    "build": {
+        "path": "",
+        "compilers": [
+            "zig>=0.16.0"
+        ],
+        "cpuflags": [],
+        "systems": [
+            "Linux",
+            "Darwin"
+        ]
+    },
+    "test_presets": {
+        "default": {}
+    },
+    "tune_presets": {
+        "default": {}
+    },
+    "datagen_presets": {
+        "default": {}
+    }
+}
+```
+
+| Error | Status | Body |
+|---|---|---|
+| Unknown engine | 200 | `{"error": "Engine not found. Check /api/config/ for a full list"}` |
+
+### `GET|POST /api/buildinfo/`
+
+Every enabled engine's configuration (the object above), keyed by engine name.
+An engine that has a default network also gets a `network` object.
+
+```json
+{
+    "Avalanche": {
+        "private": false,
+        "nps": 1500000,
+        "source": "https://github.com/SnowballSH/Avalanche",
+        "build": { "path": "", "compilers": ["zig>=0.16.0"], "cpuflags": [], "systems": ["Linux", "Darwin"] },
+        "test_presets": { "default": {} },
+        "tune_presets": { "default": {} },
+        "datagen_presets": { "default": {} },
+        "network": {
+            "sha": "AE0B26BB",
+            "name": "demo-net-1",
+            "author": "admin",
+            "created": "2026-09-30 06:48:01.268908+00:00"
+        }
+    }
+}
+```
+
+(Reformatted more compactly than the server sends it.)
+
+## Networks
+
+A network is identified per engine by its `name` or its `sha256`, which is
+the first eight hex digits of the file's SHA-256, upper-case (for example
+`AE0B26BB`). `created` is `str()` of a UTC datetime,
+`YYYY-MM-DD HH:MM:SS.ffffff+00:00`, which `datetime.fromisoformat` parses.
+
+### `GET|POST /api/networks/<engine>/`
+
+```json
+{
+    "default": {
+        "default": true,
+        "was_default": true,
+        "sha256": "AE0B26BB",
+        "name": "demo-net-1",
+        "engine": "Avalanche",
+        "author": "admin",
+        "created": "2026-09-30 06:48:01.268908+00:00"
+    },
+    "networks": [
+        {
+            "default": false,
+            "was_default": false,
+            "sha256": "3E922C54",
+            "name": "demo-net-2",
+            "engine": "Avalanche",
+            "author": "admin",
+            "created": "2026-09-30 06:48:01.422618+00:00"
+        },
+        {
+            "default": true,
+            "was_default": true,
+            "sha256": "AE0B26BB",
+            "name": "demo-net-1",
+            "engine": "Avalanche",
+            "author": "admin",
+            "created": "2026-09-30 06:48:01.268908+00:00"
+        }
+    ]
+}
+```
+
+`default` is `null` when the engine has no default network. `networks` lists
+every network of the engine, the default included.
+
+| Error | Status | Body |
+|---|---|---|
+| Unknown engine | 200 | `{"error": "Engine not found. Check /api/config/ for a full list"}` |
+
+### `GET|POST /api/networks/<engine>/<identifier>/`
+
+Downloads the network file. Always needs an enabled user, whatever
+`require_login_to_view` says; any enabled user may download, not only
+Approvers. `<identifier>` is matched against `sha256` first, then `name`.
+
+```
+HTTP/1.1 200 OK
+Content-Type: application/octet-stream
+Content-Length: 4096
+Expires: Wed Oct  7 06:48:11 2026
+Content-Disposition: attachment; filename=AE0B26BB
+
+<file bytes>
+```
+
+The filename is the network's `sha256`, not its name. When the server sets
+`use_x_accel_redirect`, the body is served by the reverse proxy and the
+response carries `X-Accel-Redirect` instead; the client sees the same result.
+
+Errors come back as JSON with status 200, so check `Content-Type` before
+writing the body to disk (the Client does not, see
+[SECURITY.md](SECURITY.md#failed-login-throttle)):
+
+| Error | Status | Body |
+|---|---|---|
+| Not logged in, bad credentials, account not enabled | 200 | `{"error": "API requires authentication for this endpoint"}` |
+| Unknown engine, or no network with that sha or name | 200 | `{"error": "Engine not found. Check /api/config/ for a full list"}` |
+| Throttled | 429 | `{"error": "Too many failed logins"}` |
+
+### `POST /api/networks/<engine>/<identifier>/delete/`
+
+Deletes a network. Only for enabled Approvers, as on the website.
+`<identifier>` is matched against `name` first, then `sha256` (the reverse of
+the download endpoint).
+
+```json
+{
+    "success": "Deleted demo-net-2 for Avalanche"
+}
+```
+
+Side effects: the `Network` row is deleted, and the file in `Media/` is
+removed once no network of any engine still uses that sha. Workloads that name
+the network can no longer fetch it.
+
+| Error | Status | Body |
+|---|---|---|
+| Not `POST` | 405 | `{"error": "POST required"}` |
+| `Sec-Fetch-Site: cross-site` or `same-site` | 403 | `{"error": "Cross-site requests are refused"}` |
+| Logged-in session without a valid CSRF token | 403 | `{"error": "Browser sessions must send a CSRF token"}` |
+| Not logged in, bad credentials, not enabled, not an Approver | 200 | `{"error": "Only Approvers may delete Networks"}` |
+| No such network (or engine) | 200 | `{"error": "Network nope for Engine Avalanche not found"}` |
+| Default or previous default network | 200 | `{"error": "You may not delete Default, or previous Default networks"}` |
+| Throttled | 429 | `{"error": "Too many failed logins"}` |
+
+`Scripts/delete_networks.py` uses this endpoint.
+
+## Workloads
+
+`<id>` is the workload number shown in its URL (`/test/<id>/`, `/tune/<id>/`,
+`/datagen/<id>/`). Deleted workloads are still served.
+
+Errors shared by every workload endpoint:
+
+| Error | Status | Body |
+|---|---|---|
+| Authentication failed | 200 | `{"error": "API requires authentication for this server"}` |
+| No workload with that id | 200 | `{"error": "Requested Workload Id does not exist"}` |
+| Throttled | 429 | `{"error": "Too many failed logins"}` |
+
+### `GET|POST /api/workload/<id>/<query>/`
+
+`<query>` is one of `results`, `info`, `summary`, `insights`. Any other value
+answers 200 `{"error": "Valid /query/ endpoints are: [ results, info, summary, insights ]"}`.
+
+#### `info`
+
+Every field of the `Test` row, with `dev` and `base` as nested engine objects,
+`tri` as `[losses, draws, wins]` and `penta` as `[LL, LD, DD, DW, WW]`.
+
+```json
+{
+    "info": {
+        "id": 3,
+        "author": "admin",
+        "upload_pgns": "FALSE",
+        "info": "Seeded demonstration workload",
+        "book_name": "UHO_Lichess_4852_v1.epd",
+        "book_index": 1,
+        "dev_repo": "https://github.com/SnowballSH/Avalanche",
+        "dev_engine": "Avalanche",
+        "dev_options": "Threads=1 Hash=16",
+        "dev_network": "BCF481FD",
+        "dev_netname": "nezha",
+        "dev_time_control": "8.0+0.08",
+        "base_repo": "https://github.com/SnowballSH/Avalanche",
+        "base_engine": "Avalanche",
+        "base_options": "Threads=1 Hash=16",
+        "base_network": "BCF481FD",
+        "base_netname": "nezha",
+        "base_time_control": "8.0+0.08",
+        "workload_size": 32,
+        "priority": 0,
+        "throughput": 1000,
+        "scale_method": "BASE",
+        "scale_nps": 0,
+        "syzygy_wdl": "OPTIONAL",
+        "syzygy_adj": "OPTIONAL",
+        "win_adj": "movecount=3 score=400",
+        "draw_adj": "movenumber=40 movecount=8 score=10",
+        "test_mode": "SPRT",
+        "elolower": 0.0,
+        "eloupper": 5.0,
+        "alpha": 0.05,
+        "beta": 0.05,
+        "lowerllr": -2.94,
+        "currentllr": -0.19240262646888878,
+        "upperllr": 2.94,
+        "max_games": 0,
+        "genfens_args": "",
+        "play_reverses": false,
+        "games": 6200,
+        "use_tri": false,
+        "use_penta": true,
+        "passed": true,
+        "failed": false,
+        "finished": true,
+        "deleted": false,
+        "approved": true,
+        "error": false,
+        "dev": {
+            "id": 5,
+            "name": "nezha-v2",
+            "source": "https://github.com/SnowballSH/Avalanche",
+            "sha": "07c49c6391d600f8d71c68c0d16c70a8d139a0fb",
+            "bench": 3053036
+        },
+        "base": {
+            "id": 6,
+            "name": "master",
+            "source": "https://github.com/SnowballSH/Avalanche",
+            "sha": "02e1ed217916472d3565e5f3cbdecf01ccc5a6c5",
+            "bench": 2853115
+        },
+        "tri": [1074, 4031, 1095],
+        "penta": [166, 742, 1248, 793, 151],
+        "creation": "2026-09-27 20:22:49.276633+00:00",
+        "updated": "2026-09-29 05:10:39.568122+00:00"
+    }
+}
+```
+
+`test_mode` is `SPRT`, `GAMES`, `SPSA` or `DATAGEN`. A workload is running
+while `approved` is true and `finished` and `deleted` are false. (The seeded
+demo data sets `passed` independently of `currentllr`.)
+
+#### `results`
+
+One entry per machine that played games for the workload, or is on it now.
+`active` is true when the machine reported within the last minute and is
+still assigned this workload. Sent compact, not indented.
+
+```json
+{"results": [
+  {"machine__id": 1, "machine__user__username": "lab-worker", "games": 714,
+   "LL": 15, "LD": 74, "DD": 168, "DW": 83, "WW": 17,
+   "timeloss": 0, "crashes": 0, "active": false},
+  {"machine__id": 2, "machine__user__username": "home-worker", "games": 1236,
+   "LL": 31, "LD": 152, "DD": 255, "DW": 149, "WW": 31,
+   "timeloss": 0, "crashes": 0, "active": false}
+]}
+```
+
+(Trimmed from 5 entries, and wrapped for reading.)
+
+#### `summary`
+
+The results grouped three ways, as in the tables on the workload page: by
+`user`, `cpu_name` and `isa_name`. Values are display strings where the page
+shows formatted text (`penta`, `elo`, `percent`).
+
+```json
+{
+    "summary": {
+        "user": [
+            {
+                "key": "home-worker",
+                "penta": "(96, 378, 638, 425, 78)",
+                "elo": "1.18 ± 8.17",
+                "pairs": 1615,
+                "percent": "52.10",
+                "dev_nps": 2100731,
+                "dev_nps_scaled": 2100731,
+                "base_nps": 2058717,
+                "base_nps_scaled": 2058717
+            }
+        ],
+        "cpu_name": [
+            {
+                "key": "Apple M4",
+                "penta": "(65, 226, 383, 276, 47)",
+                "elo": "2.44 ± 10.54",
+                "pairs": 997,
+                "percent": "32.16",
+                "dev_nps": 2400000,
+                "dev_nps_scaled": 2400000,
+                "base_nps": 2352000,
+                "base_nps_scaled": 2352000
+            }
+        ],
+        "isa_name": [ ... ]
+    }
+}
+```
+
+(Each list trimmed to one entry.)
+
+#### `insights`
+
+Progress, throughput, ETA, strength, history and contributions, all as JSON
+numbers. The full schema, including every `eta.kind` and `reason`, is in
+[INSIGHTS.md](INSIGHTS.md#api).
+
+```json
+{
+    "insights": {
+        "generated_at": "2026-09-30T06:49:07.170616+00:00",
+        "workload": {
+            "id": 3,
+            "mode": "SPRT",
+            "status": "passed",
+            "use_penta": true,
+            "created_at": "2026-09-27T20:22:49.276633+00:00",
+            "updated_at": "2026-09-29T05:10:39.568122+00:00"
+        },
+        "progress": {
+            "games": 6200,
+            "pairs": 3100,
+            "trinomial": [1074, 4031, 1095],
+            "pentanomial": [166, 742, 1248, 793, 151],
+            "llr": -0.19240262646888878,
+            "llr_lower": -2.94,
+            "llr_upper": 2.94,
+            "target_games": null,
+            "fraction": null
+        },
+        "timing": {
+            "started_at": "2026-09-27T20:38:11.882124+00:00",
+            "ended_at": "2026-09-29T05:10:39.568122+00:00",
+            "elapsed_seconds": 117147.685998,
+            "overall": { "games_per_hour": 188.99220937559096, "window_seconds": 117147.685998 },
+            "recent": { "games_per_hour": 210.94178207756522, "window_seconds": 3600.0 }
+        },
+        "eta": {
+            "kind": "finished",
+            "remaining_games": 0,
+            "remaining_seconds": 0.0,
+            "completes_at": null,
+            "reason": null
+        },
+        "strength": {
+            "elo": { "lower": -4.640502309128021, "value": 1.1768024512365398, "upper": 6.994767170350524 },
+            "normalized_elo": { "lower": -6.897977877407048, "value": 1.7502384498765362, "upper": 10.39845477716012 },
+            "los": 0.6541910206111968,
+            "draw_ratio": 0.6501612903225806,
+            "penta_fractions": [0.053548387096774196, 0.23935483870967741, 0.40258064516129033, 0.2558064516129032, 0.048709677419354835]
+        },
+        "history": {
+            "synthetic": false,
+            "points": [
+                {
+                    "timestamp": "2026-09-29T05:10:39.568122+00:00",
+                    "games": 6200,
+                    "llr": -0.19240262646888878,
+                    "elo": 1.1768024512365398,
+                    "elo_lower": -4.640502309128021,
+                    "elo_upper": 6.994767170350524
+                }
+            ]
+        },
+        "contributions": {
+            "machines": [
+                {
+                    "machine_id": 4,
+                    "machine_name": "demo-4",
+                    "owner": "home-worker",
+                    "cpu_name": "Apple M4",
+                    "stats": {
+                        "games": 1994,
+                        "pairs": 997,
+                        "share": 0.32161290322580643,
+                        "pairs_per_hour": 30.63824922722995,
+                        "elo": { "lower": -8.09971111109712, "value": 2.4394072845802235, "upper": 12.983018153406162 }
+                    }
+                }
+            ],
+            "cpus": [
+                {
+                    "cpu_name": "Apple M4",
+                    "machines": 1,
+                    "stats": {
+                        "games": 1994,
+                        "pairs": 997,
+                        "share": 0.32161290322580643,
+                        "pairs_per_hour": 30.63824922722995,
+                        "elo": { "lower": -8.09971111109712, "value": 2.4394072845802235, "upper": 12.983018153406162 }
+                    }
+                }
+            ]
+        }
+    }
+}
+```
+
+(`history.points` trimmed from 150 entries to the last, `machines` from 5 and
+`cpus` from 4 to the first; objects reformatted compactly.)
+
+### `GET|POST /api/spsa/<id>/<query>/`
+
+Parameters of an SPSA tune. `inputs`, `outputs` and `digest` are
+`text/plain`; `perturbation` is JSON. Any other `<query>` answers 200
+`{"error": "Valid /query/ endpoints are: [ inputs, outputs, digest, perturbation ]"}`.
+
+`<id>` must be an SPSA tune. For any other workload, `perturbation` answers
+`{"perturbation": null}` and the three text queries fail with a 500.
+
+#### `inputs`
+
+The parameter lines as submitted, one per parameter, in the tune form's input
+format `name, type, start, min, max, c_end, r_end`. Numbers are printed as
+floats, even for `int` parameters.
+
+```
+LmrBase, float, 0.75, 0.25, 1.5, 0.075, 0.002
+LmrDivisor, int, 225.0, 150.0, 300.0, 8.0, 0.002
+FutilityMargin, int, 90.0, 40.0, 160.0, 6.0, 0.002
+```
+
+#### `outputs`
+
+The current values, `int` parameters rounded to integers.
+
+```
+LmrBase, 0.75
+LmrDivisor, 225
+FutilityMargin, 90
+```
+
+#### `digest`
+
+CSV with a header row: the current value, the bounds, and the `C` and `R` a
+worker would be assigned now, beside their end values.
+
+```
+Name,Curr,Start,Min,Max,C,C_end,R,R_end
+LmrBase,0.7500,0.7500,0.2500,1.5000,0.1167,0.0750,0.0033,0.0020
+LmrDivisor,225.0000,225,150,300,12.4438,8.0000,0.0033,0.0020
+FutilityMargin,90.0000,90,40,160,9.3328,6.0000,0.0033,0.0020
+```
+
+#### `perturbation`
+
+A sample of the assignment a worker running four concurrent games would
+receive now: for each parameter, the `dev` and `base` values per runner, the
+random `flip` signs, and the current `c` and `r`. Each call draws new random
+signs. It is computed only; nothing is stored or assigned.
+
+```json
+{
+    "perturbation": {
+        "LmrBase": {
+            "index": 0,
+            "dev": [0.6333394986901008, 0.6333394986901008, 0.6333394986901008, 0.6333394986901008],
+            "base": [0.8666605013098992, 0.8666605013098992, 0.8666605013098992, 0.8666605013098992],
+            "flip": [-1, -1, -1, -1],
+            "c": 0.11666050130989923,
+            "r": 0.003259846355194914
+        },
+        "LmrDivisor": {
+            "index": 1,
+            "dev": [212, 212, 212, 212],
+            "base": [237, 237, 237, 237],
+            "flip": [-1, -1, -1, -1],
+            "c": 12.443786806389252,
+            "r": 0.0032598463551949137
+        }
+    }
+}
+```
+
+(One parameter trimmed; arrays reformatted onto one line. This tune uses the
+`SINGLE` distribution, so all four runners share one perturbation.)
+
+### `GET|POST /api/pgns/<id>/`
+
+Downloads `Media/PGNs/<id>.pgn.tar`, the archive the PGN watcher builds for a
+workload created with `upload_pgns` enabled. It holds one bzip2 file per
+uploaded batch.
+
+```
+HTTP/1.1 200 OK
+Content-Type: application/octet-stream
+Content-Length: 4096
+Expires: -1
+Content-Disposition: attachment; filename=3.pgn.tar
+
+<tar bytes>
+```
+
+The checks run in this order, each answering status 200 with JSON:
+
+| Error | Body |
+|---|---|
+| Authentication failed | `{"error": "API requires authentication for this server"}` |
+| No workload with that id | `{"error": "Requested Workload Id does not exist"}` |
+| No archive on disk | `{"error": "Unable to find PGN for Workload #4"}` |
+| Workload not finished | `{"error": "PGNs cannot be downloaded while the Workload is active"}` |
+| A machine that reported in the last 2 minutes is still on it | `{"error": "Some machines are still on this Workload. Try again shortly"}` |
+| Batches not yet archived | `{"error": "Still processing individual PGNs into the archive. Try again shortly"}` |
+
+The last two clear on their own; retry after a short wait.
+`Scripts/archive2pgns.py` and `Scripts/archive2nps.py` read these archives.
+
+## Server
+
+### `GET|POST /api/insights/server/`
+
+Fleet and workload counters for the whole server, as on the index page.
+Schema in [INSIGHTS.md](INSIGHTS.md#getpost-apiinsightsserver).
+
+```json
+{
+    "server": {
+        "generated_at": "2026-09-30T06:49:30.255058+00:00",
+        "fleet": {
+            "machines": 0,
+            "threads": 0,
+            "mnps": 0
+        },
+        "workloads": {
+            "pending": 1,
+            "active": 3
+        },
+        "games_last_24h": 14246,
+        "finished_last_7d": {
+            "window_days": 7,
+            "total": 3,
+            "passed": 2,
+            "failed": 1,
+            "stopped": 0,
+            "sprt_passed": 1,
+            "sprt_failed": 1,
+            "sprt_pass_rate": 0.5
+        },
+        "top_contributors": [
+            {
+                "username": "lab-worker",
+                "games": 16770
+            },
+            {
+                "username": "home-worker",
+                "games": 11430
+            }
+        ]
+    }
+}
+```
+
+| Error | Status | Body |
+|---|---|---|
+| Authentication failed | 401 | `{"error": "API requires authentication for this server"}` |
+| Throttled | 429 | `{"error": "Too many failed logins"}` |
+
+### `GET|POST /api/storage/`
+
+What fills the data directory. Always needs an enabled user. Sizes are bytes;
+the scan is cached for 60 seconds per process. Field meanings and how to free
+space are in [DEPLOYMENT.md](DEPLOYMENT.md#storage).
+
+```json
+{
+    "storage": {
+        "generated_at": "2026-09-30T06:49:30.430626+00:00",
+        "cache_seconds": 60,
+        "disk": {
+            "total_bytes": 494384795648,
+            "used_bytes": 448495538176,
+            "free_bytes": 45889257472,
+            "free_fraction": 0.0928,
+            "low": true
+        },
+        "database": {
+            "bytes": 603080,
+            "main_bytes": 409600,
+            "wal_bytes": 160712,
+            "shm_bytes": 32768
+        },
+        "media": {
+            "files": 1,
+            "bytes": 4096,
+            "skipped_symlinks": 0,
+            "unreadable_dirs": 0,
+            "truncated": false,
+            "categories": [
+                {
+                    "key": "networks",
+                    "label": "Networks",
+                    "files": 1,
+                    "bytes": 4096,
+                    "largest": [
+                        {
+                            "name": "AE0B26BB",
+                            "bytes": 4096,
+                            "detail": "Avalanche / demo-net-1",
+                            "url": "/networks/Avalanche/"
+                        }
+                    ]
+                },
+                {
+                    "key": "pgn_archives",
+                    "label": "Archived PGNs",
+                    "files": 0,
+                    "bytes": 0,
+                    "largest": []
+                }
+            ]
+        },
+        "networks_by_engine": [
+            {
+                "engine": "Avalanche",
+                "networks": 1,
+                "files": 1,
+                "missing_files": 0,
+                "bytes": 4096,
+                "url": "/networks/Avalanche/"
+            }
+        ],
+        "upload_spool": null
+    }
+}
+```
+
+(`categories` trimmed; it always holds all five: `networks`, `pgn_archives`,
+`pgn_pending`, `event_logs`, `other`.)
+
+| Error | Status | Body |
+|---|---|---|
+| Authentication failed | 401 | `{"error": "API requires authentication for this endpoint"}` |
+| Throttled | 429 | `{"error": "Too many failed logins"}` |
+
+### `POST /api/active/`
+
+How many workloads a Client with a given `system_info` and blacklist would
+choose among right now, using the same filters as `clientGetWorkload`. Used by
+supervisors that start a worker only when there is work; see
+[SUPERVISED_WORKERS.md](SUPERVISED_WORKERS.md) for how to obtain
+`system_info` from the Client with `--print-system-info` instead of writing it
+by hand.
+
+| Field | Meaning |
+|---|---|
+| `username`, `password` | An enabled account. Required even when `require_login_to_view` is off. |
+| `system_info` | JSON object with `concurrency`, `physical_cores`, `logical_cores`, `ram_total_mb`, `syzygy_max` (integers), `noisy` (boolean), `cpu_flags` (list), `os_name` (string), `compilers` and `tokens` (objects keyed by engine name), and optionally `focus` and `only` (lists). Types are checked exactly; other keys are ignored. |
+| `blacklist` | Optional, repeatable. Workload ids to exclude, ASCII digits, at most 18. |
+
+```
+curl -s https://openbench.example/api/active/ \
+  --data-urlencode "username=$OPENBENCH_USERNAME" \
+  --data-urlencode "password=$OPENBENCH_PASSWORD" \
+  --data-urlencode 'system_info={"concurrency":8,"physical_cores":8,"logical_cores":16,"ram_total_mb":32000,"syzygy_max":0,"noisy":false,"cpu_flags":["AVX2"],"os_name":"Linux","compilers":{"Avalanche":["zig","0.16.0"]},"tokens":{}}' \
+  -d blacklist=1 -d blacklist=2
+```
+
+```json
+{
+    "assignable": 1
+}
+```
+
+`assignable > 0` exactly when a registered Client with that `system_info` and
+blacklist would be given work now. Nothing is written: no Machine, Result or
+session is created.
+
+| Error | Status | Body |
+|---|---|---|
+| Not `POST` | 405 | `{"error": "POST required"}` |
+| Bad credentials, or account not enabled | 401 | `{"error": "Bad Credentials"}` |
+| Missing or malformed `system_info`, or a bad `blacklist` entry | 400 | `{"error": "Malformed system_info or blacklist"}` |
+| Throttled | 429 | `{"error": "Too many failed logins"}` |
+
+## `/scripts/`
+
+`POST /scripts/` is the form endpoint behind `Scripts/upload_net.py` and
+`Scripts/create_test.py`. It is not JSON: it hands the request to the same
+code as the website's forms and answers with a redirect or an HTML page. The
+outcome is in the page's banner (`<div class="error-message">`,
+`warning-message` or `status-message`), which the script has to follow the
+redirect to see. `Scripts/upload_net.py` has a small parser for it.
+
+Every call needs `username` and `password` of an enabled account in the POST
+body, and an `action`. A browser session is ignored. On success the caller is
+logged in: the response sets `sessionid` and `csrftoken` cookies (see
+[CSRF](#csrf) for what that means for a reused `requests.Session`).
+
+| Outcome | Answer |
+|---|---|
+| `GET`, missing, wrong or not-enabled credentials | 302 to `/login/`, banner "Unable to authenticate user" |
+| Throttled | 302 to `/login/`, banner "Too many failed logins. Try again later" |
+| Any `action` other than the two below | 302 to `/index/`, banner "Unknown scripts action" |
+
+### `action=UPLOAD_NETWORK`
+
+`multipart/form-data` with `engine`, `name` and the file as `netfile`. Only
+Approvers may upload.
+
+| Outcome | Answer |
+|---|---|
+| Uploaded | 302 to `/networks/<engine>/`, banner "Uploaded demo-net-3 for Avalanche" |
+| Not an Approver | 302 to `/index/`, no banner |
+| `name` outside `[a-zA-Z0-9_.-]` | 302 to `/networks/`, banner "Valid characters are [a-zA-Z0-9_.-]" |
+| Same file already uploaded for that engine | 302 to `/networks/`, banner "Network with that hash already exists for that engine" |
+| Name already used for that engine | 302 to `/networks/`, banner "Network with that name already exists for that engine" |
+| Unknown engine | 302 to `/networks/`, banner "No Engine found with matching name" |
+| `engine`, `name` or `netfile` missing | 500 |
+
+Side effects: creates a `Network` row authored by the caller, not the default,
+and stores the file in `Media/<sha>` unless another engine already has it.
+Make it the default from the website's Networks page.
+
+### `action=CREATE_TEST`
+
+Creates an engine test from the fields of the website's `/test/new/` form;
+`Scripts/create_test.py` lists all of them with typical values (`dev_engine`,
+`dev_repo`, `dev_branch`, `dev_bench`, `dev_network`, `dev_options`,
+`dev_time_control`, the same `base_*` fields, `test_mode`, `test_bounds`,
+`test_confidence`, `test_max_games`, `book_name`, `upload_pgns`, `throughput`,
+`workload_size`, `priority`, `syzygy_wdl`, `syzygy_adj`, `win_adj`,
+`draw_adj`, `scale_method`, `scale_nps`, `info`). Validation is described in
+[WORKLOADS.md](WORKLOADS.md); it resolves both branches against GitHub, so the
+server needs GitHub access. Only tests can be created this way, not tunes or
+datagen.
+
+| Outcome | Answer |
+|---|---|
+| Created | 302 to `/index/`; a warning banner if dev appears behind base |
+| Rejected | 200, the create form with the reasons in the error banner, for example "no-such-branch-xyz could not be found" |
+| A form field missing from the POST | 500 |
+
+Side effects: creates the test, its engines and a `CREATE` event. The test is
+approved at once when the caller is an Approver and `use_cross_approval` is
+off; otherwise it waits for an Approver. The response does not carry the new
+workload's id; find it on `/index/` or `/user/<username>/`.
+
+## `/health/`
+
+`GET /health/` (or `HEAD`) needs no login and reveals nothing beyond whether
+the database answers a query against the `OpenBench_serverstate` table.
+
+```json
+{"status": "ok"}
+```
+
+It answers 503 `{"status": "unavailable"}` when the query fails. It is not
+exempt from CSRF, so a `POST` gets Django's 403 page. The reverse proxy and
+deployers use it, see [DEPLOYMENT.md](DEPLOYMENT.md).
+
+## Client worker endpoints
+
+The `/client*/` endpoints (`clientWorkerInfo`, `clientGetWorkload`,
+`clientSubmitResults` and the rest in `OpenBench/urls.py`) are the internal
+protocol between the Server and `Client/worker.py`. They change together with
+the Client, which must run the version in `Config/config.json`
+(`client_version`), so they are not a stable API and are not documented here.
+`Client/worker.py` is the source of truth for their requests and responses;
+the security rules they follow are in [SECURITY.md](SECURITY.md#workers).
+
+## Scripting
+
+A minimal script with [`requests`](https://requests.readthedocs.io/). It reads
+the server and credentials from the environment, like the scripts in
+`Scripts/`, and POSTs them with every call.
+
+```python
+import os
+import requests
+
+SERVER = os.environ["OPENBENCH_SERVER"].rstrip("/")
+CREDENTIALS = {
+    "username": os.environ["OPENBENCH_USERNAME"],
+    "password": os.environ["OPENBENCH_PASSWORD"],
+}
+
+
+def api(path: str, **fields: str) -> requests.Response:
+    response = requests.post(f"{SERVER}/api/{path.strip('/')}/", data={**CREDENTIALS, **fields}, timeout=30)
+    if response.status_code == 429:
+        raise RuntimeError("Throttled after failed logins; wait out the 15-minute window")
+    response.raise_for_status()
+    return response
+
+
+def api_json(path: str, **fields: str) -> dict:
+    body = api(path, **fields).json()
+    if "error" in body:
+        raise RuntimeError(body["error"])
+    return body
+
+
+info = api_json("workload/3/info")["info"]
+print(info["dev"]["name"], info["games"], info["currentllr"])
+
+network = api_json("networks/Avalanche")["default"]
+if network:
+    download = api(f"networks/Avalanche/{network['sha256']}")
+    if download.headers["Content-Type"] != "application/octet-stream":
+        raise RuntimeError(download.json()["error"])
+    with open(network["sha256"], "wb") as out:
+        out.write(download.content)
+```
+
+Notes for script authors:
+
+- Use plain `requests.post`, or a fresh `requests.Session` per call, with
+  credentials in the body. A session that went through `/scripts/` is logged
+  in, and the delete endpoint then demands a CSRF token.
+- Check for an `error` key even on status 200, and check the `Content-Type` of
+  download endpoints before saving the body.
+- Keep retries on authentication errors bounded: every failed password counts
+  toward the throttle, and 10 failures lock that username out from your
+  address for the rest of the 15-minute window.
