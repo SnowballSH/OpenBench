@@ -29,6 +29,8 @@ OPTIONAL_TYPES: Mapping[str, type] = {
 
 STRING_LISTS = frozenset({'cpu_flags', 'focus', 'only'})
 
+NULLABLE = frozenset({'physical_cores', 'logical_cores'})
+
 
 def decode_system_info(raw: str | None) -> SystemInfo | None:
     try:
@@ -41,6 +43,8 @@ def decode_system_info(raw: str | None) -> SystemInfo | None:
 def well_typed(info: SystemInfo, key: str, kind: type) -> bool:
     # Exact types, as JSON decodes them: a bool is never accepted as an int
     value = info[key]
+    if value is None and key in NULLABLE:
+        return True
     if type(value) is not kind:
         return False
     return key not in STRING_LISTS or (isinstance(value, list) and all(type(item) is str for item in value))

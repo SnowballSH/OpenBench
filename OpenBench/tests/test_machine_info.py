@@ -25,7 +25,7 @@ CLIENT_WORKER = Path(settings.BASE_DIR) / 'Client' / 'worker.py'
 
 CRAFTED: dict[str, Any] = {
     'concurrency': 'x',
-    'physical_cores': None,
+    'physical_cores': '8',
     'cpu_name': ['a', 'b'],
     'isa_name': {'x': 1},
     'machine_name': 7,
@@ -67,6 +67,10 @@ class SystemInfoValidationTests(SimpleTestCase):
 
     def test_genuine_client_info_is_well_formed(self):
         self.assertEqual(malformed_fields(genuine_system_info()), [])
+
+    def test_core_counts_psutil_cannot_determine_are_accepted(self):
+        info = {**genuine_system_info(), 'physical_cores': None, 'logical_cores': None}
+        self.assertEqual(malformed_fields(json.loads(json.dumps(info))), [])
 
     def test_crafted_fields_are_named(self):
         self.assertEqual(

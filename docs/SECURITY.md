@@ -123,8 +123,9 @@ A genuine Client never triggers either.
 Machine (`OpenBench/machine_info.py`). After the Client version check, which
 still comes first so an old Client learns to update, it requires the fields
 the Server reads, with the exact JSON types the Client sends: integer
-`concurrency`, `physical_cores`, `logical_cores`, `ram_total_mb`, `sockets`
-and `syzygy_max`; boolean `noisy`; `cpu_flags` a list of strings; `os_name` a
+`concurrency`, `ram_total_mb`, `sockets` and `syzygy_max`; integer or null
+`physical_cores` and `logical_cores` (psutil reports null when it cannot count
+cores, for example in some containers); boolean `noisy`; `cpu_flags` a list of strings; `os_name` a
 string; `compilers` and `tokens` objects. `cpu_name`, `isa_name`, `os_ver` and
 `machine_name` must be strings, and `focus` and `only` lists of strings, when
 present. Anything else is answered `{"error": "Malformed system_info: <fields>"}`
