@@ -1,6 +1,6 @@
 import dataclasses
 import re
-from typing import ClassVar
+from typing import Any, ClassVar
 
 from django.test import TestCase
 
@@ -224,9 +224,10 @@ class ClientEndpointBudgetTests(TestCase):
             'secret': registered['secret'],
         }
 
-    def post(self, url: str, payload: dict[str, object], queries: int) -> object:
+    def post(self, url: str, payload: dict[str, object], queries: int) -> dict[str, Any]:
         with self.assertNumQueries(queries):
-            return self.client.post(url, payload).json()
+            response: dict[str, Any] = self.client.post(url, payload).json()
+            return response
 
     def test_worker_loop(self) -> None:
         workload = self.post('/clientGetWorkload/', self.session, 15)['workload']

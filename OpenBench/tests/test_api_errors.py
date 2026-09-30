@@ -16,6 +16,7 @@ from OpenBench.tests.fixtures import (
     create_test,
     create_user,
     credentials,
+    present,
 )
 
 AUTH_SERVER = {'error': 'API requires authentication for this server'}
@@ -245,9 +246,9 @@ class ResultsFormattingTests(ApiTestCase):
 class DeleteNetworksScriptTests(ApiTestCase):
     def load_script(self):
         path = Path(__file__).resolve().parents[2] / 'Scripts' / 'delete_networks.py'
-        spec = importlib.util.spec_from_file_location('delete_networks_script', path)
+        spec = present(importlib.util.spec_from_file_location('delete_networks_script', path))
         module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
+        present(spec.loader).exec_module(module)
         return module
 
     def test_deletes_the_listed_network_when_its_name_is_another_sha(self):

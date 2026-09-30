@@ -6,13 +6,17 @@ import OpenBench.config
 from OpenBench.models import EngineConfig
 
 
+def unused_view(request: HttpRequest) -> HttpResponse:
+    raise NotImplementedError
+
+
 def fails_session_csrf(request: HttpRequest) -> bool:
     # For views exempt from CSRF so that credentialed Scripts can reach them.
     # A request riding a browser session must still carry a valid token
     if not request.user.is_authenticated:
         return False
 
-    return CsrfViewMiddleware(lambda _: None).process_view(request, None, (), {}) is not None
+    return CsrfViewMiddleware(unused_view).process_view(request, unused_view, (), {}) is not None
 
 
 def csrf_failure(request: HttpRequest, reason: str = '') -> HttpResponse:

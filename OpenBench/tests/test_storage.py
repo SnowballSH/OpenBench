@@ -28,6 +28,7 @@ from OpenBench.tests.fixtures import (
     create_user,
     credentials,
     ensure_book,
+    present,
 )
 
 
@@ -318,7 +319,7 @@ class CachedReportTests(TestCase):
         spool.mkdir()
         (spool / 'partial.upload').write_bytes(b'x' * 25)
         with override_settings(FILE_UPLOAD_TEMP_DIR=str(spool)):
-            spool_usage = current_report().upload_spool
+            spool_usage = present(current_report().upload_spool)
         self.assertEqual((spool_usage.files, spool_usage.size, spool_usage.truncated), (1, 25, False))
 
 

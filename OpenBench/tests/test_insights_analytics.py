@@ -8,7 +8,7 @@ from OpenBench.insights.contributions import ResultRow, summarize_contributions
 from OpenBench.insights.domain import Outcomes, ProgressPoint, SprtBounds, WorkloadFacts, WorkloadMode, WorkloadStatus
 from OpenBench.insights.eta import EtaKind, EtaReason, estimate_eta, sprt_unavailable_reason
 from OpenBench.insights.grouping import sum_by_key
-from OpenBench.insights.serialize import to_json
+from OpenBench.insights.serialize import Json, to_json
 from OpenBench.insights.series import build_series
 from OpenBench.insights.server import Edge, FinishedWorkload, fleet_status, games_in_window, summarize_finished
 from OpenBench.insights.sprt import (
@@ -30,10 +30,18 @@ from OpenBench.insights.strength import (
 from OpenBench.insights.timing import Rate, games_at, rate_between, summarize_timing
 from OpenBench.insights.workload import build_insights
 from OpenBench.stats import Elo, PentanomialSPRT, TrinomialSPRT
+from OpenBench.tests.fixtures import present
 
 T0 = datetime(2026, 9, 1, tzinfo=UTC)
 BOUNDS = SprtBounds(elo0=0.0, elo1=3.0, lower_llr=-2.94, upper_llr=2.94)
 PENTA = (39, 884, 2667, 924, 44)
+
+
+def field(value: Json, *path: str) -> Json:
+    for key in path:
+        assert isinstance(value, dict)
+        value = value[key]
+    return value
 
 
 def at(minutes: float) -> datetime:
@@ -64,7 +72,7 @@ def facts(mode=WorkloadMode.SPRT, penta=PENTA, finished=False, target=None, llr=
 
 class StrengthTests(SimpleTestCase):
     def test_elo_matches_stats_module(self):
-        interval = elo_interval(PENTA)
+        interval = present(elo_interval(PENTA))
         self.assertEqual((interval.lower, interval.value, interval.upper), Elo(PENTA))
 
     def test_zero_and_single_games_are_undefined(self):
@@ -82,7 +90,7 @@ class StrengthTests(SimpleTestCase):
         self.assertEqual(penta_fractions(results), (0.0, 0.0, 1.0, 0.0, 0.0))
         self.assertEqual(likelihood_of_superiority(results.pentanomial), 0.5)
         self.assertIsNone(normalized_elo(results.pentanomial))
-        self.assertEqual(elo_interval(results.pentanomial).value, 0.0)
+        self.assertEqual(present(elo_interval(results.pentanomial)).value, 0.0)
 
     def test_one_sided_results_have_certain_los(self):
         self.assertEqual(likelihood_of_superiority((0, 0, 0, 0, 10)), 1.0)
@@ -90,11 +98,13 @@ class StrengthTests(SimpleTestCase):
 
     def test_los_is_symmetric(self):
         mirrored = tuple(reversed(PENTA))
-        self.assertAlmostEqual(likelihood_of_superiority(PENTA) + likelihood_of_superiority(mirrored), 1.0)
-        self.assertGreater(likelihood_of_superiority(PENTA), 0.5)
+        self.assertAlmostEqual(
+            present(likelihood_of_superiority(PENTA)) + present(likelihood_of_superiority(mirrored)), 1.0
+        )
+        self.assertGreater(present(likelihood_of_superiority(PENTA)), 0.5)
 
     def test_normalized_elo_interval_brackets_estimate(self):
-        interval = normalized_elo(PENTA)
+        interval = present(normalized_elo(PENTA))
         self.assertLess(interval.lower, interval.value)
         self.assertGreater(interval.upper, interval.value)
         self.assertAlmostEqual(interval.value - interval.lower, interval.upper - interval.value)
@@ -103,7 +113,7 @@ class StrengthTests(SimpleTestCase):
     def test_summary_uses_trinomial_when_asked(self):
         tri = outcomes(use_penta=False)
         self.assertEqual(summarize_strength(tri).elo, elo_interval(tri.trinomial))
-        self.assertAlmostEqual(sum(summarize_strength(tri).penta_fractions), 1.0)
+        self.assertAlmostEqual(sum(present(summarize_strength(tri).penta_fractions)), 1.0)
 
 
 class TimingTests(SimpleTestCase):
@@ -122,17 +132,17 @@ class TimingTests(SimpleTestCase):
         self.assertIsNone(rate_between(self.marks, at(0), at(2)))
 
     def test_stalled_workload_reports_zero_recent_rate(self):
-        timing = summarize_timing(self.marks, at(180), finished=False)
+        timing = present(summarize_timing(self.marks, at(180), finished=False))
         self.assertIsNone(timing.ended_at)
         self.assertEqual(timing.elapsed_seconds, 3 * 3600)
-        self.assertEqual(timing.recent.games_per_hour, 0.0)
-        self.assertEqual(timing.overall.games_per_hour, 200.0)
+        self.assertEqual(present(timing.recent).games_per_hour, 0.0)
+        self.assertEqual(present(timing.overall).games_per_hour, 200.0)
         self.assertEqual(timing.best_rate(), timing.recent)
 
     def test_finished_workload_ends_at_last_mark(self):
-        timing = summarize_timing(self.marks[:2], at(60), finished=True)
+        timing = present(summarize_timing(self.marks[:2], at(60), finished=True))
         self.assertEqual(timing.ended_at, at(60))
-        self.assertEqual(timing.recent.games_per_hour, 600.0)
+        self.assertEqual(present(timing.recent).games_per_hour, 600.0)
 
     def test_no_marks(self):
         self.assertIsNone(summarize_timing([], at(0), finished=False))
@@ -146,20 +156,20 @@ class SprtTests(SimpleTestCase):
 
     def test_trinomial_drift_reproduces_the_llr(self):
         tri = (2200, 4400, 2300)
-        increment = trinomial_increment(tri, BOUNDS.elo0, BOUNDS.elo1)
+        increment = present(trinomial_increment(tri, BOUNDS.elo0, BOUNDS.elo1))
         self.assertAlmostEqual(increment.drift * sum(tri), TrinomialSPRT(tri, BOUNDS.elo0, BOUNDS.elo1))
         self.assertIsNone(trinomial_increment((0, 10, 10), BOUNDS.elo0, BOUNDS.elo1))
 
     def test_zero_drift_is_the_limit_of_small_drift(self):
-        zero = expected_exit(LlrIncrement(0.0, 0.01, 2), 0.5, -2.94, 2.94)
-        tiny = expected_exit(LlrIncrement(1e-12, 0.01, 2), 0.5, -2.94, 2.94)
+        zero = present(expected_exit(LlrIncrement(0.0, 0.01, 2), 0.5, -2.94, 2.94))
+        tiny = present(expected_exit(LlrIncrement(1e-12, 0.01, 2), 0.5, -2.94, 2.94))
         self.assertAlmostEqual(zero.steps, (0.5 + 2.94) * (2.94 - 0.5) / 0.01)
         self.assertAlmostEqual(zero.steps, tiny.steps, places=3)
         self.assertAlmostEqual(zero.pass_probability, tiny.pass_probability)
 
     def test_strong_drift_approaches_distance_over_drift(self):
-        up = expected_exit(LlrIncrement(0.5, 0.01, 2), 0.5, -2.94, 2.94)
-        down = expected_exit(LlrIncrement(-0.5, 0.01, 2), 0.5, -2.94, 2.94)
+        up = present(expected_exit(LlrIncrement(0.5, 0.01, 2), 0.5, -2.94, 2.94))
+        down = present(expected_exit(LlrIncrement(-0.5, 0.01, 2), 0.5, -2.94, 2.94))
         self.assertAlmostEqual(up.steps, (2.94 - 0.5) / 0.5)
         self.assertAlmostEqual(down.steps, (0.5 + 2.94) / 0.5)
         self.assertEqual(up.pass_probability, 1.0)
@@ -175,7 +185,7 @@ class SprtTests(SimpleTestCase):
 
     def test_extreme_drift_does_not_overflow(self):
         for drift in (-100.0, 100.0):
-            estimate = expected_exit(LlrIncrement(drift, 1e-6, 2), 0.0, -2.94, 2.94)
+            estimate = present(expected_exit(LlrIncrement(drift, 1e-6, 2), 0.0, -2.94, 2.94))
             self.assertTrue(math.isfinite(estimate.steps))
 
     def test_undefined_cases(self):
@@ -185,7 +195,7 @@ class SprtTests(SimpleTestCase):
         self.assertIsNone(forecast_sprt(outcomes((0, 10, 20, 10, 0)), 0.1, BOUNDS))
 
     def test_forecast_counts_games(self):
-        forecast = forecast_sprt(outcomes(), PentanomialSPRT(PENTA, 0.0, 3.0), BOUNDS)
+        forecast = present(forecast_sprt(outcomes(), PentanomialSPRT(PENTA, 0.0, 3.0), BOUNDS))
         self.assertGreater(forecast.remaining_games, 0)
         self.assertEqual(forecast.remaining_games % 2, 0)
         self.assertGreater(forecast.drift_per_game, 0)
@@ -203,8 +213,9 @@ class EtaTests(SimpleTestCase):
         played = outcomes().games
         self.assertEqual(eta.kind, EtaKind.TARGET)
         self.assertEqual(eta.remaining_games, 20000 - played)
-        self.assertAlmostEqual(eta.remaining_seconds, 3.6 * (20000 - played))
-        self.assertEqual(eta.completes_at, at(0) + timedelta(seconds=eta.remaining_seconds))
+        remaining_seconds = present(eta.remaining_seconds)
+        self.assertAlmostEqual(remaining_seconds, 3.6 * (20000 - played))
+        self.assertEqual(eta.completes_at, at(0) + timedelta(seconds=remaining_seconds))
 
     def test_overshoot_clamps_to_zero(self):
         self.assertEqual(estimate_eta(facts(WorkloadMode.DATAGEN, target=10), self.rate, at(0)).remaining_games, 0)
@@ -220,7 +231,7 @@ class EtaTests(SimpleTestCase):
         eta = estimate_eta(facts(), self.rate, at(0))
         self.assertEqual(eta.kind, EtaKind.SPRT)
         self.assertIsNotNone(eta.completes_at)
-        self.assertAlmostEqual(eta.remaining_seconds, 3.6 * eta.remaining_games)
+        self.assertAlmostEqual(present(eta.remaining_seconds), 3.6 * present(eta.remaining_games))
 
     def test_sprt_without_enough_games(self):
         eta = estimate_eta(facts(penta=(0, 1, 2, 1, 0)), self.rate, at(0))
@@ -228,7 +239,7 @@ class EtaTests(SimpleTestCase):
 
     def test_unreachable_completion_time_is_null(self):
         eta = estimate_eta(facts(WorkloadMode.GAMES, target=10**9), Rate(1e-9, 3600.0), at(0))
-        self.assertGreater(eta.remaining_seconds, 1e15)
+        self.assertGreater(present(eta.remaining_seconds), 1e15)
         self.assertIsNone(eta.completes_at)
 
     def test_missing_target(self):
@@ -299,7 +310,7 @@ class ContributionTests(SimpleTestCase):
         first = summary.machines[0]
         self.assertEqual((first.machine_name, first.stats.pairs, first.stats.games), ('fast', 46, 92))
         self.assertEqual(first.stats.pairs_per_hour, 23.0)
-        self.assertAlmostEqual(sum(m.stats.share for m in summary.machines), 1.0)
+        self.assertAlmostEqual(sum(present(m.stats.share) for m in summary.machines), 1.0)
         self.assertEqual(summary.machines[2].cpu_name, 'Unknown')
 
         self.assertEqual(
@@ -337,7 +348,7 @@ class ServerTests(SimpleTestCase):
         ]
         summary = summarize_finished(items, timedelta(days=7))
         self.assertEqual((summary.total, summary.passed, summary.failed, summary.stopped), (5, 3, 1, 1))
-        self.assertAlmostEqual(summary.sprt_pass_rate, 2 / 3)
+        self.assertAlmostEqual(present(summary.sprt_pass_rate), 2 / 3)
         self.assertIsNone(summarize_finished([], timedelta(days=7)).sprt_pass_rate)
 
     def test_finished_summary_counts_completed_tunes_apart(self):
@@ -355,15 +366,16 @@ class InsightsAssemblyTests(SimpleTestCase):
         self.assertTrue(insights.history.synthetic)
         self.assertEqual(len(insights.history.points), 1)
         self.assertEqual(insights.history.points[0].games, outcomes().games)
-        self.assertEqual(insights.timing.started_at, T0)
-        self.assertGreater(insights.timing.overall.games_per_hour, 0)
+        timing = present(insights.timing)
+        self.assertEqual(timing.started_at, T0)
+        self.assertGreater(present(timing.overall).games_per_hour, 0)
 
     def test_fresh_workload(self):
         insights = build_insights(facts(penta=(0, 0, 0, 0, 0), llr=0.0), [], [], at(10))
         self.assertFalse(insights.history.synthetic)
         self.assertEqual(insights.history.points, [])
         self.assertEqual(insights.eta.kind, EtaKind.UNAVAILABLE)
-        self.assertIsNone(insights.strength.elo)
+        self.assertIsNone(present(insights.strength).elo)
 
     def test_current_counters_extend_the_history(self):
         early = outcomes((1, 10, 20, 10, 1))
@@ -382,9 +394,9 @@ class SerializeTests(SimpleTestCase):
     def test_json_types(self):
         payload = to_json(build_insights(facts(), [], [], at(120)))
         json.dumps(payload, allow_nan=False)
-        self.assertEqual(payload['workload']['mode'], 'SPRT')
-        self.assertEqual(payload['workload']['created_at'], '2026-09-01T00:00:00+00:00')
-        self.assertEqual(payload['progress']['pentanomial'], list(PENTA))
+        self.assertEqual(field(payload, 'workload', 'mode'), 'SPRT')
+        self.assertEqual(field(payload, 'workload', 'created_at'), '2026-09-01T00:00:00+00:00')
+        self.assertEqual(field(payload, 'progress', 'pentanomial'), list(PENTA))
 
     def test_non_finite_floats_become_null(self):
         self.assertEqual(to_json([math.nan, math.inf, 1.5]), [None, None, 1.5])

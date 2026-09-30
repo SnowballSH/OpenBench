@@ -1,11 +1,11 @@
 import hashlib
+from typing import cast
 
 from django.core.cache import cache
 from django.http import HttpRequest, HttpResponse
 from django.views.decorators.csrf import csrf_exempt
 
-import OpenBench.views
-from OpenBench.config import OPENBENCH_CONFIG
+from OpenBench import upstream
 from OpenBench.insights.serialize import to_json
 from OpenBench.models import EngineConfig
 from OpenBench.progress.analysis import parse_engine, parse_window
@@ -19,32 +19,32 @@ WINDOW_ERROR = f'window must be one of {", ".join(window.value for window in Win
 
 
 def viewer_refused(request: HttpRequest) -> bool:
-    return OPENBENCH_CONFIG['require_login_to_view'] and not request.user.is_authenticated
+    return upstream.openbench_config()['require_login_to_view'] and not request.user.is_authenticated
 
 
 def cached_report(window: Window, engine: str | None) -> ProgressReport:
     digest = hashlib.sha256((engine or '').encode()).hexdigest()
     key = f'progress:{window.value}:{digest}'
-    return cache.get_or_set(key, lambda: progress_report(window, engine), REPORT_CACHE_SECONDS)
+    return cast(ProgressReport, cache.get_or_set(key, lambda: progress_report(window, engine), REPORT_CACHE_SECONDS))
 
 
 def progress(request: HttpRequest, engine: str | None = None) -> HttpResponse:
     if viewer_refused(request):
-        return OpenBench.views.render(request, TEMPLATE)
+        return upstream.render(request, TEMPLATE)
 
     window = parse_window(request.GET.get('window')) or DEFAULT_WINDOW
     queried = parse_engine(request.GET.get('engine'))
     chosen = parse_engine(engine) if engine is not None else queried
 
     if engine is not None and chosen is None:
-        return OpenBench.views.redirect(request, progress_url(None, window))
+        return upstream.redirect(request, progress_url(None, window))
 
     if engine is None and chosen is not None and path_safe(chosen):
-        return OpenBench.views.redirect(request, progress_url(chosen, window))
+        return upstream.redirect(request, progress_url(chosen, window))
 
     report = cached_report(window, chosen)
     configured = EngineConfig.objects.filter(enabled=True).values_list('name', flat=True)
-    return OpenBench.views.render(
+    return upstream.render(
         request,
         TEMPLATE,
         {'page': progress_page(report, configured), 'payload': to_json(report)},
@@ -53,11 +53,11 @@ def progress(request: HttpRequest, engine: str | None = None) -> HttpResponse:
 
 @csrf_exempt
 def api_progress(request: HttpRequest) -> HttpResponse:
-    if not OpenBench.views.api_authenticate(request):
-        return OpenBench.views.api_response({'error': 'API requires authentication for this server'}, status=401)
+    if not upstream.api_authenticate(request):
+        return upstream.api_response({'error': 'API requires authentication for this server'}, status=401)
 
     if (window := parse_window(request.GET.get('window'))) is None:
-        return OpenBench.views.api_response({'error': WINDOW_ERROR}, status=400)
+        return upstream.api_response({'error': WINDOW_ERROR}, status=400)
 
     report = cached_report(window, parse_engine(request.GET.get('engine')))
-    return OpenBench.views.api_response({'progress': to_json(report)})
+    return upstream.api_response({'progress': to_json(report)})

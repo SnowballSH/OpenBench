@@ -3,6 +3,7 @@ from collections import defaultdict
 from collections.abc import Callable, Iterable
 from collections.abc import Set as AbstractSet
 from pathlib import Path
+from typing import cast
 from urllib.parse import quote
 
 from django.conf import settings
@@ -218,4 +219,4 @@ def configured_report() -> StorageReport:
 
 
 def current_report() -> StorageReport:
-    return cache.get_or_set(CACHE_KEY, configured_report, CACHE_SECONDS)
+    return cast(StorageReport, cache.get_or_set(CACHE_KEY, configured_report, CACHE_SECONDS))

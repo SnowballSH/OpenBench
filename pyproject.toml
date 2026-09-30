@@ -12,3 +12,30 @@ known-first-party = ["OpenBench", "OpenSite"]
 
 [tool.ruff.format]
 quote-style = "single"
+
+[tool.mypy]
+python_version = "3.14"
+strict = true
+warn_unreachable = true
+plugins = ["mypy_django_plugin.main"]
+follow_imports = "silent"
+untyped_calls_exclude = [
+    "OpenBench.models",
+    "OpenBench.spsa_utils",
+    "OpenBench.stats",
+    "OpenBench.utils",
+    "OpenBench.views",
+]
+
+[[tool.mypy.overrides]]
+module = "OpenBench.tests.*"
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+disallow_untyped_calls = false
+
+[[tool.mypy.overrides]]
+module = "OpenBench.views"
+implicit_reexport = true
+
+[tool.django-stubs]
+django_settings_module = "OpenSite.settings"

@@ -1,4 +1,6 @@
+from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
+from typing import Any
 from unittest import mock
 
 from django.contrib.auth.models import User
@@ -29,7 +31,7 @@ from OpenBench.fleet.users import latest, load_user_rows
 from OpenBench.insights.speed import nodes_per_second
 from OpenBench.models import Engine, Machine, Profile, Result, Test
 from OpenBench.stats import Elo
-from OpenBench.tests.fixtures import create_test, create_user, ensure_book, system_info
+from OpenBench.tests.fixtures import create_test, create_user, ensure_book, present, system_info
 
 NOW = datetime(2026, 9, 30, 12, tzinfo=UTC)
 PENTA = (3, 30, 70, 35, 8)
@@ -168,12 +170,12 @@ class FleetAnalyticsTests(SimpleTestCase):
         self.assertEqual((summary.cpu_models, summary.games_last_24h), (1, 1234))
 
     def test_merge_cpu_groups_folds_missing_names_into_unknown(self):
-        machines = [
+        machines: list[Mapping[str, Any]] = [
             {'cpu': 'Ryzen', 'online': 1, 'machines': 2, 'threads': 8, 'mnps': 12.0},
             {'cpu': None, 'online': 0, 'machines': 1, 'threads': None, 'mnps': None},
             {'cpu': 'None', 'online': 1, 'machines': 1, 'threads': 2, 'mnps': 2.0},
         ]
-        games = [
+        games: list[Mapping[str, Any]] = [
             {'cpu': 'Ryzen', 'games': 15},
             {'cpu': None, 'games': 4},
             {'cpu': 'M4', 'games': 1},
@@ -234,10 +236,10 @@ class FleetAnalyticsTests(SimpleTestCase):
             'WW': PENTA[4],
         }
 
-        penta = result_elo(Result(test=Test(test_mode='SPRT'), **counters))
+        penta = present(result_elo(Result(test=Test(test_mode='SPRT'), **counters)))
         self.assertAlmostEqual(penta.value, Elo(PENTA)[1])
 
-        tri = result_elo(Result(test=Test(test_mode='SPRT', use_tri=True), **counters))
+        tri = present(result_elo(Result(test=Test(test_mode='SPRT', use_tri=True), **counters)))
         self.assertAlmostEqual(tri.value, Elo((counters['losses'], counters['draws'], counters['wins']))[1])
 
         self.assertIsNone(result_elo(Result(test=Test(test_mode='SPSA'), **counters)))
@@ -366,7 +368,7 @@ class FleetPageTests(TestCase):
         for _ in range(3):
             add_result(create_test(self.reader), self.old)
 
-        detail = load_machine_detail(self.old.id, timezone.now(), limit=2)
+        detail = present(load_machine_detail(self.old.id, timezone.now(), limit=2))
         self.assertEqual(
             (len(detail.contributions), detail.workloads_total, detail.truncated),
             (2, 3, True),

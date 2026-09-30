@@ -4,18 +4,8 @@
 set -Eeuo pipefail
 
 cd "$(dirname "$0")/../.."
+source .github/scripts/fork-owned.sh
 
-fork_owned=(
-    OpenBench/fleet
-    OpenBench/insights
-    OpenBench/progress
-    OpenBench/security
-    OpenBench/storage
-    OpenBench/page_queries.py
-    OpenBench/workloads/clone.py
-    OpenBench/management/commands/seed_demo.py
-    OpenBench/tests
-)
 server=(OpenBench OpenSite manage.py)
 safety_net=F821,F811,F632,F704,F706,F823
 
