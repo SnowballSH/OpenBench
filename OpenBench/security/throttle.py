@@ -5,11 +5,13 @@ from django.core.cache import cache
 from django.http import HttpRequest
 
 WINDOW_SECONDS = 15 * 60
-ACCOUNT_LIMIT  = 10
-ADDRESS_LIMIT  = 50
+ACCOUNT_LIMIT = 10
+ADDRESS_LIMIT = 50
+
 
 class LoginThrottled(Exception):
     pass
+
 
 def client_ip(request: HttpRequest) -> str:
 
@@ -21,8 +23,11 @@ def client_ip(request: HttpRequest) -> str:
 
     return request.META.get('REMOTE_ADDR', '')
 
+
 def _cache_key(kind: str, *parts: str) -> str:
-    return 'auth-failures:%s:%s' % (kind, hashlib.sha256('\0'.join(parts).encode()).hexdigest())
+    digest = hashlib.sha256('\0'.join(parts).encode()).hexdigest()
+    return f'auth-failures:{kind}:{digest}'
+
 
 def _limited_keys(request: HttpRequest, username: str) -> tuple[tuple[str, int], ...]:
 
@@ -33,13 +38,17 @@ def _limited_keys(request: HttpRequest, username: str) -> tuple[tuple[str, int],
         (_cache_key('address', address), ADDRESS_LIMIT),
     )
 
+
 def is_throttled(request: HttpRequest, username: str) -> bool:
     return any(cache.get(key, 0) >= limit for key, limit in _limited_keys(request, username))
+
 
 def record_failure(request: HttpRequest, username: str) -> None:
 
     # The window is fixed from the first failure; incr() leaves the expiry untouched
     for key, _ in _limited_keys(request, username):
         cache.add(key, 0, WINDOW_SECONDS)
-        try: cache.incr(key)
-        except ValueError: cache.set(key, 1, WINDOW_SECONDS)
+        try:
+            cache.incr(key)
+        except ValueError:
+            cache.set(key, 1, WINDOW_SECONDS)

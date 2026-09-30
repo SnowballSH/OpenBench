@@ -1,6 +1,5 @@
 import json
 import math
-
 from datetime import UTC, datetime, timedelta
 
 from django.test import SimpleTestCase
@@ -13,36 +12,57 @@ from OpenBench.insights.serialize import to_json
 from OpenBench.insights.series import build_series
 from OpenBench.insights.server import Edge, FinishedWorkload, fleet_status, games_in_window, summarize_finished
 from OpenBench.insights.sprt import (
-    LlrIncrement, expected_exit, forecast_sprt, pentanomial_increment, trinomial_increment, upper_exit_probability)
+    LlrIncrement,
+    expected_exit,
+    forecast_sprt,
+    pentanomial_increment,
+    trinomial_increment,
+    upper_exit_probability,
+)
 from OpenBench.insights.strength import (
-    draw_ratio, elo_interval, likelihood_of_superiority, normalized_elo, penta_fractions, summarize_strength)
+    draw_ratio,
+    elo_interval,
+    likelihood_of_superiority,
+    normalized_elo,
+    penta_fractions,
+    summarize_strength,
+)
 from OpenBench.insights.timing import Rate, games_at, rate_between, summarize_timing
 from OpenBench.insights.workload import build_insights
 from OpenBench.stats import Elo, PentanomialSPRT, TrinomialSPRT
 
-T0     = datetime(2026, 9, 1, tzinfo=UTC)
+T0 = datetime(2026, 9, 1, tzinfo=UTC)
 BOUNDS = SprtBounds(elo0=0.0, elo1=3.0, lower_llr=-2.94, upper_llr=2.94)
-PENTA  = (39, 884, 2667, 924, 44)
+PENTA = (39, 884, 2667, 924, 44)
+
 
 def at(minutes: float) -> datetime:
     return T0 + timedelta(minutes=minutes)
 
+
 def outcomes(penta=PENTA, use_penta=True) -> Outcomes:
-    wins   = 2 * penta[4] + penta[3]
+    wins = 2 * penta[4] + penta[3]
     losses = 2 * penta[0] + penta[1]
     return Outcomes((losses, 2 * sum(penta) - wins - losses, wins), tuple(penta), use_penta)
+
 
 def facts(mode=WorkloadMode.SPRT, penta=PENTA, finished=False, target=None, llr=None, created=T0) -> WorkloadFacts:
     results = outcomes(penta)
     return WorkloadFacts(
-        id=1, mode=mode, status=WorkloadStatus.PASSED if finished else WorkloadStatus.ACTIVE,
-        created_at=created, updated_at=at(60), finished=finished, outcomes=results,
+        id=1,
+        mode=mode,
+        status=WorkloadStatus.PASSED if finished else WorkloadStatus.ACTIVE,
+        created_at=created,
+        updated_at=at(60),
+        finished=finished,
+        outcomes=results,
         llr=PentanomialSPRT(penta, BOUNDS.elo0, BOUNDS.elo1) if llr is None else llr,
-        sprt=BOUNDS if mode == WorkloadMode.SPRT else None, target_games=target,
+        sprt=BOUNDS if mode == WorkloadMode.SPRT else None,
+        target_games=target,
     )
 
-class StrengthTests(SimpleTestCase):
 
+class StrengthTests(SimpleTestCase):
     def test_elo_matches_stats_module(self):
         interval = elo_interval(PENTA)
         self.assertEqual((interval.lower, interval.value, interval.upper), Elo(PENTA))
@@ -85,8 +105,8 @@ class StrengthTests(SimpleTestCase):
         self.assertEqual(summarize_strength(tri).elo, elo_interval(tri.trinomial))
         self.assertAlmostEqual(sum(summarize_strength(tri).penta_fractions), 1.0)
 
-class TimingTests(SimpleTestCase):
 
+class TimingTests(SimpleTestCase):
     marks = [(at(0), 0), (at(60), 600), (at(120), 600)]
 
     def test_games_at_interpolates_and_clamps(self):
@@ -117,8 +137,8 @@ class TimingTests(SimpleTestCase):
     def test_no_marks(self):
         self.assertIsNone(summarize_timing([], at(0), finished=False))
 
-class SprtTests(SimpleTestCase):
 
+class SprtTests(SimpleTestCase):
     def test_pentanomial_drift_reproduces_the_llr(self):
         increment = pentanomial_increment(PENTA, BOUNDS.elo0, BOUNDS.elo1)
         self.assertAlmostEqual(increment.drift * sum(PENTA), PentanomialSPRT(PENTA, BOUNDS.elo0, BOUNDS.elo1))
@@ -138,7 +158,7 @@ class SprtTests(SimpleTestCase):
         self.assertAlmostEqual(zero.pass_probability, tiny.pass_probability)
 
     def test_strong_drift_approaches_distance_over_drift(self):
-        up   = expected_exit(LlrIncrement(0.5, 0.01, 2), 0.5, -2.94, 2.94)
+        up = expected_exit(LlrIncrement(0.5, 0.01, 2), 0.5, -2.94, 2.94)
         down = expected_exit(LlrIncrement(-0.5, 0.01, 2), 0.5, -2.94, 2.94)
         self.assertAlmostEqual(up.steps, (2.94 - 0.5) / 0.5)
         self.assertAlmostEqual(down.steps, (0.5 + 2.94) / 0.5)
@@ -147,9 +167,11 @@ class SprtTests(SimpleTestCase):
 
     def test_small_negative_drift_keeps_precision(self):
         lower, start, upper = -2.94, 0.5, 2.94
-        k      = -1e-8 / (upper - lower)
+        k = -1e-8 / (upper - lower)
         linear = (start - lower) / (upper - lower)
-        self.assertAlmostEqual(upper_exit_probability(k, start, lower, upper), linear * (1 + k * (upper - start) / 2), places=13)
+        self.assertAlmostEqual(
+            upper_exit_probability(k, start, lower, upper), linear * (1 + k * (upper - start) / 2), places=13
+        )
 
     def test_extreme_drift_does_not_overflow(self):
         for drift in (-100.0, 100.0):
@@ -168,8 +190,8 @@ class SprtTests(SimpleTestCase):
         self.assertEqual(forecast.remaining_games % 2, 0)
         self.assertGreater(forecast.drift_per_game, 0)
 
-class EtaTests(SimpleTestCase):
 
+class EtaTests(SimpleTestCase):
     rate = Rate(games_per_hour=1000.0, window_seconds=3600.0)
 
     def test_finished(self):
@@ -214,14 +236,19 @@ class EtaTests(SimpleTestCase):
         self.assertEqual((eta.kind, eta.reason), (EtaKind.UNAVAILABLE, EtaReason.NO_TARGET))
 
     def test_complete_estimates_carry_no_reason(self):
-        for eta in (estimate_eta(facts(), self.rate, at(0)), estimate_eta(facts(finished=True), self.rate, at(0)),
-                    estimate_eta(facts(WorkloadMode.GAMES, target=20000), self.rate, at(0))):
+        for eta in (
+            estimate_eta(facts(), self.rate, at(0)),
+            estimate_eta(facts(finished=True), self.rate, at(0)),
+            estimate_eta(facts(WorkloadMode.GAMES, target=20000), self.rate, at(0)),
+        ):
             self.assertIsNone(eta.reason)
 
     def test_missing_rate_is_the_reason(self):
         for rate in (None, Rate(0.0, 3600.0)):
             self.assertEqual(estimate_eta(facts(), rate, at(0)).reason, EtaReason.NO_RATE)
-            self.assertEqual(estimate_eta(facts(WorkloadMode.GAMES, target=20000), rate, at(0)).reason, EtaReason.NO_RATE)
+            self.assertEqual(
+                estimate_eta(facts(WorkloadMode.GAMES, target=20000), rate, at(0)).reason, EtaReason.NO_RATE
+            )
 
     def test_sprt_unavailable_reasons(self):
         flat = SprtBounds(elo0=1.0, elo1=1.0, lower_llr=-2.94, upper_llr=2.94)
@@ -241,29 +268,29 @@ class EtaTests(SimpleTestCase):
         eta = estimate_eta(facts(llr=5.0), self.rate, at(0))
         self.assertEqual((eta.kind, eta.reason), (EtaKind.UNAVAILABLE, EtaReason.OUTSIDE_BOUNDS))
 
-class SeriesTests(SimpleTestCase):
 
+class SeriesTests(SimpleTestCase):
     def test_points_carry_elo_and_llr(self):
-        point  = ProgressPoint(at(1), outcomes().games, outcomes(), 1.5)
+        point = ProgressPoint(at(1), outcomes().games, outcomes(), 1.5)
         series = build_series([point], with_llr=True, with_elo=True)
         self.assertEqual((series[0].llr, series[0].elo), (1.5, Elo(PENTA)[1]))
         self.assertEqual((series[0].elo_lower, series[0].elo_upper), (Elo(PENTA)[0], Elo(PENTA)[2]))
 
     def test_optional_columns(self):
-        empty  = ProgressPoint(at(1), 0, outcomes((0, 0, 0, 0, 0)), 0.0)
+        empty = ProgressPoint(at(1), 0, outcomes((0, 0, 0, 0, 0)), 0.0)
         series = build_series([empty], with_llr=False, with_elo=True)
         self.assertEqual((series[0].llr, series[0].elo, series[0].elo_lower), (None, None, None))
 
-class ContributionTests(SimpleTestCase):
 
+class ContributionTests(SimpleTestCase):
     def row(self, machine_id, cpu, penta, name=None):
-        return ResultRow(machine_id, name, 'owner-%d' % machine_id, cpu, outcomes(penta))
+        return ResultRow(machine_id, name, f'owner-{machine_id}', cpu, outcomes(penta))
 
     def test_machines_and_cpus(self):
         rows = [
             self.row(1, 'Ryzen', (1, 10, 20, 10, 1), 'fast'),
             self.row(2, 'Ryzen', (0, 5, 10, 5, 0)),
-            self.row(3, None,    (0, 1, 2, 1, 0)),
+            self.row(3, None, (0, 1, 2, 1, 0)),
             self.row(1, 'Ryzen', (0, 1, 2, 1, 0), 'fast'),
         ]
         summary = summarize_contributions(rows, use_penta=True, elapsed_seconds=7200)
@@ -275,7 +302,9 @@ class ContributionTests(SimpleTestCase):
         self.assertAlmostEqual(sum(m.stats.share for m in summary.machines), 1.0)
         self.assertEqual(summary.machines[2].cpu_name, 'Unknown')
 
-        self.assertEqual([(c.cpu_name, c.machines, c.stats.pairs) for c in summary.cpus], [('Ryzen', 2, 66), ('Unknown', 1, 4)])
+        self.assertEqual(
+            [(c.cpu_name, c.machines, c.stats.pairs) for c in summary.cpus], [('Ryzen', 2, 66), ('Unknown', 1, 4)]
+        )
 
     def test_empty_and_no_elapsed(self):
         self.assertEqual(summarize_contributions([], True, None).machines, [])
@@ -284,24 +313,26 @@ class ContributionTests(SimpleTestCase):
 
     def test_sum_by_key_uses_the_missing_key(self):
         rows = [('a', (1, 2)), (None, (3, 4)), ('', (5, 6)), ('a', (1, 1))]
-        self.assertEqual(sum_by_key(rows, lambda r: r[0], lambda r: r[1], 'Unknown'), { 'a' : [2, 3], 'Unknown' : [8, 10] })
+        self.assertEqual(sum_by_key(rows, lambda r: r[0], lambda r: r[1], 'Unknown'), {'a': [2, 3], 'Unknown': [8, 10]})
+
 
 class ServerTests(SimpleTestCase):
-
     def test_games_in_window_interpolates_the_start(self):
-        since  = at(60)
-        before = { 1 : Edge(at(30), 100) }
-        after  = { 1 : Edge(at(90), 400), 2 : Edge(at(70), 50) }
-        self.assertEqual(games_in_window(since, before, after, { 1 : 1000, 2 : 80 }), (1000 - 250) + 80)
+        since = at(60)
+        before = {1: Edge(at(30), 100)}
+        after = {1: Edge(at(90), 400), 2: Edge(at(70), 50)}
+        self.assertEqual(games_in_window(since, before, after, {1: 1000, 2: 80}), (1000 - 250) + 80)
 
     def test_fleet_status(self):
-        fleet = fleet_status([({ 'concurrency' : 4 }, 1.5), ({ 'concurrency' : 2 }, 1.0)])
+        fleet = fleet_status([({'concurrency': 4}, 1.5), ({'concurrency': 2}, 1.0)])
         self.assertEqual((fleet.machines, fleet.threads, fleet.mnps), (2, 6, 8.0))
 
     def test_finished_summary(self):
         items = [
-            FinishedWorkload(WorkloadMode.SPRT, True, False), FinishedWorkload(WorkloadMode.SPRT, False, True),
-            FinishedWorkload(WorkloadMode.SPRT, True, False), FinishedWorkload(WorkloadMode.SPRT, False, False),
+            FinishedWorkload(WorkloadMode.SPRT, True, False),
+            FinishedWorkload(WorkloadMode.SPRT, False, True),
+            FinishedWorkload(WorkloadMode.SPRT, True, False),
+            FinishedWorkload(WorkloadMode.SPRT, False, False),
             FinishedWorkload(WorkloadMode.GAMES, True, False),
         ]
         summary = summarize_finished(items, timedelta(days=7))
@@ -310,12 +341,15 @@ class ServerTests(SimpleTestCase):
         self.assertIsNone(summarize_finished([], timedelta(days=7)).sprt_pass_rate)
 
     def test_finished_summary_counts_completed_tunes_apart(self):
-        items = [FinishedWorkload(WorkloadMode.SPSA, False, False, completed=True), FinishedWorkload(WorkloadMode.SPSA, False, False)]
+        items = [
+            FinishedWorkload(WorkloadMode.SPSA, False, False, completed=True),
+            FinishedWorkload(WorkloadMode.SPSA, False, False),
+        ]
         summary = summarize_finished(items, timedelta(days=7))
         self.assertEqual((summary.total, summary.completed, summary.stopped), (2, 1, 1))
 
-class InsightsAssemblyTests(SimpleTestCase):
 
+class InsightsAssemblyTests(SimpleTestCase):
     def test_legacy_workload_gets_a_synthetic_point(self):
         insights = build_insights(facts(), [], [], at(120))
         self.assertTrue(insights.history.synthetic)
@@ -343,8 +377,8 @@ class InsightsAssemblyTests(SimpleTestCase):
         self.assertIsNone(insights.history.points[0].elo)
         self.assertIsNone(insights.progress.llr)
 
-class SerializeTests(SimpleTestCase):
 
+class SerializeTests(SimpleTestCase):
     def test_json_types(self):
         payload = to_json(build_insights(facts(), [], [], at(120)))
         json.dumps(payload, allow_nan=False)

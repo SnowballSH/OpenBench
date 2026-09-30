@@ -1,5 +1,4 @@
 import tempfile
-
 from unittest import mock
 
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -8,8 +7,8 @@ from django.test import TestCase, override_settings
 from OpenBench.models import Network
 from OpenBench.tests.fixtures import PASSWORD, create_engine_config, create_user
 
-class PageTests(TestCase):
 
+class PageTests(TestCase):
     def setUp(self):
         self.user = create_user('reader')
 
@@ -27,7 +26,7 @@ class PageTests(TestCase):
         self.assertContains(response, '<div id="sidebar">')
 
     def test_login_views_logout(self):
-        response = self.client.post('/login/', { 'username' : 'reader', 'password' : PASSWORD })
+        response = self.client.post('/login/', {'username': 'reader', 'password': PASSWORD})
         self.assertRedirects(response, '/index/', fetch_redirect_response=False)
 
         for url in ['/index/', '/machines/', '/networks/', '/users/', '/manage/books/']:
@@ -37,11 +36,11 @@ class PageTests(TestCase):
         self.assertRedirects(self.client.get('/index/'), '/login/', fetch_redirect_response=False)
 
     def test_bad_password_is_rejected(self):
-        response = self.client.post('/login/', { 'username' : 'reader', 'password' : 'wrong' })
+        response = self.client.post('/login/', {'username': 'reader', 'password': 'wrong'})
         self.assertRedirects(response, '/login/', fetch_redirect_response=False)
 
-class NetworkTests(TestCase):
 
+class NetworkTests(TestCase):
     def setUp(self):
         self.media = tempfile.TemporaryDirectory()
         self.enterContext(override_settings(MEDIA_ROOT=self.media.name))
@@ -53,7 +52,7 @@ class NetworkTests(TestCase):
 
     def upload(self, name, content):
         netfile = SimpleUploadedFile('net.nnue', content)
-        return self.client.post('/networks/Avalanche/upload/%s/' % (name), { 'netfile' : netfile })
+        return self.client.post(f'/networks/Avalanche/upload/{name}/', {'netfile': netfile})
 
     def test_upload_then_download(self):
         content = b'nnue-weights' * 1000
@@ -63,7 +62,7 @@ class NetworkTests(TestCase):
         response = self.client.get('/networks/Avalanche/download/r1-ctrl/')
         self.assertEqual(response.status_code, 200)
         self.assertEqual(b''.join(response.streaming_content), content)
-        self.assertEqual(response['Content-Disposition'], 'attachment; filename=%s' % (network.sha256))
+        self.assertEqual(response['Content-Disposition'], f'attachment; filename={network.sha256}')
 
     def test_duplicate_upload_is_rejected(self):
         self.upload('r1-ctrl', b'same')

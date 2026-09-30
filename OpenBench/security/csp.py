@@ -6,17 +6,15 @@ from django.urls import reverse
 
 type Policy = Mapping[str, Sequence[str]]
 
-HEADER = "Content-Security-Policy"
+HEADER = 'Content-Security-Policy'
 
 
 def serialize_policy(policy: Policy) -> str:
-    return "; ".join(
-        " ".join((directive, *sources)) for directive, sources in policy.items()
-    )
+    return '; '.join(' '.join((directive, *sources)) for directive, sources in policy.items())
 
 
 def policy_for(path: str) -> Policy:
-    if path.startswith(reverse("admin:index")):
+    if path.startswith(reverse('admin:index')):
         return settings.OPENBENCH_CSP_ADMIN
     return settings.OPENBENCH_CSP
 

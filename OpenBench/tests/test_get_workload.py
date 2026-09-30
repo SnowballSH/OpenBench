@@ -2,29 +2,29 @@ from unittest import mock
 
 from django.test import RequestFactory, TestCase
 
-import OpenBench.utils
-
+import OpenBench.utils  # noqa: F401 - must load before get_workload to resolve the upstream import cycle
 from OpenBench.config import OPENBENCH_CONFIG
-from OpenBench.models import Machine, SPSARun, Test
+from OpenBench.models import Machine, SPSARun
 from OpenBench.tests.fixtures import create_engine_config, create_test, create_user, ensure_book, system_info
 from OpenBench.workloads.get_workload import game_distribution, get_workload, select_workload
 
+
 def machine_info(**overrides):
-    return { **system_info(), 'supported' : ['Avalanche'], **overrides }
+    return {**system_info(), 'supported': ['Avalanche'], **overrides}
+
 
 class AssignmentTests(TestCase):
-
     def setUp(self):
         create_engine_config()
         ensure_book()
         self.author = create_user('author')
-        self.owner  = create_user('worker')
+        self.owner = create_user('worker')
 
     def machine(self, **info):
         return Machine.objects.create(user=self.owner, info=machine_info(**info))
 
     def select(self, machine, blacklist=()):
-        request = RequestFactory().post('/clientGetWorkload/', { 'blacklist' : list(blacklist) })
+        request = RequestFactory().post('/clientGetWorkload/', {'blacklist': list(blacklist)})
         return select_workload(request, machine)
 
     def test_no_active_workloads(self):
@@ -89,7 +89,7 @@ class AssignmentTests(TestCase):
     def test_focus_prefers_but_does_not_require(self):
         create_engine_config('Other')
         other = create_test(self.author, engine='Other')
-        mine  = create_test(self.author)
+        mine = create_test(self.author)
         machine = self.machine(supported=['Avalanche', 'Other'], focus=['Avalanche'])
         for _ in range(10):
             self.assertEqual(self.select(machine), mine)
@@ -105,7 +105,7 @@ class AssignmentTests(TestCase):
             self.assertEqual(self.select(self.machine()), idle)
 
     def test_machines_keep_a_workload_within_the_fairness_margin(self):
-        first  = create_test(self.author)
+        first = create_test(self.author)
         second = create_test(self.author)
         for workload in (first, second):
             Machine.objects.create(user=self.owner, info=machine_info(concurrency=8), workload=workload.id)
@@ -117,7 +117,7 @@ class AssignmentTests(TestCase):
 
     def test_machines_leave_a_workload_beyond_the_fairness_margin(self):
         crowded = create_test(self.author)
-        empty   = create_test(self.author)
+        empty = create_test(self.author)
         Machine.objects.create(user=self.owner, info=machine_info(concurrency=16), workload=crowded.id)
         machine = self.machine(concurrency=4)
         machine.workload = crowded.id
@@ -126,54 +126,70 @@ class AssignmentTests(TestCase):
     def test_balance_engine_throughputs(self):
         create_engine_config('Other')
         avalanche = [create_test(self.author) for _ in range(3)]
-        other     = create_test(self.author, engine='Other')
+        other = create_test(self.author, engine='Other')
         Machine.objects.create(user=self.owner, info=machine_info(concurrency=8), workload=other.id)
         for workload in avalanche:
             Machine.objects.create(user=self.owner, info=machine_info(concurrency=4), workload=workload.id)
         machine = self.machine(supported=['Avalanche', 'Other'])
-        with mock.patch.dict(OPENBENCH_CONFIG, { 'balance_engine_throughputs' : True }):
+        with mock.patch.dict(OPENBENCH_CONFIG, {'balance_engine_throughputs': True}):
             self.assertEqual(self.select(machine), other)
-        with mock.patch.dict(OPENBENCH_CONFIG, { 'balance_engine_throughputs' : False }):
+        with mock.patch.dict(OPENBENCH_CONFIG, {'balance_engine_throughputs': False}):
             self.assertIn(self.select(machine), avalanche)
 
-class DistributionTests(TestCase):
 
+class DistributionTests(TestCase):
     def setUp(self):
         create_engine_config()
         ensure_book()
         self.author = create_user('author')
-        self.owner  = create_user('worker')
+        self.owner = create_user('worker')
 
     def machine(self, **info):
         return Machine.objects.create(user=self.owner, info=machine_info(**info))
 
     def test_single_threaded(self):
         test = create_test(self.author, workload_size=32)
-        self.assertEqual(game_distribution(test, self.machine(concurrency=8, physical_cores=8)),
-            { 'runner-count' : 1, 'concurrency-per' : 8, 'rounds-per-runner' : 512 })
+        self.assertEqual(
+            game_distribution(test, self.machine(concurrency=8, physical_cores=8)),
+            {'runner-count': 1, 'concurrency-per': 8, 'rounds-per-runner': 512},
+        )
 
     def test_sockets_split_single_threaded_games(self):
         test = create_test(self.author, workload_size=32)
-        self.assertEqual(game_distribution(test, self.machine(concurrency=8, physical_cores=8, sockets=2)),
-            { 'runner-count' : 2, 'concurrency-per' : 4, 'rounds-per-runner' : 256 })
+        self.assertEqual(
+            game_distribution(test, self.machine(concurrency=8, physical_cores=8, sockets=2)),
+            {'runner-count': 2, 'concurrency-per': 4, 'rounds-per-runner': 256},
+        )
 
     def test_sockets_are_ignored_for_multi_threaded_games(self):
         test = create_test(self.author, threads=2, workload_size=10)
-        self.assertEqual(game_distribution(test, self.machine(concurrency=8, physical_cores=8, sockets=2)),
-            { 'runner-count' : 1, 'concurrency-per' : 4, 'rounds-per-runner' : 80 })
+        self.assertEqual(
+            game_distribution(test, self.machine(concurrency=8, physical_cores=8, sockets=2)),
+            {'runner-count': 1, 'concurrency-per': 4, 'rounds-per-runner': 80},
+        )
 
     def test_multiple_spsa(self):
         test = create_test(self.author, threads=1, test_mode='SPSA', workload_size=8)
-        SPSARun.objects.create(tune=test, iterations=100, pairs_per=8, alpha=0.602, gamma=0.101, a_ratio=0.1,
-            reporting_type='BATCHED', distribution_type='MULTIPLE')
-        self.assertEqual(game_distribution(test, self.machine(concurrency=8, physical_cores=8)),
-            { 'runner-count' : 4, 'concurrency-per' : 2, 'rounds-per-runner' : 16 })
+        SPSARun.objects.create(
+            tune=test,
+            iterations=100,
+            pairs_per=8,
+            alpha=0.602,
+            gamma=0.101,
+            a_ratio=0.1,
+            reporting_type='BATCHED',
+            distribution_type='MULTIPLE',
+        )
+        self.assertEqual(
+            game_distribution(test, self.machine(concurrency=8, physical_cores=8)),
+            {'runner-count': 4, 'concurrency-per': 2, 'rounds-per-runner': 16},
+        )
 
     def test_assignment_advances_the_book_index(self):
         test = create_test(self.author, workload_size=32)
         machine = self.machine(concurrency=8, physical_cores=8)
         request = RequestFactory().post('/clientGetWorkload/')
-        first  = get_workload(request, machine)['workload']
+        first = get_workload(request, machine)['workload']
         second = get_workload(request, machine)['workload']
         self.assertEqual(first['test']['book_index'] + 256, second['test']['book_index'])
         machine.refresh_from_db()

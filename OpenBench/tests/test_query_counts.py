@@ -30,23 +30,23 @@ MEDIUM = dataclasses.replace(
 )
 
 PAGE_QUERIES = {
-    "/index/": 9,
-    "/index/2/": 6,
-    "/user/user1/": 9,
-    "/greens/": 6,
-    "/search/?keywords=branch": 7,
-    "/search/2/?authors=user1+user2": 7,
-    "/events/": 7,
-    "/errors/": 7,
-    "/networks/": 5,
-    "/api/insights/server/": 11,
+    '/index/': 9,
+    '/index/2/': 6,
+    '/user/user1/': 9,
+    '/greens/': 6,
+    '/search/?keywords=branch': 7,
+    '/search/2/?authors=user1+user2': 7,
+    '/events/': 7,
+    '/errors/': 7,
+    '/networks/': 5,
+    '/api/insights/server/': 11,
 }
 
 WORKLOAD_QUERIES = {
-    "/test/{}/": 10,
-    "/api/workload/{}/summary/": 5,
-    "/api/workload/{}/results/": 5,
-    "/api/workload/{}/insights/": 6,
+    '/test/{}/': 10,
+    '/api/workload/{}/summary/': 5,
+    '/api/workload/{}/results/': 5,
+    '/api/workload/{}/insights/': 6,
 }
 
 
@@ -83,47 +83,37 @@ class SearchPagingTests(TestCase):
     def setUp(self) -> None:
         create_engine_config()
         ensure_book()
-        self.author = create_user("author")
+        self.author = create_user('author')
         self.client.force_login(self.author)
-        self.tests = [
-            create_test(self.author, info=f"match {index}") for index in range(30)
-        ]
+        self.tests = [create_test(self.author, info=f'match {index}') for index in range(30)]
 
     def shown_ids(self, url: str) -> list[int]:
         content = self.client.get(url).content.decode()
-        return [
-            int(test_id) for test_id in re.findall(r'<a href="/test/(\d+)/">', content)
-        ]
+        return [int(test_id) for test_id in re.findall(r'<a href="/test/(\d+)/">', content)]
 
     def test_pages_list_the_newest_matches_first(self) -> None:
         newest = [test.id for test in reversed(self.tests)]
-        self.assertEqual(self.shown_ids("/search/?info-contains=match"), newest[:25])
-        self.assertEqual(self.shown_ids("/search/2/?info-contains=match"), newest[25:])
+        self.assertEqual(self.shown_ids('/search/?info-contains=match'), newest[:25])
+        self.assertEqual(self.shown_ids('/search/2/?info-contains=match'), newest[25:])
 
     def test_page_links_carry_the_search(self) -> None:
-        content = self.client.get(
-            "/search/?info-contains=match&hide-reds=on"
-        ).content.decode()
+        content = self.client.get('/search/?info-contains=match&hide-reds=on').content.decode()
         self.assertIn('href="/search/2/?info-contains=match&amp;hide-reds=on"', content)
 
     def test_no_matches_reports_an_error(self) -> None:
-        self.assertContains(
-            self.client.get("/search/?info-contains=nothing"), "No matching tests found"
-        )
+        self.assertContains(self.client.get('/search/?info-contains=nothing'), 'No matching tests found')
 
 
 class EventWorkloadTests(TestCase):
     def test_events_name_their_workload(self) -> None:
         create_engine_config()
         ensure_book()
-        author = create_user("author")
-        test = create_test(author, test_mode="SPSA", dev_time_control="N=25000")
-        LogEvent.objects.create(
-            author="author", summary="STOP", log_file="", test_id=test.id
-        )
+        author = create_user('author')
+        test = create_test(author, test_mode='SPSA', dev_time_control='N=25000')
+        LogEvent.objects.create(author='author', summary='STOP', log_file='', test_id=test.id)
         self.client.force_login(author)
 
-        content = self.client.get("/events/").content.decode()
+        content = self.client.get('/events/').content.decode()
 
         self.assertIn(f'<a href="/tune/{test.id}/">dev</a>', content)
         self.assertIn('<td class="mono">N=25000</td>', content)
@@ -133,45 +123,43 @@ class ListingAnnotationTests(TestCase):
     def setUp(self) -> None:
         create_engine_config()
         ensure_book()
-        self.author = create_user("author")
+        self.author = create_user('author')
 
     def listed(self, test: Test) -> Test:
         return listing_tests(Test.objects.filter(id=test.id)).get()
 
     def test_network_names_match_the_unannotated_lookup(self) -> None:
-        Network.objects.create(
-            sha256="AAAAAAAA", name="renamed", engine="Avalanche", author="author"
-        )
+        Network.objects.create(sha256='AAAAAAAA', name='renamed', engine='Avalanche', author='author')
         named = create_test(
             self.author,
-            dev_network="AAAAAAAA",
-            base_network="BBBBBBBB",
-            dev_netname="mine",
+            dev_network='AAAAAAAA',
+            base_network='BBBBBBBB',
+            dev_netname='mine',
         )
         missing = create_test(
             self.author,
-            dev_network="CCCCCCCC",
-            base_network="BBBBBBBB",
-            dev_netname="mine",
+            dev_network='CCCCCCCC',
+            base_network='BBBBBBBB',
+            dev_netname='mine',
         )
 
         for test in (named, missing):
             Test.objects.filter(id=test.id).update(base_id=test.dev_id)
-            plain = Test.objects.select_related("dev", "base").get(id=test.id)
+            plain = Test.objects.select_related('dev', 'base').get(id=test.id)
             listed = self.listed(test)
             with self.assertNumQueries(0):
                 listed_name = prettyDevName(listed)
             self.assertEqual(listed_name, prettyDevName(plain))
 
-        self.assertEqual(prettyDevName(self.listed(named)), "renamed")
-        self.assertEqual(prettyDevName(self.listed(missing)), "mine")
+        self.assertEqual(prettyDevName(self.listed(named)), 'renamed')
+        self.assertEqual(prettyDevName(self.listed(missing)), 'mine')
 
     def test_tune_blocks_match_the_unannotated_count(self) -> None:
-        tune = create_test(self.author, test_mode="SPSA", games=64)
+        tune = create_test(self.author, test_mode='SPSA', games=64)
         run = SPSARun.objects.create(
             tune=tune,
-            reporting_type="BULK",
-            distribution_type="SINGLE",
+            reporting_type='BULK',
+            distribution_type='SINGLE',
             alpha=0.602,
             gamma=0.101,
             iterations=100,
@@ -182,7 +170,7 @@ class ListingAnnotationTests(TestCase):
             [
                 SPSAParameter(
                     spsa_run=run,
-                    name=f"P{index}",
+                    name=f'P{index}',
                     index=index,
                     value=1,
                     is_float=False,
@@ -203,42 +191,36 @@ class ListingAnnotationTests(TestCase):
             block = shortStatBlock(listed)
 
         self.assertEqual(block, shortStatBlock(Test.objects.get(id=tune.id)))
-        self.assertIn("Tuning 3 Parameters", block)
+        self.assertIn('Tuning 3 Parameters', block)
 
 
 class MachineStatusTests(TestCase):
     def test_sums_recent_machines(self) -> None:
-        owner, other = create_user("owner"), create_user("other")
+        owner, other = create_user('owner'), create_user('other')
         Machine.objects.create(user=owner, info=system_info(concurrency=4), mnps=1.5)
         Machine.objects.create(user=other, info=system_info(concurrency=8), mnps=2.0)
 
-        self.assertEqual(getMachineStatus(), ": 2 Machines / 12 Threads / 22.0 MNPS ")
-        self.assertEqual(
-            getMachineStatus("owner"), ": 1 Machines / 4 Threads / 6.0 MNPS "
-        )
+        self.assertEqual(getMachineStatus(), ': 2 Machines / 12 Threads / 22.0 MNPS ')
+        self.assertEqual(getMachineStatus('owner'), ': 1 Machines / 4 Threads / 6.0 MNPS ')
 
     def test_nothing_online(self) -> None:
-        self.assertEqual(getMachineStatus(), ": 0 Machines / 0 Threads / 0 MNPS ")
+        self.assertEqual(getMachineStatus(), ': 0 Machines / 0 Threads / 0 MNPS ')
 
     def test_online_machines_without_nps_yet(self) -> None:
-        Machine.objects.create(
-            user=create_user("owner"), info=system_info(concurrency=4)
-        )
-        self.assertEqual(getMachineStatus(), ": 1 Machines / 4 Threads / 0.0 MNPS ")
+        Machine.objects.create(user=create_user('owner'), info=system_info(concurrency=4))
+        self.assertEqual(getMachineStatus(), ': 1 Machines / 4 Threads / 0.0 MNPS ')
 
 
 class ClientEndpointBudgetTests(TestCase):
     def setUp(self) -> None:
         create_engine_config()
         ensure_book()
-        self.worker = create_user("lab-worker")
-        self.test = create_test(create_user("admin", approver=True))
-        registered = self.client.post(
-            "/clientWorkerInfo/", register_payload(self.worker)
-        ).json()
+        self.worker = create_user('lab-worker')
+        self.test = create_test(create_user('admin', approver=True))
+        registered = self.client.post('/clientWorkerInfo/', register_payload(self.worker)).json()
         self.session = {
-            "machine_id": registered["machine_id"],
-            "secret": registered["secret"],
+            'machine_id': registered['machine_id'],
+            'secret': registered['secret'],
         }
 
     def post(self, url: str, payload: dict[str, object], queries: int) -> object:
@@ -246,18 +228,18 @@ class ClientEndpointBudgetTests(TestCase):
             return self.client.post(url, payload).json()
 
     def test_worker_loop(self) -> None:
-        workload = self.post("/clientGetWorkload/", self.session, 15)["workload"]
-        self.post("/clientGetWorkload/", self.session, 12)
+        workload = self.post('/clientGetWorkload/', self.session, 15)['workload']
+        self.post('/clientGetWorkload/', self.session, 12)
 
         results = {
             **self.session,
-            "test_id": self.test.id,
-            "result_id": workload["result"]["id"],
-            "crashes": 0,
-            "timelosses": 0,
-            "illegals": 0,
-            "trinomial": "1 2 3",
-            "pentanomial": "0 1 1 1 0",
+            'test_id': self.test.id,
+            'result_id': workload['result']['id'],
+            'crashes': 0,
+            'timelosses': 0,
+            'illegals': 0,
+            'trinomial': '1 2 3',
+            'pentanomial': '0 1 1 1 0',
         }
-        self.assertEqual(self.post("/clientSubmitResults/", results, 14), {})
-        self.post("/clientHeartbeat/", {**self.session, "test_id": self.test.id}, 4)
+        self.assertEqual(self.post('/clientSubmitResults/', results, 14), {})
+        self.post('/clientHeartbeat/', {**self.session, 'test_id': self.test.id}, 4)

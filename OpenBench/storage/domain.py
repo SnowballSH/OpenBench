@@ -8,11 +8,11 @@ LOW_FREE_BYTES = 2 * GIB
 
 
 class Category(StrEnum):
-    NETWORKS = "networks"
-    PGN_ARCHIVES = "pgn_archives"
-    PGN_PENDING = "pgn_pending"
-    EVENT_LOGS = "event_logs"
-    OTHER = "other"
+    NETWORKS = 'networks'
+    PGN_ARCHIVES = 'pgn_archives'
+    PGN_PENDING = 'pgn_pending'
+    EVENT_LOGS = 'event_logs'
+    OTHER = 'other'
 
     @property
     def label(self) -> str:
@@ -20,11 +20,11 @@ class Category(StrEnum):
 
 
 CATEGORY_LABELS: dict[Category, str] = {
-    Category.NETWORKS: "Networks",
-    Category.PGN_ARCHIVES: "Archived PGNs",
-    Category.PGN_PENDING: "Pending PGN batches",
-    Category.EVENT_LOGS: "Event logs",
-    Category.OTHER: "Other",
+    Category.NETWORKS: 'Networks',
+    Category.PGN_ARCHIVES: 'Archived PGNs',
+    Category.PGN_PENDING: 'Pending PGN batches',
+    Category.EVENT_LOGS: 'Event logs',
+    Category.OTHER: 'Other',
 }
 
 

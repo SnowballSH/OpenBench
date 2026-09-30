@@ -30,23 +30,19 @@ FINISH_SLACK = timedelta(hours=1)
 
 
 def finish_time() -> Case:
-    last_report = (
-        WorkloadSnapshot.objects.filter(test=OuterRef("pk"))
-        .order_by("-created")
-        .values("created")[:1]
-    )
+    last_report = WorkloadSnapshot.objects.filter(test=OuterRef('pk')).order_by('-created').values('created')[:1]
     return Case(
         When(
             Q(passed=True) | Q(failed=True),
-            then=Coalesce(Subquery(last_report), F("updated")),
+            then=Coalesce(Subquery(last_report), F('updated')),
         ),
-        default=F("updated"),
+        default=F('updated'),
         output_field=DateTimeField(),
     )
 
 
 def finished_sprts(scope: Scope) -> QuerySet[Test]:
-    tests = Test.objects.filter(finished=True, deleted=False, test_mode="SPRT")
+    tests = Test.objects.filter(finished=True, deleted=False, test_mode='SPRT')
     if scope.engine is not None:
         tests = tests.filter(dev_engine=scope.engine)
     if scope.since is not None:
@@ -61,28 +57,28 @@ def load_greens(scope: Scope) -> list[GreenRow]:
     rows = (
         finished_sprts(scope)
         .filter(passed=True)
-        .alias(bound_sum=F("elolower") + F("eloupper"))
+        .alias(bound_sum=F('elolower') + F('eloupper'))
         .filter(bound_sum__gte=0)
         .values(
-            "id",
-            "dev__name",
-            "finished_at",
-            "games",
-            "elolower",
-            "eloupper",
-            "use_tri",
+            'id',
+            'dev__name',
+            'finished_at',
+            'games',
+            'elolower',
+            'eloupper',
+            'use_tri',
             *TRINOMIAL_FIELDS,
             *PENTANOMIAL_FIELDS,
         )
     )
     return [
         GreenRow(
-            id=row["id"],
-            name=row["dev__name"],
-            finished_at=row["finished_at"],
-            games=row["games"],
-            elo_bounds=(row["elolower"], row["eloupper"]),
-            outcomes=outcomes_of_row(row, not row["use_tri"]),
+            id=row['id'],
+            name=row['dev__name'],
+            finished_at=row['finished_at'],
+            games=row['games'],
+            elo_bounds=(row['elolower'], row['eloupper']),
+            outcomes=outcomes_of_row(row, not row['use_tri']),
         )
         for row in rows
     ]
@@ -91,18 +87,16 @@ def load_greens(scope: Scope) -> list[GreenRow]:
 def load_weekly_outcomes(scope: Scope) -> dict[date, OutcomeCounts]:
     rows = (
         finished_sprts(scope)
-        .annotate(week=TruncWeek("finished_at", tzinfo=UTC))
-        .values("week")
+        .annotate(week=TruncWeek('finished_at', tzinfo=UTC))
+        .values('week')
         .annotate(
-            passed_tests=Count("id", filter=Q(passed=True)),
-            failed_tests=Count("id", filter=Q(failed=True)),
-            stopped_tests=Count("id", filter=Q(passed=False, failed=False)),
+            passed_tests=Count('id', filter=Q(passed=True)),
+            failed_tests=Count('id', filter=Q(failed=True)),
+            stopped_tests=Count('id', filter=Q(passed=False, failed=False)),
         )
     )
     return {
-        row["week"].date(): OutcomeCounts(
-            row["passed_tests"], row["failed_tests"], row["stopped_tests"]
-        )
+        row['week'].date(): OutcomeCounts(row['passed_tests'], row['failed_tests'], row['stopped_tests'])
         for row in rows
     }
 
@@ -117,8 +111,8 @@ def scoped_snapshots(scope: Scope) -> QuerySet[WorkloadSnapshot]:
 def utc_date(field: str) -> Func:
     # SQLite stores DateTimeField values as UTC text under USE_TZ, and its
     # built-in date() avoids TruncDate's per-row Python function.
-    if connection.vendor == "sqlite":
-        return Func(F(field), function="date", output_field=DateField())
+    if connection.vendor == 'sqlite':
+        return Func(F(field), function='date', output_field=DateField())
     return TruncDate(field, tzinfo=UTC)
 
 
@@ -126,12 +120,8 @@ def load_day_maxima(scope: Scope) -> list[DayMaximum]:
     snapshots = scoped_snapshots(scope)
     if scope.since is not None:
         snapshots = snapshots.filter(created__gte=scope.since)
-    rows = (
-        snapshots.annotate(day=utc_date("created"))
-        .values("test_id", "day")
-        .annotate(games=Max("games"))
-    )
-    return [DayMaximum(row["test_id"], row["day"], row["games"]) for row in rows]
+    rows = snapshots.annotate(day=utc_date('created')).values('test_id', 'day').annotate(games=Max('games'))
+    return [DayMaximum(row['test_id'], row['day'], row['games']) for row in rows]
 
 
 def load_baselines(scope: Scope) -> dict[int, int]:
@@ -140,13 +130,11 @@ def load_baselines(scope: Scope) -> dict[int, int]:
     in_window = scoped_snapshots(scope).filter(created__gte=scope.since)
     rows = (
         WorkloadSnapshot.objects.order_by()
-        .filter(
-            created__lt=scope.since, test_id__in=in_window.values("test_id").distinct()
-        )
-        .values("test_id")
-        .annotate(games=Max("games"))
+        .filter(created__lt=scope.since, test_id__in=in_window.values('test_id').distinct())
+        .values('test_id')
+        .annotate(games=Max('games'))
     )
-    return {row["test_id"]: row["games"] for row in rows}
+    return {row['test_id']: row['games'] for row in rows}
 
 
 def load_games_by_user(scope: Scope) -> dict[str, int]:
@@ -155,12 +143,8 @@ def load_games_by_user(scope: Scope) -> dict[str, int]:
         results = results.filter(test__dev_engine=scope.engine)
     if scope.since is not None:
         results = results.filter(updated__gte=scope.since)
-    rows = (
-        results.values("machine__user__username")
-        .annotate(total=Sum("games"))
-        .filter(total__gt=0)
-    )
-    return {row["machine__user__username"]: row["total"] for row in rows}
+    rows = results.values('machine__user__username').annotate(total=Sum('games')).filter(total__gt=0)
+    return {row['machine__user__username']: row['total'] for row in rows}
 
 
 def load_tests_by_author(scope: Scope) -> dict[str, int]:
@@ -169,5 +153,5 @@ def load_tests_by_author(scope: Scope) -> dict[str, int]:
         tests = tests.filter(dev_engine=scope.engine)
     if scope.since is not None:
         tests = tests.filter(creation__gte=scope.since)
-    rows = tests.values("author").annotate(total=Count("id"))
-    return {row["author"]: row["total"] for row in rows}
+    rows = tests.values('author').annotate(total=Count('id'))
+    return {row['author']: row['total'] for row in rows}

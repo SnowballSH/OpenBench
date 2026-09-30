@@ -4,8 +4,8 @@ from OpenBench.models import Network
 from OpenBench.templatetags.mytags import prettyDevName, shortStatBlock, testResultColour
 from OpenBench.tests.fixtures import create_engine_config, create_test, create_user, ensure_book
 
-class PrettyDevNameTests(TestCase):
 
+class PrettyDevNameTests(TestCase):
     def setUp(self):
         create_engine_config()
         create_engine_config('Other')
@@ -29,17 +29,32 @@ class PrettyDevNameTests(TestCase):
         test = create_test(self.author, base_engine='Other')
         self.assertEqual(prettyDevName(test), '[Other] base')
 
-class StatBlockTests(TestCase):
 
+class StatBlockTests(TestCase):
     def setUp(self):
         create_engine_config()
         ensure_book()
         self.author = create_user('author')
 
     def test_sprt_block(self):
-        test = create_test(self.author, test_mode='SPRT', currentllr=1.234, LL=1, LD=2, DD=3, DW=4, WW=5, wins=7, losses=3, draws=10, games=20)
-        self.assertEqual(shortStatBlock(test).split('\n'), [
-            'LLR: 1.23 (-2.94, 2.94) [0.00, 3.00]', 'Games: 20 W: 7 L: 3 D: 10', 'Ptnml(0-2): 1, 2, 3, 4, 5'])
+        test = create_test(
+            self.author,
+            test_mode='SPRT',
+            currentllr=1.234,
+            LL=1,
+            LD=2,
+            DD=3,
+            DW=4,
+            WW=5,
+            wins=7,
+            losses=3,
+            draws=10,
+            games=20,
+        )
+        self.assertEqual(
+            shortStatBlock(test).split('\n'),
+            ['LLR: 1.23 (-2.94, 2.94) [0.00, 3.00]', 'Games: 20 W: 7 L: 3 D: 10', 'Ptnml(0-2): 1, 2, 3, 4, 5'],
+        )
 
     def test_colours(self):
         self.assertEqual(testResultColour(create_test(self.author, passed=True)), 'green')

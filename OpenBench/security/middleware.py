@@ -4,8 +4,8 @@ from django.http import HttpRequest, HttpResponse, JsonResponse
 
 from OpenBench.security.throttle import LoginThrottled
 
-class LoginThrottleMiddleware:
 
+class LoginThrottleMiddleware:
     # API views let LoginThrottled propagate, so every one of them answers a
     # throttled credential check with the same distinguishable 429
 
@@ -17,5 +17,5 @@ class LoginThrottleMiddleware:
 
     def process_exception(self, request: HttpRequest, exception: Exception) -> HttpResponse | None:
         if isinstance(exception, LoginThrottled):
-            return JsonResponse({ 'error' : 'Too many failed logins' }, status=429)
+            return JsonResponse({'error': 'Too many failed logins'}, status=429)
         return None

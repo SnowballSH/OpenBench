@@ -1,0 +1,14 @@
+[tool.ruff]
+target-version = "py314"
+line-length = 120
+required-version = "==0.16.9"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "B", "UP", "SIM", "I"]
+ignore = ["E701", "E702", "E741"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["OpenBench", "OpenSite"]
+
+[tool.ruff.format]
+quote-style = "single"

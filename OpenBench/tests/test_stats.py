@@ -1,19 +1,24 @@
 import math
 
 import numpy as np
-
 from django.test import SimpleTestCase
 from scipy import optimize
 
 from OpenBench.stats import (
-    PENTANOMIAL_NELO_LIMIT, Elo, MLE_tvalue, PentanomialSPRT, TrinomialSPRT,
-    bayeselo_to_proba, proba_to_bayeselo,
+    PENTANOMIAL_NELO_LIMIT,
+    Elo,
+    MLE_tvalue,
+    PentanomialSPRT,
+    TrinomialSPRT,
+    bayeselo_to_proba,
+    proba_to_bayeselo,
 )
 
 R3 = (22569, 44137, 22976)
 R5 = (39, 8843, 26675, 9240, 44)
 
 DEGENERATE_PENTA = [(0, 0, 0, 0, 0), (100, 0, 0, 0, 0), (0, 0, 100, 0, 0), (0, 0, 0, 0, 100), (1, 0, 0, 0, 1)]
+
 
 def constrained_mle(pdfhat: np.ndarray, t: float) -> np.ndarray:
 
@@ -26,11 +31,15 @@ def constrained_mle(pdfhat: np.ndarray, t: float) -> np.ndarray:
         return (mean - 0.5) / math.sqrt(q @ (points - mean) ** 2)
 
     solution = optimize.minimize(
-        lambda q: -(pdfhat @ np.log(q)), np.full(5, 0.2), method='SLSQP', bounds=[(1e-12, 1)] * 5,
-        constraints=[{ 'type' : 'eq', 'fun' : lambda q: q.sum() - 1 }, { 'type' : 'eq', 'fun' : lambda q: t_value(q) - t }],
-        options={ 'ftol' : 1e-15, 'maxiter' : 1000 },
+        lambda q: -(pdfhat @ np.log(q)),
+        np.full(5, 0.2),
+        method='SLSQP',
+        bounds=[(1e-12, 1)] * 5,
+        constraints=[{'type': 'eq', 'fun': lambda q: q.sum() - 1}, {'type': 'eq', 'fun': lambda q: t_value(q) - t}],
+        options={'ftol': 1e-15, 'maxiter': 1000},
     )
     return solution.x
+
 
 def reference_penta_llr(results, elo0: float, elo1: float) -> float:
     counts = np.maximum(1e-3, np.array(results, dtype=float))
@@ -38,10 +47,14 @@ def reference_penta_llr(results, elo0: float, elo1: float) -> float:
     t0, t1 = (elo / (800 / math.log(10)) * math.sqrt(2) for elo in (elo0, elo1))
     return counts.sum() * (pdfhat @ (np.log(constrained_mle(pdfhat, t1)) - np.log(constrained_mle(pdfhat, t0))))
 
-class PentanomialTests(SimpleTestCase):
 
+class PentanomialTests(SimpleTestCase):
     def test_matches_an_independent_constrained_mle(self):
-        for results, bounds in [(R5, (0.5, 2.5)), ((5, 20, 50, 20, 5), (0, 5)), ((300, 1200, 2000, 1500, 400), (-3, 1))]:
+        for results, bounds in [
+            (R5, (0.5, 2.5)),
+            ((5, 20, 50, 20, 5), (0, 5)),
+            ((300, 1200, 2000, 1500, 400), (-3, 1)),
+        ]:
             self.assertAlmostEqual(PentanomialSPRT(results, *bounds), reference_penta_llr(results, *bounds), places=6)
 
     def test_known_value(self):
@@ -50,9 +63,9 @@ class PentanomialTests(SimpleTestCase):
     def test_mle_has_the_requested_t_value(self):
         pdfhat = [(i / 4, p) for i, p in enumerate(np.array(R5) / sum(R5))]
         for t in (-0.5, 0.0, 0.1, 0.5):
-            pdf  = MLE_tvalue(pdfhat, 0.5, t)
-            mu   = sum(a * p for a, p in pdf)
-            var  = sum(p * (a - mu) ** 2 for a, p in pdf)
+            pdf = MLE_tvalue(pdfhat, 0.5, t)
+            mu = sum(a * p for a, p in pdf)
+            var = sum(p * (a - mu) ** 2 for a, p in pdf)
             self.assertAlmostEqual((mu - 0.5) / math.sqrt(var), t, places=5)
 
     def test_mirroring_the_results_mirrors_the_hypotheses(self):
@@ -86,8 +99,8 @@ class PentanomialTests(SimpleTestCase):
         with self.assertRaises(AssertionError):
             PentanomialSPRT(R5, 0, edge + 1e-6)
 
-class TrinomialTests(SimpleTestCase):
 
+class TrinomialTests(SimpleTestCase):
     def test_known_value(self):
         self.assertAlmostEqual(TrinomialSPRT(R3, 0.5, 2.5), 0.975772, places=5)
 
@@ -108,8 +121,8 @@ class TrinomialTests(SimpleTestCase):
             self.assertAlmostEqual(recovered[0], elo, places=9)
             self.assertAlmostEqual(recovered[1], draw_elo, places=9)
 
-class EloTests(SimpleTestCase):
 
+class EloTests(SimpleTestCase):
     def test_no_games(self):
         self.assertEqual(Elo((0, 0, 0)), (0.0, 0.0, 0.0))
         self.assertEqual(Elo((0, 0, 0, 0, 0)), (0.0, 0.0, 0.0))
@@ -120,11 +133,11 @@ class EloTests(SimpleTestCase):
         self.assertAlmostEqual(Elo((1, 2, 3, 2, 1))[1], 0.0, places=9)
 
     def test_even_results_are_not_negative_zero(self):
-        self.assertEqual('%.2f' % Elo((1, 2, 3, 2, 1))[1], '0.00')
-        self.assertEqual('%.2f' % Elo((5, 10, 5))[1], '0.00')
+        self.assertEqual(f'{Elo((1, 2, 3, 2, 1))[1]:.2f}', '0.00')
+        self.assertEqual(f'{Elo((5, 10, 5))[1]:.2f}', '0.00')
 
     def test_interval_uses_the_t_distribution(self):
-        half  = 2.0930240544083087 * 0.5 / math.sqrt(20)
+        half = 2.0930240544083087 * 0.5 / math.sqrt(20)
         upper = -400 * math.log10(1 / (0.5 + half) - 1)
         self.assertAlmostEqual(Elo((10, 0, 10))[2], upper, places=9)
 
@@ -135,7 +148,7 @@ class EloTests(SimpleTestCase):
         for results in [R3, R5, (3, 7, 11), (1, 4, 10, 6, 2)]:
             lower, elo, upper = Elo(results)
             mirror = Elo(results[::-1])
-            for a, b in zip((lower, elo, upper), (-mirror[2], -mirror[1], -mirror[0])):
+            for a, b in zip((lower, elo, upper), (-mirror[2], -mirror[1], -mirror[0]), strict=True):
                 self.assertAlmostEqual(a, b, places=9)
 
     def test_ordering(self):

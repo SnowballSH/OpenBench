@@ -12,10 +12,10 @@ ENGINE_NAME_LIMIT = 64
 
 
 class Window(StrEnum):
-    DAYS_30 = "30d"
-    DAYS_90 = "90d"
-    YEAR = "1y"
-    ALL = "all"
+    DAYS_30 = '30d'
+    DAYS_90 = '90d'
+    YEAR = '1y'
+    ALL = 'all'
 
     @property
     def days(self) -> int | None:
@@ -34,10 +34,10 @@ WINDOW_DAYS: dict[Window, int | None] = {
 }
 
 WINDOW_LABELS: dict[Window, str] = {
-    Window.DAYS_30: "30 days",
-    Window.DAYS_90: "90 days",
-    Window.YEAR: "1 year",
-    Window.ALL: "All time",
+    Window.DAYS_30: '30 days',
+    Window.DAYS_90: '90 days',
+    Window.YEAR: '1 year',
+    Window.ALL: 'All time',
 }
 
 DEFAULT_WINDOW = Window.DAYS_90
@@ -94,7 +94,7 @@ class OutcomeCounts:
         decided = self.passed + self.failed
         return self.passed / decided if decided else None
 
-    def __add__(self, other: "OutcomeCounts") -> "OutcomeCounts":
+    def __add__(self, other: OutcomeCounts) -> OutcomeCounts:
         return OutcomeCounts(
             self.passed + other.passed,
             self.failed + other.failed,

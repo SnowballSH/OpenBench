@@ -26,7 +26,7 @@ from OpenBench.progress.domain import (
 
 
 def parse_window(raw: str | None) -> Window | None:
-    if raw is None or raw == "":
+    if raw is None or raw == '':
         return DEFAULT_WINDOW
     try:
         return Window(raw.strip().lower())
@@ -35,7 +35,7 @@ def parse_window(raw: str | None) -> Window | None:
 
 
 def parse_engine(raw: str | None) -> str | None:
-    name = (raw or "").strip()
+    name = (raw or '').strip()
     return name[:ENGINE_NAME_LIMIT] or None
 
 
@@ -80,20 +80,11 @@ def green_tests(rows: Iterable[GreenRow]) -> list[GreenTest]:
 
 def elo_steps(greens: list[GreenTest], limit: int = ELO_STEPS_LIMIT) -> list[EloStep]:
     count = len(greens)
-    kept = (
-        range(count)
-        if count <= limit
-        else sorted({round(i * (count - 1) / (limit - 1)) for i in range(limit)})
-    )
-    return [
-        EloStep(greens[index].finished_at, greens[index].cumulative_elo, index + 1)
-        for index in kept
-    ]
+    kept = range(count) if count <= limit else sorted({round(i * (count - 1) / (limit - 1)) for i in range(limit)})
+    return [EloStep(greens[index].finished_at, greens[index].cumulative_elo, index + 1) for index in kept]
 
 
-def games_by_day(
-    maxima: Iterable[DayMaximum], baselines: Mapping[int, int]
-) -> dict[date, int]:
+def games_by_day(maxima: Iterable[DayMaximum], baselines: Mapping[int, int]) -> dict[date, int]:
     totals: defaultdict[date, int] = defaultdict(int)
     ordered = sorted(maxima, key=lambda row: (row.test_id, row.day))
     for test_id, rows in groupby(ordered, key=lambda row: row.test_id):
@@ -108,15 +99,11 @@ def days_between(start: date, end: date) -> list[date]:
     return [start + timedelta(days=offset) for offset in range((end - start).days + 1)]
 
 
-def daily_series(
-    totals: Mapping[date, int], start: date, end: date
-) -> list[DailyGames]:
+def daily_series(totals: Mapping[date, int], start: date, end: date) -> list[DailyGames]:
     return [DailyGames(day, totals.get(day, 0)) for day in days_between(start, end)]
 
 
-def weekly_series(
-    counts: Mapping[date, OutcomeCounts], start: date, end: date
-) -> list[WeeklyOutcomes]:
+def weekly_series(counts: Mapping[date, OutcomeCounts], start: date, end: date) -> list[WeeklyOutcomes]:
     weeks = days_between(week_start(start), week_start(end))[::7]
     return [
         WeeklyOutcomes(week, found.passed, found.failed, found.stopped)
@@ -138,19 +125,13 @@ def share(part: int, whole: int) -> float | None:
 def top_contributors(games_by_user: Mapping[str, int]) -> list[Contributor]:
     total = sum(games_by_user.values())
     ranked = sorted(games_by_user.items(), key=lambda item: (-item[1], item[0]))
-    return [
-        Contributor(username, games, share(games, total))
-        for username, games in ranked[:TOP_LIMIT]
-    ]
+    return [Contributor(username, games, share(games, total)) for username, games in ranked[:TOP_LIMIT]]
 
 
 def top_authors(tests_by_author: Mapping[str, int]) -> list[Author]:
     total = sum(tests_by_author.values())
     ranked = sorted(tests_by_author.items(), key=lambda item: (-item[1], item[0]))
-    return [
-        Author(username, tests, share(tests, total))
-        for username, tests in ranked[:TOP_LIMIT]
-    ]
+    return [Author(username, tests, share(tests, total)) for username, tests in ranked[:TOP_LIMIT]]
 
 
 def summarize(
