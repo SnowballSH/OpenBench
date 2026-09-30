@@ -392,6 +392,12 @@ computed at every point, ending exactly at the Workload's counters. It also
 credits each Profile with the games its Machines played, so the server
 payload's `top_contributors` is populated.
 
+Its SPSA tunes are played iteration by iteration with the same `c` and `r`
+schedule as `spsa_workload_assignment_dict` and the Client's delta update, so
+their parameters end at values the Server itself could have reached. Each
+iteration is a mini-match between the two perturbed sides, and the side nearer a
+hidden optimum plays slightly stronger, so the parameters drift towards it.
+
 ## Fleet pages
 
 `OpenBench/fleet/` backs `/machines/`, `/machines/<id>/` and `/users/`.
