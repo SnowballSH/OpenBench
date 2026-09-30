@@ -55,17 +55,24 @@ the admin login, and a `user_login_failed` receiver counts the failures.
   form. `GET /logout/` only redirects to the index and leaves the session alone.
 - `/register/` refuses both GET and POST while `require_manual_registration` is
   set.
-- Workload actions (`/test/<id>/APPROVE/` and friends) and the Network
-  `DEFAULT` and `DELETE` links are plain GET links. They, and
-  `POST /api/networks/<engine>/<name>/delete/`, are refused when the browser
-  reports `Sec-Fetch-Site` as `cross-site` or `same-site`, so another site,
-  including another subdomain, cannot trigger them through a logged-in browser.
-  Scripts and the Client send no such header and are unaffected.
-- That guard is partial. A link opened from outside the browser, such as from
-  Discord or a mail client, arrives with `Sec-Fetch-Site: none` and is allowed,
-  as is any request from a browser that does not send the header. The
-  complete fix is to turn these GET actions into CSRF-protected POST forms,
-  which is planned once the Templates' restyling lands.
+- Every change made from the website is a CSRF-protected `POST`. That covers
+  the Workload actions (`/test/<id>/APPROVE/`, `RESTART`, `STOP`, `DELETE`,
+  `RESTORE` and `MODIFY`, and the same under `/tune/` and `/datagen/`), the
+  Network `UPLOAD`, `DEFAULT` and `DELETE` actions, and the create, edit and
+  delete actions under `/manage/books/` and `/manage/engines/`. The buttons
+  submit a hidden form that carries the token. Deleting a Workload, Network,
+  Book or Engine asks for confirmation first.
+- A `GET` of any of those URLs, such as an old bookmark or a link pasted into
+  Discord, changes nothing. It redirects to the Workload, the Network list or
+  the Manage page with an error. Viewing a Workload, the Network list, a
+  Network's `EDIT` form and `DOWNLOAD` stay `GET`.
+- As defense in depth, Workload and Network changes, and
+  `POST /api/networks/<engine>/<name>/delete/`, are also refused when the
+  browser reports `Sec-Fetch-Site` as `cross-site` or `same-site`. Scripts and
+  the Client send no such header and are unaffected.
+- `POST /api/networks/<engine>/<name>/delete/` is exempt from CSRF so Scripts
+  can call it with credentials in the POST body. A request that rides a logged-in
+  browser session must still carry a valid CSRF token.
 - `/scripts/` is exempt from CSRF, so it acts only as the user named by the
   `username` and `password` in its POST body, which must be enabled.
 - Only Approvers may delete Networks through the API, as on the website.
