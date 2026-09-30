@@ -3,8 +3,8 @@
 # >>> OPENBENCH_DEBUG=1 python3 manage.py seed_demo
 #
 # Creates accounts, an Engine, a Book, a fleet of Machines, and Workloads in
-# every state, each with per-Machine Results. Refuses to run without DEBUG, or
-# against a database that already holds Workloads.
+# every state, each with per-Machine Results and a WorkloadSnapshot history.
+# Refuses to run without DEBUG, or against a database that already holds Workloads.
 
 import datetime
 import random
@@ -14,13 +14,16 @@ from django.conf import settings
 from django.contrib.auth.models import User
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
+from django.db.models import Sum
 from django.utils import timezone
 
 from OpenBench.config import OPENBENCH_CONFIG
-from OpenBench.models import Book, Engine, EngineConfig, Machine, Profile, Result, Test
+from OpenBench.models import Book, Engine, EngineConfig, Machine, Profile, Result, Test, WorkloadSnapshot
 from OpenBench.stats import PentanomialSPRT
 
 DEMO_PASSWORD = 'openbench-demo'
+
+HISTORY_POINTS = 150
 
 ENGINE_SOURCE = 'https://github.com/SnowballSH/Avalanche'
 
@@ -79,6 +82,7 @@ class Command(BaseCommand):
             machines = create_machines(users)
             for spec in WORKLOADS:
                 create_workload(spec, users[0], machines, rng)
+            credit_profiles(users)
 
         self.stdout.write('Seeded %d workloads on %d machines. Log in as admin / %s' % (
             len(WORKLOADS), len(machines), DEMO_PASSWORD))
@@ -91,6 +95,11 @@ def create_users():
         Profile.objects.create(user=user, enabled=True, approver=is_admin, superuser=is_admin)
         users.append(user)
     return users
+
+def credit_profiles(users):
+    for user in users:
+        games = Result.objects.filter(machine__user=user).aggregate(total=Sum('games'))['total'] or 0
+        Profile.objects.filter(user=user).update(games=games)
 
 def create_engine_config():
     presets = { 'test_presets' : { 'default' : {} }, 'tune_presets' : { 'default' : {} }, 'datagen_presets' : { 'default' : {} } }
@@ -122,11 +131,17 @@ def simulate_pairs(elo, pairs, rng):
     score    = 1 / (1 + 10 ** (-elo / 400))
     draw     = 0.55
     win_pair = (1 - draw) * score
-    penta    = [0, 0, 0, 0, 0]
+    outcomes = []
     for _ in range(pairs):
         first  = 1.0 if rng.random() < win_pair else (0.5 if rng.random() < draw / (1 - win_pair) else 0.0)
         second = 1.0 if rng.random() < win_pair else (0.5 if rng.random() < draw / (1 - win_pair) else 0.0)
-        penta[int(2 * (first + second))] += 1
+        outcomes.append(int(2 * (first + second)))
+    return outcomes
+
+def tally(outcomes):
+    penta = [0, 0, 0, 0, 0]
+    for bucket in outcomes:
+        penta[bucket] += 1
     return penta
 
 def split_pairs(penta, parts, rng):
@@ -143,7 +158,10 @@ def create_workload(spec, author, machines, rng):
     base = Engine.objects.create(name='master', source=ENGINE_SOURCE, sha='%040x' % rng.getrandbits(160), bench=rng.randint(2_000_000, 4_000_000))
     options = 'Threads=%d Hash=%d' % (spec.threads, 16 * spec.threads)
 
-    created = timezone.now() - datetime.timedelta(hours=rng.uniform(1, 72))
+    now     = timezone.now()
+    created = now - datetime.timedelta(hours=rng.uniform(1, 72))
+    started = created + datetime.timedelta(minutes=rng.uniform(2, 10))
+    ended   = started + (now - started) * (rng.uniform(0.3, 0.9) if spec.state in ('passed', 'failed') else 1.0)
     test = Test.objects.create(
         author=author.username, book_name='UHO_Lichess_4852_v1.epd',
         dev=dev, dev_repo=ENGINE_SOURCE, dev_engine='Avalanche', dev_options=options,
@@ -155,7 +173,8 @@ def create_workload(spec, author, machines, rng):
         approved=spec.state != 'pending', info='Seeded demonstration workload',
     )
 
-    penta = simulate_pairs(spec.elo, spec.pairs, rng)
+    outcomes = simulate_pairs(spec.elo, spec.pairs, rng)
+    penta    = tally(outcomes)
     for machine, share in zip(machines, split_pairs(penta, len(machines), rng)):
         if sum(share):
             create_result(test, machine, share, rng)
@@ -166,12 +185,38 @@ def create_workload(spec, author, machines, rng):
         wins=wins, losses=losses, draws=draws, LL=penta[0], LD=penta[1], DD=penta[2], DW=penta[3], WW=penta[4], games=2 * sum(penta),
         currentllr=PentanomialSPRT(penta, spec.bounds[0], spec.bounds[1]) if spec.mode == 'SPRT' and sum(penta) else 0.0,
         passed=spec.state == 'passed', failed=spec.state == 'failed', finished=finished,
-        creation=created,
+        creation=created, updated=ended if outcomes else created,
     )
+
+    create_history(test, spec, outcomes, started, ended, rng)
 
     if spec.state == 'active':
         for machine in machines[:3]:
             Machine.objects.filter(id=machine.id).update(workload=test.id, updated=timezone.now())
+
+def create_history(test, spec, outcomes, started, ended, rng):
+
+    # Pairs arrive at a jittered, roughly steady rate between started and ended,
+    # sampled at evenly spaced snapshot times like the live recorder would keep
+
+    points  = min(HISTORY_POINTS, len(outcomes))
+    weights = [rng.uniform(0.6, 1.4) for _ in range(points)]
+    total   = sum(weights)
+
+    snapshots, cumulative = [], 0.0
+    for index, weight in enumerate(weights, start=1):
+        cumulative += weight
+        played = len(outcomes) if index == points else round(len(outcomes) * cumulative / total)
+        penta  = tally(outcomes[:played])
+        wins, losses, draws = trinomial(penta)
+        snapshots.append(WorkloadSnapshot(
+            test=test, created=started + (ended - started) * (index / points),
+            games=2 * played, wins=wins, losses=losses, draws=draws,
+            LL=penta[0], LD=penta[1], DD=penta[2], DW=penta[3], WW=penta[4],
+            llr=PentanomialSPRT(penta, spec.bounds[0], spec.bounds[1]) if spec.mode == 'SPRT' and played else 0.0,
+        ))
+
+    WorkloadSnapshot.objects.bulk_create(snapshots)
 
 def trinomial(penta):
     wins   = 2 * penta[4] + penta[3]
