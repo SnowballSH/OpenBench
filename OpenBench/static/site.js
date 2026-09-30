@@ -57,23 +57,44 @@
         const sidebar = document.getElementById('sidebar');
         if (!toggle || !sidebar) return;
 
-        const sync = () => toggle.setAttribute('aria-expanded', document.body.classList.contains('sidebar-open'));
-        const close = () => { document.body.classList.remove('sidebar-open'); sync(); };
+        const page = document.getElementById('content-parent');
+        const drawer_layout = window.matchMedia('(max-width: 767px)');
+        const is_open = () => document.body.classList.contains('sidebar-open');
+
+        function sync() {
+            const open = is_open() && drawer_layout.matches;
+            toggle.setAttribute('aria-expanded', open);
+            if (page) page.inert = open;
+        }
+
+        function open_drawer() {
+            sync();
+            if (!is_open()) return;
+            const first_link = sidebar.querySelector('a[href], button, input[type="submit"]');
+            if (first_link) first_link.focus();
+        }
+
+        function close_drawer() {
+            document.body.classList.remove('sidebar-open');
+            sync();
+            toggle.focus();
+        }
 
         sync();
-        toggle.addEventListener('click', sync);
+        toggle.addEventListener('click', open_drawer);
+        drawer_layout.addEventListener('change', () => {
+            document.body.classList.remove('sidebar-open');
+            sync();
+        });
 
         document.addEventListener('click', event => {
-            if (document.body.classList.contains('sidebar-open')
-                && !sidebar.contains(event.target) && !toggle.contains(event.target))
-                close();
+            if (is_open() && !sidebar.contains(event.target) && !toggle.contains(event.target))
+                close_drawer();
         });
 
         document.addEventListener('keydown', event => {
-            if (event.key === 'Escape' && document.body.classList.contains('sidebar-open')) {
-                close();
-                toggle.focus();
-            }
+            if (event.key === 'Escape' && is_open())
+                close_drawer();
         });
     }
 

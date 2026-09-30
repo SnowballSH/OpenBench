@@ -40,8 +40,10 @@ use a token.
 | Shape | `--radius-sm` 4px (chips), `--radius` 6px (controls), `--radius-lg` 10px (cards, tables); `--control-height` |
 | Surfaces | `--bg`, `--surface`, `--surface-2`, `--surface-3`, `--input-bg`, `--border`, `--border-subtle`, `--stripe`, `--row-hover`, `--shadow-pop` |
 | Text | `--text`, `--text-muted`, `--text-subtle` |
-| Accent | `--accent` (links, secondary buttons), `--accent-solid` + `--on-accent` (primary buttons), `--accent-soft`, `--focus-ring` |
+| Accent | `--accent` (links), `--accent-solid` + `--on-accent` (primary buttons), `--accent-soft` (tinted fills), `--focus-ring` |
 | Results | `--pass`, `--fail`, `--warn`, `--info` (edges, icons, text); `--pass-bg` / `--pass-ink` and the matching `-bg` / `-ink` pairs for filled blocks; `--odds`; `--neutral-bg`, `--neutral-ink`, `--neutral-edge` |
+| Text on tints | `--accent-text`, `--pass-text`, `--warn-text`, `--fail-text`: ink for tinted buttons, at least 4.5:1 on their 12% resting and 20% hover fills in both themes |
+| Inputs | `--input-bg`, `--input-border` (at least 3:1 against cards and page) |
 | Charts | `--series-1` to `--series-4`, `--chart-grid`, `--chart-axis` |
 
 Result semantics follow `testResultColour` in `OpenBench/templatetags/mytags.py`:
@@ -73,7 +75,8 @@ without relying on fill alone.
 - **Stat blocks**: `.statblock .statblock-{green,red,yellow,blue}` inside
   `td.statblock-cell` for list rows; `pre.long-statblock` with
   `.long-statblock-{colour}` for the detail view.
-- **Cards and tiles**: `.card` (optionally with `.card-header` and
+- **Cards and tiles** (provided for the insights and charts pages, pair them
+  with the `--series-*` and `--chart-*` tokens): `.card` (optionally with `.card-header` and
   `.card-title`) is a bordered surface. `.stat-tiles` is an auto-fitting grid
   of `.stat-tile`, each with `.stat-label`, `.stat-value` and optional
   `.stat-meta`; `.stat-tile-{pass,fail,warn,info}` colours its top edge.
@@ -92,5 +95,10 @@ without relying on fill alone.
   `summary-table`, `stripes`, `wrappable`, `anchorbutton`, `btn-preset`,
   `col-half`, `pl-half`, `pr-half`, `mt-1`, `w-100`, `engine-options`,
   `engine-options-popup`, `timestamp`, `datestamp`, `sidebar-open`.
+- Tinted fills stay at 12% (rest) and 20% (hover) of their colour; stronger
+  mixes drop text contrast below 4.5:1.
+- The mobile drawer moves focus to its first link and makes the page inert
+  while open; Escape or a click on the scrim closes it and returns focus to
+  the toggle.
 - The layout breakpoints are 1024px (single-column forms and workload view)
   and 767px (off-canvas sidebar). Check pages at 375px and in both themes.

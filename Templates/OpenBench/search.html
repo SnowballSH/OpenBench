@@ -86,7 +86,7 @@
                                 <option value="{{engine.name}}" {% if form.dev_engine == engine.name %}selected{% endif %}>{{engine.name}}</option>
                             {% endfor %}
                         </select>
-                        <input id="dev-network" name="dev-network" value="{{form.dev_network}}" placeholder="Network Name (Case-Insensitive)">
+                        <input id="dev-network" name="dev-network" value="{{form.dev_network}}" placeholder="Network (Case-Insensitive)">
                     </div>
                     <div class="row">
                         <label for="base-engine">Base</label>
@@ -96,7 +96,7 @@
                                 <option value="{{engine.name}}" {% if form.base_engine == engine.name %}selected{% endif %}>{{engine.name}}</option>
                             {% endfor %}
                         </select>
-                        <input id="base-network" name="base-network" value="{{form.base_network}}" placeholder="Network Name (Case-Insensitive)">
+                        <input id="base-network" name="base-network" value="{{form.base_network}}" placeholder="Network (Case-Insensitive)">
                     </div>
 
                     <hr>
