@@ -6,11 +6,11 @@ from django.utils import timezone
 
 from OpenBench.insights.contributions import Contributions, ResultRow, summarize_contributions
 from OpenBench.insights.domain import Pentanomial, ProgressPoint, Trinomial, WorkloadFacts, WorkloadMode, WorkloadStatus
-from OpenBench.insights.eta import Eta, estimate_eta
+from OpenBench.insights.eta import Eta, timing_and_eta
 from OpenBench.insights.series import SeriesPoint, build_series
 from OpenBench.insights.sources import result_rows, snapshot_points, workload_facts
 from OpenBench.insights.strength import StrengthSummary, summarize_strength
-from OpenBench.insights.timing import Mark, TimingSummary, summarize_timing
+from OpenBench.insights.timing import Mark, TimingSummary, timeline_marks
 from OpenBench.models import Test
 
 
@@ -74,9 +74,14 @@ def with_current(facts: WorkloadFacts, snapshots: Sequence[ProgressPoint]) -> li
     ]
 
 
-def timeline(facts: WorkloadFacts, snapshots: Sequence[ProgressPoint], points: Sequence[ProgressPoint]) -> list[Mark]:
-    marks = [(point.timestamp, point.games) for point in points]
-    return marks if snapshots else [(facts.created_at, 0), *marks]
+def current_mark(facts: WorkloadFacts) -> Mark:
+    return facts.updated_at, facts.outcomes.games
+
+
+def timeline(facts: WorkloadFacts, snapshots: Sequence[ProgressPoint]) -> list[Mark]:
+    return timeline_marks(
+        facts.created_at, current_mark(facts), [(point.timestamp, point.games) for point in snapshots]
+    )
 
 
 def summarize_progress(facts: WorkloadFacts) -> Progress:
@@ -100,9 +105,7 @@ def build_insights(
 ) -> WorkloadInsights:
 
     points = with_current(facts, snapshots)
-    marks = timeline(facts, snapshots, points)
-    end = marks[-1][0] if facts.finished else now
-    timing = summarize_timing(marks, end, facts.finished)
+    timing, eta = timing_and_eta(facts, timeline(facts, snapshots), now)
     elo = facts.mode != WorkloadMode.SPSA
     elapsed = timing.elapsed_seconds if timing else None
 
@@ -113,7 +116,7 @@ def build_insights(
         ),
         progress=summarize_progress(facts),
         timing=timing,
-        eta=estimate_eta(facts, timing.best_rate() if timing else None, now),
+        eta=eta,
         strength=summarize_strength(facts.outcomes) if elo else None,
         history=History(
             synthetic=bool(points) and not snapshots, points=build_series(points, facts.sprt is not None, elo)

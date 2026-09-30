@@ -70,7 +70,8 @@ without relying on fill alone.
   rings and read-only state.
 - **Tables**: wrap every table in `<div class="table-wrap">`, which provides
   the card border and horizontal scrolling on narrow screens (add `w-100` for a
-  full-width table). `tr.table-header` is a header row; `.stripes` and
+  full-width table). It is positioned, so `.visually-hidden` text inside
+  a scrolled row stays clipped by it instead of widening the page. `tr.table-header` is a header row; `.stripes` and
   `.hoverable` add zebra striping and row hover; `.numeric` right-aligns
   tabular figures. Cells do not wrap by default. In `.test-list`,
   `tr.table-header` is a group heading and `tr.table-small-header` a subgroup.
@@ -96,7 +97,10 @@ without relying on fill alone.
 - **Server strip**: `.server-stats` is the compact tile grid at the top of the
   index. `.row-progress` (`-games` fill or `-llr` marker, `--fraction`) is the
   thin bar under an active row's stat block, rendered by the `workload_progress`
-  template filter from the Test's own fields, with no extra queries. Templates
+  template filter from the Test's own fields, with no extra queries. `.row-timing` is the
+  line below it (`Blocks/row_timing.html`): time left and games per hour for a
+  running row, time taken for a finished one; `.row-timing-left` lifts the time
+  left to body colour. Templates
   pass these values as `data-fraction` and `data-share`, which `site.js` copies
   into the custom properties; a missing value draws an empty bar. That makes
   the server-rendered meters depend on JavaScript: without it, the progress and

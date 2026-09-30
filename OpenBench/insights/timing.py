@@ -58,6 +58,18 @@ def rate_between(marks: Sequence[Mark], start: datetime, end: datetime) -> Rate 
     return Rate(games_per_hour=3600 * (last - first) / seconds, window_seconds=seconds)
 
 
+def timeline_marks(created_at: datetime, current: Mark, snapshots: Sequence[Mark]) -> list[Mark]:
+
+    updated_at, games = current
+    if not snapshots:
+        return [(created_at, 0), *([current] if games else [])]
+
+    last_at, last_games = snapshots[-1]
+    if games <= last_games:
+        return list(snapshots)
+    return [*snapshots, (max(updated_at, last_at), games)]
+
+
 def summarize_timing(marks: Sequence[Mark], end: datetime, finished: bool) -> TimingSummary | None:
 
     if not marks:

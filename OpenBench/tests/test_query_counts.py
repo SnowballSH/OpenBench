@@ -26,6 +26,7 @@ MEDIUM = dataclasses.replace(
     results=1200,
     events=300,
     networks=40,
+    snapshots_per_test=60,
     pgns=200,
 )
 

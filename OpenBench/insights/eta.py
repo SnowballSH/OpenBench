@@ -1,10 +1,11 @@
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import StrEnum
 
 from OpenBench.insights.domain import Outcomes, SprtBounds, WorkloadFacts, WorkloadMode
 from OpenBench.insights.sprt import MIN_GAMES, forecast_sprt, llr_increment
-from OpenBench.insights.timing import Rate
+from OpenBench.insights.timing import Mark, Rate, TimingSummary, summarize_timing
 
 
 class EtaKind(StrEnum):
@@ -92,3 +93,9 @@ def estimate_eta(facts: WorkloadFacts, rate: Rate | None, now: datetime) -> Eta:
         return with_rate(EtaKind.TARGET, remaining, rate, now)
 
     return unavailable(EtaReason.NO_TARGET)
+
+
+def timing_and_eta(facts: WorkloadFacts, marks: Sequence[Mark], now: datetime) -> tuple[TimingSummary | None, Eta]:
+    end = marks[-1][0] if facts.finished else now
+    timing = summarize_timing(marks, end, facts.finished)
+    return timing, estimate_eta(facts, timing.best_rate() if timing else None, now)

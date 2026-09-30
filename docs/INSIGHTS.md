@@ -15,6 +15,7 @@ Code lives in `OpenBench/insights/`:
 | `sprt.py` | Per-pair LLR drift and variance, and the expected remaining steps of the SPRT. |
 | `eta.py` | Remaining games per Workload mode, converted into time. |
 | `series.py` | One chart point per snapshot. |
+| `listing.py` | Time taken and time left for a listing row, from a few picked snapshots; see [Listings](#listings). |
 | `grouping.py`, `contributions.py` | Per-machine and per-CPU contribution; `grouping.sum_by_key` also backs `fetch_result_summaries`. |
 | `speed.py` | Nodes per second from node and millisecond counters, shared by the result summaries and the machine page. |
 | `sources.py` | Reads a Workload's Test, snapshots and Results and turns them into domain values. |
@@ -389,6 +390,41 @@ number of aggregate queries.
   `max_games` for GAMES and DATAGEN. It reads only the Test's fields; SPSA rows
   have none, since their stat block already states iterations.
 
+## Listings
+
+Every row of the index, user, greens and search listings carries a line of
+timing under its stat block (`Blocks/row_timing.html`, the `listing_timing`
+filter):
+
+- **Running** (approved, not finished): the time left and the recent games per
+  hour, with the same rules and wording as the workload page's tiles. An SPRT
+  estimate reads `≈ 3h 20m left`, is announced as "estimated", and carries the
+  tile's caveat as a tooltip; GAMES, DATAGEN and SPSA targets read
+  `3h 20m left`. When `eta.reason` is set the row shows that reason's text
+  instead (`needs 200 games first`, `no recent throughput`, ...), except
+  `no_target`, which shows only the rate. A zero rate is not shown.
+- **Finished**: `took 5h 12m`, from the first snapshot (or `Test.creation`
+  without one) to the finish time of the progress page
+  (`OpenBench.progress.sources.finish_time`): the newest snapshot, or
+  `Test.updated` for a Workload without snapshots.
+- **Pending**: nothing.
+
+The timing costs no query. `page_queries.listing_tests` annotates each row
+with correlated subqueries on the `(test, created)` index: the first snapshot,
+the finish time, and for unfinished rows the newest snapshot and the two
+snapshots either side of the start of the recent window (`now − 1 h`); `now` is
+annotated too, so the window and the time left use the same instant.
+`games_at` only ever interpolates between a timestamp's two neighbours, and
+the rates only ask about the first snapshot, the window start and now, so
+these few snapshots and the Test's counters (the same tail rule as the
+workload page) give exactly the `timing` and `eta` the insights endpoint would.
+`OpenBench/tests/test_listing_timing.py` checks that against full histories.
+
+Measured on SQLite with 20,000 Tests and a million snapshots: page 1 of the
+finished list went from 1.2 to 2.6 ms and 25 rows at offset 2,475 from 2.7 to
+4.0 ms; 5,714 active rows (far more than a real server runs) from 112 to
+161 ms, about 9 µs a row.
+
 ## Demo data
 
 `seed_demo` gives every seeded Workload with games a 150-point history between
@@ -474,13 +510,17 @@ week with a finished SPRT test. Every series is bucketed by UTC day or UTC week
 
 ### Finish time
 
-`Test` has no finish timestamp. For a test that passed or failed, the finish
-time is its newest snapshot's `created`: `update_test` always records the report
-that finishes a Workload. A stopped test (or one without snapshots) uses
-`Test.updated`, which also moves when a finished test is edited later.
-The query first narrows on `updated ≥ since − 1 h` (the `test_completed_updated`
-index; the finish time is never later than `updated` plus the moment between
-saving the Test and recording its snapshot), then filters on the finish time.
+`Test` has no finish timestamp. For every finished test the finish time is its
+newest snapshot's `created`: `update_test` always records the report that
+finishes a Workload, and a manual stop leaves the last report as the newest
+snapshot, so later edits (stop, delete, restore, modify), which move
+`Test.updated`, do not move it. A stopped test's finish time is therefore its
+last report, up to a minute before its final counters (see Recording), not the
+moment someone stopped it. Only a test without snapshots falls back to
+`Test.updated`. The query first narrows on `updated ≥ since − 1 h` (the
+`test_completed_updated` index; the finish time is never later than `updated`
+plus the moment between saving the Test and recording its snapshot), then
+filters on the finish time.
 
 ### Metrics
 

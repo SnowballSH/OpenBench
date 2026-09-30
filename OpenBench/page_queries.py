@@ -1,13 +1,31 @@
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 
-from django.db.models import Count, IntegerField, OuterRef, QuerySet, Subquery
+from django.db.models import (
+    Case,
+    Count,
+    DateTimeField,
+    Expression,
+    Field,
+    IntegerField,
+    OuterRef,
+    QuerySet,
+    Subquery,
+    Value,
+    When,
+)
 from django.db.models.functions import Coalesce
 from django.http import HttpRequest
+from django.utils import timezone
 
 import OpenBench.utils
-from OpenBench.models import LogEvent, Network, Profile, SPSAParameter, Test
+from OpenBench.insights.listing import RowTiming, SnapshotMarks, finished_row_timing, running_row_timing
+from OpenBench.insights.sources import workload_facts
+from OpenBench.insights.timing import RECENT_WINDOW, Mark
+from OpenBench.models import LogEvent, Network, Profile, SPSAParameter, Test, WorkloadSnapshot
+from OpenBench.progress.sources import finish_time
 
 PROFILE_ATTRIBUTE = '_openbench_profile'
 
@@ -38,13 +56,69 @@ def spsa_parameter_count() -> Coalesce:
     )
 
 
-def listing_tests(tests: QuerySet[Test]) -> QuerySet[Test]:
+def snapshot_pick(
+    name: str, snapshots: QuerySet[WorkloadSnapshot], *, newest: bool, running_only: bool
+) -> dict[str, Expression]:
+
+    ordered = snapshots.order_by('-created', '-id') if newest else snapshots.order_by('created', 'id')
+
+    def column(field: str, output: Field) -> Expression:
+        value = Subquery(ordered.values(field)[:1], output_field=output)
+        return Case(When(finished=False, then=value), output_field=output) if running_only else value
+
+    return {f'{name}_at': column('created', DateTimeField()), f'{name}_games': column('games', IntegerField())}
+
+
+def listing_timing(now: datetime) -> dict[str, Expression]:
+
+    snapshots = WorkloadSnapshot.objects.filter(test=OuterRef('pk'))
+    window_start = now - RECENT_WINDOW
+    return {
+        'listing_as_of': Value(now, output_field=DateTimeField()),
+        'finished_at': finish_time(),
+        **snapshot_pick('first_snapshot', snapshots, newest=False, running_only=False),
+        **snapshot_pick('window_before', snapshots.filter(created__lte=window_start), newest=True, running_only=True),
+        **snapshot_pick('window_after', snapshots.filter(created__gt=window_start), newest=False, running_only=True),
+        **snapshot_pick('latest_snapshot', snapshots, newest=True, running_only=True),
+    }
+
+
+def listing_tests(tests: QuerySet[Test], now: datetime | None = None) -> QuerySet[Test]:
 
     # Everything Blocks/testsummary.html reads, so a listed row costs no further query
     return tests.select_related('dev', 'base', 'spsa_run').annotate(
         dev_network_label=dev_network_label(),
         spsa_parameter_count=spsa_parameter_count(),
+        **listing_timing(now or timezone.now()),
     )
+
+
+def annotated_mark(test: Test, name: str) -> Mark | None:
+    at, games = getattr(test, f'{name}_at'), getattr(test, f'{name}_games')
+    return None if at is None or games is None else (at, games)
+
+
+def annotated_snapshots(test: Test) -> SnapshotMarks:
+    return SnapshotMarks(
+        first=annotated_mark(test, 'first_snapshot'),
+        window_before=annotated_mark(test, 'window_before'),
+        window_after=annotated_mark(test, 'window_after'),
+        latest=annotated_mark(test, 'latest_snapshot'),
+    )
+
+
+def listing_row_timing(test: Test) -> RowTiming | None:
+
+    if (as_of := getattr(test, 'listing_as_of', None)) is None:
+        return None
+
+    if test.finished:
+        return finished_row_timing(test.first_snapshot_at or test.creation, test.finished_at)
+
+    if not test.approved or test.deleted:
+        return None
+
+    return running_row_timing(workload_facts(test), annotated_snapshots(test), as_of)
 
 
 @dataclass(frozen=True)

@@ -280,6 +280,13 @@ class ProgressDataTests(TestCase):
         green = next(green for green in report.greens if green.id == self.green.id)
         self.assertEqual(green.finished_at, NOW - timedelta(days=10))
 
+    def test_finish_time_of_a_stopped_test_survives_later_edits(self):
+        self.seed()
+        self.history(self.stopped, (NOW - timedelta(days=40), 0), (NOW - timedelta(days=35), 200))
+        Test.objects.filter(id=self.stopped.id).update(updated=NOW)
+        stopped = Test.objects.annotate(finished_at=sources.finish_time()).get(id=self.stopped.id)
+        self.assertEqual(stopped.finished_at, NOW - timedelta(days=35))
+
     def test_weekly_outcomes_count_sprt_only(self):
         self.seed()
         report = self.report(Window.DAYS_30)

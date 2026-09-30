@@ -979,6 +979,7 @@ tr + tr.table-header th {
 }
 
 .table-wrap {
+    position: relative;
     width: fit-content;
     max-width: 100%;
     overflow-x: auto;
@@ -1621,6 +1622,18 @@ td.contribution-name {
     margin-left: -1.5px;
     border-radius: 1px;
     background-color: var(--text);
+}
+
+.row-timing {
+    margin-top: var(--space-1);
+    color: var(--text-muted);
+    font-size: var(--text-xs);
+    font-variant-numeric: tabular-nums;
+    line-height: var(--leading-tight);
+}
+
+.row-timing-left {
+    color: var(--text);
 }
 
 /* ==========================================================================
