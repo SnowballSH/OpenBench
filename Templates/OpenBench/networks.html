@@ -1,12 +1,17 @@
 {% extends "OpenBench/base.html" %}
 
+{% block title %}Networks · OpenBench{% endblock %}
+
+{% block heading %}Networks{% endblock %}
+
 {% load static %}
 
 {% block scripts %}
 
     {{ networks|json_script:"json-networks" }}
 
-    <script src="{% static 'networks.js' %}?{{ static_version }}"></script>
+    <script src="{% static 'fleet.js' %}?{{ static_version }}" defer></script>
+    <script src="{% static 'networks.js' %}?{{ static_version }}" defer></script>
 
 {% endblock %}
 
@@ -15,27 +20,30 @@
     <form id="network-actions" method="post" hidden>{% csrf_token %}</form>
 
     <div class="table-wrap">
-    <table id="network-table" class="hoverable">
+    <table id="network-table" class="hoverable" data-sortable>
 
-        <tr class="table-header">
-            <th class="cursor" data-sort-networks="default"></th>
-            <th class="cursor" data-sort-networks="engine">Engine</th>
-            <th class="cursor" data-sort-networks="author">Author</th>
-            <th class="cursor" data-sort-networks="name">Name</th>
-            <th class="cursor" data-sort-networks="sha256">Hash</th>
-            <th></th>
-            <th></th>
-        </tr>
+        <thead>
+            <tr class="table-header">
+                <th><button type="button" class="sort-button" data-sort="number"><span class="visually-hidden">Default</span></button></th>
+                <th><button type="button" class="sort-button">Engine</button></th>
+                <th><button type="button" class="sort-button">Author</button></th>
+                <th><button type="button" class="sort-button">Name</button></th>
+                <th><button type="button" class="sort-button">Hash</button></th>
+                <th><span class="visually-hidden">Edit</span></th>
+                <th><span class="visually-hidden">Delete</span></th>
+            </tr>
+        </thead>
 
+        <tbody>
         {% for network in networks %}
             <tr>
                 {% if network.default %}
-                    <td><i class="fas fa-star default-network" aria-hidden="true"></i></td>
+                    <td data-sort-value="2"><i class="fas fa-star default-network" aria-hidden="true"></i><span class="visually-hidden">Default</span></td>
                 {% elif network.was_default %}
-                    <td><button class="link-button" form="network-actions" formaction="/networks/{{network.engine}}/DEFAULT/{{network.sha256}}/" aria-label="Set as default">
+                    <td data-sort-value="1"><button class="link-button" form="network-actions" formaction="/networks/{{network.engine}}/DEFAULT/{{network.sha256}}/" aria-label="Set {{network.name}} as default (previous default)">
                     <i class="fas fa-star was-default-network" aria-hidden="true"></i></button></td>
                 {% else %}
-                    <td><button class="link-button" form="network-actions" formaction="/networks/{{network.engine}}/DEFAULT/{{network.sha256}}/" aria-label="Set as default">
+                    <td data-sort-value="0"><button class="link-button" form="network-actions" formaction="/networks/{{network.engine}}/DEFAULT/{{network.sha256}}/" aria-label="Set {{network.name}} as default">
                     <i class="far fa-star non-default-network" aria-hidden="true"></i></button></td>
                 {% endif %}
 
@@ -45,25 +53,26 @@
                 <td class="mono muted">{{network.sha256}}</td>
 
                 <td>
-                    <a href="/networks/{{network.engine}}/EDIT/{{network.sha256}}">
-                        <i class="fa-solid fa-pen-to-square icon-muted"></i>
+                    <a href="/networks/{{network.engine}}/EDIT/{{network.sha256}}" aria-label="Edit {{network.name}}">
+                        <i class="fa-solid fa-pen-to-square icon-muted" aria-hidden="true"></i>
                     </a>
                 </td>
 
                 <td>
                     {% if not network.default and not network.was_default %}
-                        <button class="link-button" form="network-actions" aria-label="Delete"
+                        <button class="link-button" form="network-actions" aria-label="Delete {{network.name}}"
                             formaction="/networks/{{network.engine}}/DELETE/{{network.sha256}}/"
                             data-confirm="YOU ARE DELETING THIS NETWORK FILE FOREVER">
-                        <i class="fa-solid fa-trash-can icon-danger"></i></button>
+                        <i class="fa-solid fa-trash-can icon-danger" aria-hidden="true"></i></button>
                     {% else %}
                         <a data-alert="You must unset the default and previous-default flags manually before deleting"
-                            href="/networks/{{network.engine}}/EDIT/{{network.sha256}}">
-                        <i class="fa-solid fa-trash-can icon-muted"></i></a>
+                            href="/networks/{{network.engine}}/EDIT/{{network.sha256}}" aria-label="Delete {{network.name}} (unset its default flags first)">
+                        <i class="fa-solid fa-trash-can icon-muted" aria-hidden="true"></i></a>
                     {% endif %}
                 </td>
             </tr>
         {% endfor %}
+        </tbody>
 
     </table>
     </div>
