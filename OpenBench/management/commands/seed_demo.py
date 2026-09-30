@@ -27,12 +27,14 @@ HISTORY_POINTS = 150
 
 ENGINE_SOURCE = 'https://github.com/SnowballSH/Avalanche'
 
+# The last field is how many hours ago an offline Machine last reported; 0 is online
 CPUS = [
-    ('AMD Ryzen 9 7950X 16-Core Processor', 'x86-64-avx512', 'Linux', 32),
-    ('AMD Ryzen 9 7950X 16-Core Processor', 'x86-64-avx512', 'Linux', 32),
-    ('Intel(R) Core(TM) i9-13900K', 'x86-64-avx2', 'Linux', 24),
-    ('Apple M4', 'apple-silicon', 'Darwin', 10),
-    ('AMD EPYC 7763 64-Core Processor', 'x86-64-avx2', 'Linux', 64),
+    ('AMD Ryzen 9 7950X 16-Core Processor', 'x86-64-avx512', 'Linux', 32, 0),
+    ('AMD Ryzen 9 7950X 16-Core Processor', 'x86-64-avx512', 'Linux', 32, 0),
+    ('Intel(R) Core(TM) i9-13900K', 'x86-64-avx2', 'Linux', 24, 0),
+    ('Apple M4', 'apple-silicon', 'Darwin', 10, 5),
+    ('AMD EPYC 7763 64-Core Processor', 'x86-64-avx2', 'Linux', 64, 30),
+    ('Intel(R) Xeon(R) Gold 6338 CPU @ 2.00GHz', 'x86-64-avx512', 'Linux', 32, 240),
 ]
 
 @dataclass(frozen=True)
@@ -83,6 +85,7 @@ class Command(BaseCommand):
             for spec in WORKLOADS:
                 create_workload(spec, users[0], machines, rng)
             credit_profiles(users)
+            age_offline_machines(machines)
 
         self.stdout.write('Seeded %d workloads on %d machines. Log in as admin / %s' % (
             len(WORKLOADS), len(machines), DEMO_PASSWORD))
@@ -113,7 +116,7 @@ def create_book():
 
 def create_machines(users):
     machines = []
-    for index, (cpu_name, isa_name, os_name, threads) in enumerate(CPUS):
+    for index, (cpu_name, isa_name, os_name, threads, _) in enumerate(CPUS):
         owner = users[1 + index % 2]
         info  = {
             'cpu_name' : cpu_name, 'isa_name' : isa_name, 'os_name' : os_name, 'os_ver' : '',
@@ -126,6 +129,20 @@ def create_machines(users):
         mnps = round(1.2 + 0.4 * index, 2)
         machines.append(Machine.objects.create(user=owner, info=info, mnps=mnps, dev_mnps=mnps, base_mnps=mnps))
     return machines
+
+def age_offline_machines(machines):
+
+    # Offline Machines stop reporting, so none of their Results is newer than their
+    # last heartbeat, and their workload is the last one they played
+
+    now = timezone.now()
+    for machine, (*_, hours_ago) in zip(machines, CPUS):
+        if not hours_ago:
+            continue
+        seen = now - datetime.timedelta(hours=hours_ago)
+        Result.objects.filter(machine=machine, updated__gt=seen).update(updated=seen)
+        last = Result.objects.filter(machine=machine).order_by('-updated', '-id').values_list('test_id', flat=True).first()
+        Machine.objects.filter(id=machine.id).update(updated=seen, workload=last or 0)
 
 def simulate_pairs(elo, pairs, rng):
     score    = 1 / (1 + 10 ** (-elo / 400))
@@ -175,7 +192,8 @@ def create_workload(spec, author, machines, rng):
 
     outcomes = simulate_pairs(spec.elo, spec.pairs, rng)
     penta    = tally(outcomes)
-    for machine, share in zip(machines, split_pairs(penta, len(machines), rng)):
+    playing  = [machine for machine, (*_, hours_ago) in zip(machines, CPUS) if datetime.timedelta(hours=hours_ago) < now - started]
+    for machine, share in zip(playing, split_pairs(penta, len(playing), rng)):
         if sum(share):
             create_result(test, machine, share, rng)
 
@@ -189,6 +207,7 @@ def create_workload(spec, author, machines, rng):
     )
 
     create_history(test, spec, outcomes, started, ended, rng)
+    Result.objects.filter(test=test).update(updated=ended)
 
     if spec.state == 'active':
         for machine in machines[:3]:
