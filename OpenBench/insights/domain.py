@@ -12,12 +12,13 @@ class WorkloadMode(StrEnum):
     DATAGEN = 'DATAGEN'
 
 class WorkloadStatus(StrEnum):
-    PENDING = 'pending'
-    ACTIVE  = 'active'
-    PASSED  = 'passed'
-    FAILED  = 'failed'
-    STOPPED = 'stopped'
-    DELETED = 'deleted'
+    PENDING   = 'pending'
+    ACTIVE    = 'active'
+    PASSED    = 'passed'
+    FAILED    = 'failed'
+    COMPLETED = 'completed'
+    STOPPED   = 'stopped'
+    DELETED   = 'deleted'
 
 @dataclass(frozen=True, slots=True)
 class Outcomes:
@@ -46,6 +47,12 @@ class ProgressPoint:
     games     : int
     outcomes  : Outcomes
     llr       : float
+
+def spsa_target_games(pairs_per: int, iterations: int) -> int:
+    return 2 * pairs_per * iterations
+
+def tune_completed(mode: WorkloadMode, games: int, target: int | None) -> bool:
+    return mode == WorkloadMode.SPSA and target is not None and target > 0 and games >= target
 
 @dataclass(frozen=True, slots=True)
 class SprtBounds:

@@ -237,9 +237,14 @@ From the Workload's `Result` rows, grouped by Machine and by `cpu_name`
   snapshot before the window can be missed.
 - `finished_last_7d`: finished, non-deleted Workloads whose `Test.updated` is in
   the window. `Test.updated` also moves on later edits, so this is "finished
-  and touched within 7 days". `stopped` counts finished Workloads that neither
-  passed nor failed. `sprt_pass_rate = sprt_passed / (sprt_passed + sprt_failed)`,
-  `null` without a decided SPRT.
+  and touched within 7 days". `completed` counts finished SPSA tunes that
+  played all their iterations (`update_test` never marks a tune passed or
+  failed), and `stopped` the remaining finished Workloads that neither passed
+  nor failed. Both this count and a Workload's `completed` status use
+  `domain.tune_completed`, which only ever applies to SPSA. The index strip
+  names completed tunes only when there are any.
+  `sprt_pass_rate = sprt_passed / (sprt_passed + sprt_failed)`, `null` without
+  a decided SPRT.
 - `top_contributors`: the ten Profiles with the most lifetime games.
 
 ## API
@@ -263,7 +268,7 @@ queries: status 200 with `{ "error": "..." }`.
     "workload": {
       "id": 1,
       "mode": "SPRT",                 // SPRT | GAMES | SPSA | DATAGEN
-      "status": "active",             // pending | active | passed | failed | stopped | deleted
+      "status": "active",             // pending | active | passed | failed | completed | stopped | deleted
       "use_penta": true,
       "created_at": "...", "updated_at": "..."
     },
@@ -335,7 +340,7 @@ Returns status 401 with `{ "error": "..." }` when authentication fails.
     "workloads": { "pending": 1, "active": 3 },
     "games_last_24h": 14686,
     "finished_last_7d": {
-      "window_days": 7, "total": 3, "passed": 2, "failed": 1, "stopped": 0,
+      "window_days": 7, "total": 3, "passed": 2, "failed": 1, "completed": 0, "stopped": 0,
       "sprt_passed": 1, "sprt_failed": 1, "sprt_pass_rate": 0.5
     },
     "top_contributors": [ { "username": "lab-worker", "games": 8120 } ]
@@ -391,6 +396,12 @@ its start and its finish (or now), with jittered arrival rates and LLRs
 computed at every point, ending exactly at the Workload's counters. It also
 credits each Profile with the games its Machines played, so the server
 payload's `top_contributors` is populated.
+
+Its SPSA tunes are played iteration by iteration with the same `c` and `r`
+schedule as `spsa_workload_assignment_dict` and the Client's delta update, so
+their parameters end at values the Server itself could have reached. Each
+iteration is a mini-match between the two perturbed sides, and the side nearer a
+hidden optimum plays slightly stronger, so the parameters drift towards it.
 
 ## Fleet pages
 

@@ -5,7 +5,7 @@ import OpenBench.views
 from django.test import TestCase
 from django.utils import timezone
 
-from OpenBench.models import Machine, Result, Test, WorkloadSnapshot
+from OpenBench.models import Machine, Result, SPSARun, Test, WorkloadSnapshot
 from OpenBench.tests.fixtures import (
     PASSWORD, create_engine_config, create_test, create_user, credentials, ensure_book, register_payload, system_info)
 
@@ -163,3 +163,38 @@ class RunningAtDeployTests(TestCase):
     def test_games_last_24h_excludes_earlier_play(self):
         server = self.client.get('/api/insights/server/').json()['server']
         self.assertAlmostEqual(server['games_last_24h'], 180_200 * 24 / 300, delta=50)
+
+class TuneStatusTests(TestCase):
+
+    def setUp(self):
+        ensure_book()
+        self.reader = create_user('reader')
+        self.client.post('/login/', credentials(self.reader))
+
+    def tune(self, games, finished=True):
+        test = create_test(self.reader, test_mode='SPSA', games=games, finished=finished, LL=games // 4, DD=games // 4)
+        SPSARun.objects.create(tune=test, reporting_type='BATCHED', distribution_type='SINGLE',
+            alpha=0.602, gamma=0.101, iterations=100, pairs_per=8, a_ratio=0.1)
+        return test
+
+    def status(self, test):
+        return self.client.get('/api/workload/%d/insights/' % (test.id)).json()['insights']['workload']['status']
+
+    def test_a_tune_that_reached_its_iterations_is_completed(self):
+        self.assertEqual(self.status(self.tune(1600)), 'completed')
+
+    def test_a_tune_stopped_early_is_stopped(self):
+        self.assertEqual(self.status(self.tune(800)), 'stopped')
+        self.assertEqual(self.status(self.tune(800, finished=False)), 'active')
+
+    def test_only_tunes_are_ever_completed(self):
+        datagen = create_test(self.reader, test_mode='DATAGEN', max_games=800, games=800, finished=True, LL=200, DD=200)
+        self.assertEqual(self.status(datagen), 'stopped')
+        finished = self.client.get('/api/insights/server/').json()['server']['finished_last_7d']
+        self.assertEqual((finished['completed'], finished['stopped']), (0, 1))
+
+    def test_server_counts_completed_tunes_apart_from_stopped_ones(self):
+        self.tune(1600)
+        self.tune(800)
+        finished = self.client.get('/api/insights/server/').json()['server']['finished_last_7d']
+        self.assertEqual((finished['total'], finished['completed'], finished['stopped']), (2, 1, 1))

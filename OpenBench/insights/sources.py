@@ -1,7 +1,8 @@
 from typing import Any
 
 from OpenBench.insights.contributions import ResultRow
-from OpenBench.insights.domain import Outcomes, ProgressPoint, SprtBounds, WorkloadFacts, WorkloadMode, WorkloadStatus
+from OpenBench.insights.domain import (
+    Outcomes, ProgressPoint, SprtBounds, WorkloadFacts, WorkloadMode, WorkloadStatus, spsa_target_games, tune_completed)
 from OpenBench.models import Result, SPSARun, Test, WorkloadSnapshot
 
 TRINOMIAL_FIELDS   = ('losses', 'draws', 'wins')
@@ -26,13 +27,14 @@ def machine_name(info: dict[str, Any]) -> str | None:
 def uses_penta(test: Test) -> bool:
     return not test.use_tri
 
-def workload_status(test: Test) -> WorkloadStatus:
+def workload_status(test: Test, mode: WorkloadMode, target: int | None) -> WorkloadStatus:
     flags = (
-        (test.deleted,      WorkloadStatus.DELETED),
-        (test.passed,       WorkloadStatus.PASSED),
-        (test.failed,       WorkloadStatus.FAILED),
-        (test.finished,     WorkloadStatus.STOPPED),
-        (not test.approved, WorkloadStatus.PENDING),
+        (test.deleted,                                               WorkloadStatus.DELETED),
+        (test.passed,                                                WorkloadStatus.PASSED),
+        (test.failed,                                                WorkloadStatus.FAILED),
+        (test.finished and tune_completed(mode, test.games, target), WorkloadStatus.COMPLETED),
+        (test.finished,                                              WorkloadStatus.STOPPED),
+        (not test.approved,                                          WorkloadStatus.PENDING),
     )
     return next((status for flag, status in flags if flag), WorkloadStatus.ACTIVE)
 
@@ -43,26 +45,27 @@ def target_games(test: Test, mode: WorkloadMode) -> int | None:
 
     if mode == WorkloadMode.SPSA:
         run = SPSARun.objects.filter(tune=test).only('pairs_per', 'iterations').first()
-        return None if run is None else 2 * run.pairs_per * run.iterations
+        return None if run is None else spsa_target_games(run.pairs_per, run.iterations)
 
     return None
 
 def workload_facts(test: Test) -> WorkloadFacts:
 
-    mode = WorkloadMode(test.test_mode)
-    sprt = SprtBounds(test.elolower, test.eloupper, test.lowerllr, test.upperllr) if mode == WorkloadMode.SPRT else None
+    mode   = WorkloadMode(test.test_mode)
+    sprt   = SprtBounds(test.elolower, test.eloupper, test.lowerllr, test.upperllr) if mode == WorkloadMode.SPRT else None
+    target = target_games(test, mode)
 
     return WorkloadFacts(
         id           = test.id,
         mode         = mode,
-        status       = workload_status(test),
+        status       = workload_status(test, mode, target),
         created_at   = test.creation,
         updated_at   = test.updated,
         finished     = test.finished,
         outcomes     = outcomes_of(test, uses_penta(test)),
         llr          = test.currentllr,
         sprt         = sprt,
-        target_games = target_games(test, mode),
+        target_games = target,
     )
 
 def snapshot_points(test: Test) -> list[ProgressPoint]:

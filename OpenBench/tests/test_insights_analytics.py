@@ -309,6 +309,11 @@ class ServerTests(SimpleTestCase):
         self.assertAlmostEqual(summary.sprt_pass_rate, 2 / 3)
         self.assertIsNone(summarize_finished([], timedelta(days=7)).sprt_pass_rate)
 
+    def test_finished_summary_counts_completed_tunes_apart(self):
+        items = [FinishedWorkload(WorkloadMode.SPSA, False, False, completed=True), FinishedWorkload(WorkloadMode.SPSA, False, False)]
+        summary = summarize_finished(items, timedelta(days=7))
+        self.assertEqual((summary.total, summary.completed, summary.stopped), (2, 1, 1))
+
 class InsightsAssemblyTests(SimpleTestCase):
 
     def test_legacy_workload_gets_a_synthetic_point(self):

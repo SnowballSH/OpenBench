@@ -108,17 +108,19 @@ function format_cpu_name(name) {
 
 function append_summary_section(table, label, rows, key_formatter) {
 
-    // Older workloads don't have NPS tracking stats.
+    // Older workloads don't have NPS tracking stats, and tunes have no Elo.
     const is_nps_available =  rows.some(row => row.dev_nps > 0);
+    const has_elo = rows.some(row => 'elo' in row);
 
     // A header row naming the grouping, then one tbody of data rows. All three
     // sections share the one table, so their columns line up automatically.
     const header = document.createElement('tr');
     header.className = 'table-header';
     header.appendChild(summary_cell('th', label));
+    header.appendChild(summary_cell('th', 'Penta'));
 
-    ['Penta', 'Elo', 'Pairs', '%'].forEach(name => {
-        header.appendChild(summary_cell('th', name));
+    [...(has_elo ? ['Elo'] : []), 'Pairs', '%'].forEach(name => {
+        header.appendChild(summary_cell('th', name, 'numeric'));
     });
 
     if (is_nps_available) {
@@ -137,7 +139,8 @@ function append_summary_section(table, label, rows, key_formatter) {
         // a point-estimate Elo, the pair count, and the % of the group total
         tr.appendChild(summary_cell('td', key_formatter ? key_formatter(row.key) : row.key));
         tr.appendChild(summary_cell('td', row.penta));
-        tr.appendChild(summary_cell('td', row.elo,   'numeric'));
+        if (has_elo)
+            tr.appendChild(summary_cell('td', row.elo, 'numeric'));
         tr.appendChild(summary_cell('td', row.pairs, 'numeric'));
         tr.appendChild(summary_cell('td', row.percent, 'numeric'));
 
@@ -198,9 +201,10 @@ async function fetch_spsa_digest(workload_id) {
         const values = lines[i].split(',')
         const tr = document.createElement('tr')
 
-        values.forEach(value => {
+        values.forEach((value, column) => {
             const td = document.createElement('td')
             td.textContent = value
+            if (column > 0) td.className = 'numeric'
             tr.appendChild(td)
         })
 

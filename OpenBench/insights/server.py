@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 from django.db.models import Max, Min
 from django.utils import timezone
 
-from OpenBench.insights.domain import WorkloadMode
+from OpenBench.insights.domain import WorkloadMode, spsa_target_games, tune_completed
 from OpenBench.models import Machine, Profile, Test, WorkloadSnapshot
 
 ACTIVE_MACHINE   = timedelta(minutes=2)
@@ -31,6 +31,7 @@ class FinishedSummary:
     total           : int
     passed          : int
     failed          : int
+    completed       : int
     stopped         : int
     sprt_passed     : int
     sprt_failed     : int
@@ -57,9 +58,10 @@ class Edge:
 
 @dataclass(frozen=True, slots=True)
 class FinishedWorkload:
-    mode   : WorkloadMode
-    passed : bool
-    failed : bool
+    mode      : WorkloadMode
+    passed    : bool
+    failed    : bool
+    completed : bool = False
 
 def fleet_status(machines: Iterable[tuple[dict[str, Any], float]]) -> FleetStatus:
     rows = [(int(info.get('concurrency', 0)), mnps) for info, mnps in machines]
@@ -97,7 +99,8 @@ def summarize_finished(workloads: Iterable[FinishedWorkload], window: timedelta)
         total          = len(items),
         passed         = sum(item.passed for item in items),
         failed         = sum(item.failed for item in items),
-        stopped        = sum(not (item.passed or item.failed) for item in items),
+        completed      = sum(item.completed and not (item.passed or item.failed) for item in items),
+        stopped        = sum(not (item.passed or item.failed or item.completed) for item in items),
         sprt_passed    = passed,
         sprt_failed    = failed,
         sprt_pass_rate = passed / (passed + failed) if passed + failed else None,
@@ -125,8 +128,13 @@ def load_games_since(since: datetime) -> int:
     return games_in_window(since, before, after, current)
 
 def load_finished_since(since: datetime) -> list[FinishedWorkload]:
-    rows = Test.objects.filter(finished=True, deleted=False, updated__gte=since).values_list('test_mode', 'passed', 'failed')
-    return [FinishedWorkload(WorkloadMode(mode), passed, failed) for mode, passed, failed in rows]
+    rows = Test.objects.filter(finished=True, deleted=False, updated__gte=since).values_list(
+        'test_mode', 'passed', 'failed', 'games', 'spsa_run__pairs_per', 'spsa_run__iterations')
+    return [
+        FinishedWorkload(WorkloadMode(mode), passed, failed, tune_completed(
+            WorkloadMode(mode), games, spsa_target_games(pairs_per, iterations) if pairs_per is not None else None))
+        for mode, passed, failed, games, pairs_per, iterations in rows
+    ]
 
 def load_top_contributors(limit: int = TOP_CONTRIBUTORS) -> list[Contributor]:
     rows = Profile.objects.filter(games__gt=0).order_by('-games', 'user__username').values_list('user__username', 'games')[:limit]
