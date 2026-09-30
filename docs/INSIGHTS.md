@@ -16,8 +16,8 @@ Code lives in `OpenBench/insights/`:
 | `eta.py` | Remaining games per Workload mode, converted into time. |
 | `series.py` | One chart point per snapshot. |
 | `grouping.py`, `contributions.py` | Per-machine and per-CPU contribution; `grouping.sum_by_key` also backs `fetch_result_summaries`. |
-| `sources.py` | The only module that reads Workload models; turns rows into domain values. |
-| `workload.py`, `server.py` | Assemble the two payloads. |
+| `sources.py` | Reads a Workload's Test, snapshots and Results and turns them into domain values. |
+| `workload.py`, `server.py` | Assemble the two payloads; `server.py` runs its own aggregate queries over Machines, Tests, snapshots and Profiles. |
 | `serialize.py`, `api.py`, `views.py` | JSON conversion and the HTTP endpoints. |
 
 Everything except `sources.py`, `recorder.py`, the loaders in `server.py`, and
@@ -28,7 +28,7 @@ database (`OpenBench/tests/test_insights_analytics.py`).
 
 | Field | Meaning |
 |---|---|
-| `test` | `ForeignKey(Test, CASCADE, related_name='snapshots')` |
+| `test` | `ForeignKey(Test, CASCADE, related_name='snapshots')`, without its own index: the `(test, created)` index serves every lookup by Test. |
 | `created` | When the snapshot was taken; indexed on its own and together with `test`. |
 | `games`, `losses`, `draws`, `wins` | Cumulative trinomial counters, copied from the Test. |
 | `LL`, `LD`, `DD`, `DW`, `WW` | Cumulative pentanomial counters, copied from the Test. |
@@ -41,10 +41,13 @@ are normally only flagged `deleted`, which leaves the history in place.
 
 ## Recording
 
-`OpenBench.utils.update_test` calls `record_snapshot(test)` once, at the end of
-its `transaction.atomic()` block, after the Test row is saved and while it is
-still locked by `select_for_update()`. The snapshot therefore always agrees with
-the Test counters it copies.
+`OpenBench.utils.update_test` calls `record_snapshot_safely(test, games)` once,
+at the end of its `transaction.atomic()` block, after the Test row is saved and
+while it is still locked by `select_for_update()`, so a snapshot always agrees
+with the Test counters it copies. `games` is the size of the batch just
+reported. The call runs in a savepoint and logs (`OpenBench.insights.recorder`
+logger) and swallows any exception, so a fault in the history can roll back
+only the history, never a worker's results.
 
 A snapshot is written when any of these hold:
 
@@ -52,20 +55,29 @@ A snapshot is written when any of these hold:
 - the newest snapshot is at least `SNAPSHOT_INTERVAL` (60 s) old;
 - the report just finished the Workload (the finishing point is always kept).
 
+When a Workload's first snapshot is recorded and the Test already held games
+before this batch (it was running when this feature was deployed), an origin
+snapshot with zero counters is written at `Test.creation` first. Without it the
+whole earlier history would appear to have been played in the first minute:
+elapsed time, rates and `games_last_24h` would all be wrong. With it those
+earlier games are treated as played evenly since creation.
+
 Cost on the hot path: one aggregate query over the `(test, created)` index,
 returning the newest `created` and the row count. At most once a minute per
-Workload, one `INSERT` follows. When that insert would take the history past
-`SNAPSHOT_LIMIT` (400 rows), the history is thinned in the same transaction:
-one indexed read of `(id, created)` and one `DELETE ... WHERE id IN (...)`,
-which happens about once every 200 inserts (about every 3.3 hours of play).
+Workload, one `INSERT` follows (two for the origin case above, once per
+Workload). When that insert would take the history past `SNAPSHOT_LIMIT`
+(400 rows), the history is thinned in the same transaction: one indexed read of
+`(id, created)` and one `DELETE ... WHERE id IN (...)`, which happens about once
+every 140 inserts (a little over 2 hours of play).
 
-Thinning (`thinned_ids`) splits the span between the first and last snapshot
-into `SNAPSHOT_TARGET` (200) equal time buckets, keeps the newest snapshot in
-each bucket, and always keeps the first and last snapshot. The history is left
-roughly uniform in time with at most 201 rows, then grows at one row per minute
-until the next thinning, so a Workload never holds more than 400 rows. Recent
-activity is always at one-minute resolution; old activity coarsens to
-`span / 200`.
+Thinning (`thinned_ids`) never touches the last `RECENT_KEPT` (1 hour) of
+snapshots, so the recent window used for rates is always at one-minute
+resolution. The older snapshots are split into `SNAPSHOT_TARGET` (200) equal
+time buckets between the first snapshot and the start of that hour; the newest
+snapshot of each bucket and the first snapshot are kept. A thinned history
+holds at most 201 older rows plus about 61 recent ones, then grows at one row a
+minute until the next thinning, so a Workload never holds more than 400 rows.
+Activity older than an hour coarsens to `span / 200`.
 
 Manual stops (`modify_workload`) do not pass through `update_test`, so a stopped
 Workload's newest snapshot may be up to a minute behind its counters. The
@@ -73,7 +85,8 @@ insights payload covers that gap with the live tail point described below.
 
 ## Timeline used by the analytics
 
-- **Snapshots exist:** the snapshots in time order. If the Test's counters are
+- **Snapshots exist:** the snapshots in time order, starting with the origin
+  snapshot at `Test.creation` when there is one. If the Test's counters are
   ahead of the newest snapshot (reports throttled within the last minute), a
   tail point is appended from the Test counters at `Test.updated`.
 - **No snapshots, games > 0** (Workloads that ran before this feature): a single
@@ -82,9 +95,9 @@ insights payload covers that gap with the live tail point described below.
   evenly from `Test.creation` to `Test.updated`.
 - **No snapshots, no games:** an empty history; timing starts at creation.
 
-`started_at` is the first snapshot's time (or `Test.creation` without history).
-The first snapshot is taken after the first batch is reported, so the first
-batch's own duration is not counted. `ended_at` is the last timeline point for a
+`started_at` is the first snapshot's time: `Test.creation` for a Workload with
+an origin snapshot or no history, otherwise the time its first batch was
+reported, so the first batch's own duration is not counted. `ended_at` is the last timeline point for a
 finished Workload, and `null` while it runs, in which case "now" ends every
 window. A Workload that has stalled therefore shows a falling rate, and an ETA
 of `null` once its recent rate reaches zero.
@@ -168,8 +181,8 @@ It is `unavailable` when there are fewer than 200 games, when the LLR is not
 strictly between the bounds, when the increment variance is below 1e-12, or for
 a trinomial Workload with an empty W, D or L bucket (where `TrinomialSPRT`
 itself returns 0). Caveats: the drift is itself a noisy estimate early on; the
-Brownian approximation ignores the overshoot of the final step, so it slightly
-overestimates; and the empirical `p̂` changes as the test runs, so the estimate
+Brownian approximation ignores the overshoot of the final step past the bound,
+so it slightly underestimates the remaining games; and the empirical `p̂` changes as the test runs, so the estimate
 moves with it. The probability `P` is not reported: it is conditional on the
 current Elo estimate being the truth, and reads as far more confident than the
 LOS for the same data.
@@ -181,21 +194,29 @@ From the Workload's `Result` rows, grouped by Machine and by `cpu_name`
 
 - `games`, `pairs` summed; `share = games / all games of the Workload`;
 - `pairs_per_hour = 3600 · pairs / timing.elapsed_seconds`: the average rate
-  over the Workload's whole elapsed time, not over the time that machine was
-  actually assigned, since Results carry no start time;
+  over the Workload's whole elapsed time (from `started_at`, so from creation
+  for Workloads that were running at deploy), not over the time that machine
+  was actually assigned, since Results carry no start time. For a Workload
+  whose history starts at its first report, that first batch counts towards
+  the pairs but not the elapsed time, which is negligible past the first few
+  minutes;
 - `elo` from the group's own summed counters, as above.
 
 ### Server
 
-- `fleet`: Machines updated within the last 2 minutes
-  (`utils.getRecentMachines`), their summed `concurrency` as threads, and
-  `Σ concurrency · mnps`, matching the index page's status line.
-- `workloads`: counts from `utils.get_pending_tests` and `get_active_tests`.
+- `fleet`: Machines updated within the last 2 minutes, their summed
+  `concurrency` as threads, and `Σ concurrency · mnps`, the same rule as
+  `utils.getMachineStatus` on the index page.
+- `workloads`: unfinished, non-deleted Workloads, split by `approved`, the same
+  filters as `utils.get_pending_tests` and `get_active_tests`. `server.py`
+  queries the models itself rather than importing `OpenBench.utils`, which
+  would make importing `OpenBench.insights.api` circular.
 - `games_last_24h`: for every Workload with a snapshot in the window, its
   current `Test.games` minus the games at the window start. The start value is
   interpolated between the newest snapshot before the window and the oldest one
-  inside it, which keeps thinned histories accurate; a Workload with no earlier
-  snapshot counts from zero. Reports within a minute of a Workload's last
+  inside it, which keeps thinned histories accurate. A Workload with no earlier
+  snapshot counts from zero; that is right, because its first snapshot is its
+  first report, or else an origin snapshot at creation exists (see Recording). Reports within a minute of a Workload's last
   snapshot before the window can be missed.
 - `finished_last_7d`: finished, non-deleted Workloads whose `Test.updated` is in
   the window. `Test.updated` also moves on later edits, so this is "finished
