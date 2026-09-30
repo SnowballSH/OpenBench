@@ -3,12 +3,14 @@ import tarfile
 import tempfile
 import threading
 
+from unittest import mock
+
 from django.core.files.base import ContentFile
 from django.core.files.storage import FileSystemStorage
 from django.test import TestCase, override_settings
 
 from OpenBench.models import PGN
-from OpenBench.pgn_watcher import PGNWatcher
+from OpenBench.pgn_watcher import PGN_BATCH_SIZE, PGNWatcher
 
 class PGNWatcherTests(TestCase):
 
@@ -50,10 +52,32 @@ class PGNWatcherTests(TestCase):
         missing = self.upload(1, 0, save_file=False)
         present = self.upload(1, 16)
         other   = self.upload(2, 0)
-        self.watcher.process_pending()
+        with self.assertLogs('OpenBench.pgn_watcher', 'WARNING') as logs:
+            self.assertEqual(self.watcher.process_pending(), 3)
+        self.assertIn('1.1.0.pgn.bz2', logs.output[0])
         self.assertEqual(self.archive(1), ['1.1.16.pgn.bz2'])
         self.assertEqual(self.archive(2), ['2.1.0.pgn.bz2'])
-        self.assertEqual(list(PGN.objects.filter(processed=False)), [missing])
-        for pgn in (present, other):
+        for pgn in (missing, present, other):
             pgn.refresh_from_db()
             self.assertTrue(pgn.processed)
+
+    def test_a_full_batch_of_missing_files_is_drained(self):
+        for index in range(PGN_BATCH_SIZE + 5):
+            self.upload(1, index, save_file=False)
+        self.upload(2, 0)
+        with self.assertLogs('OpenBench.pgn_watcher', 'WARNING'):
+            self.assertEqual(self.watcher.process_pending(), PGN_BATCH_SIZE)
+            self.assertEqual(self.watcher.process_pending(), 6)
+        self.assertEqual(self.watcher.process_pending(), 0)
+        self.assertEqual(self.archive(2), ['2.1.0.pgn.bz2'])
+
+    def run_passes(self, handled):
+        stop = mock.Mock(**{ 'is_set.side_effect' : [False] * len(handled) + [True] })
+        watcher = PGNWatcher(stop)
+        with mock.patch.object(watcher, 'process_pending', side_effect=handled):
+            watcher.run()
+        return stop.wait.call_count
+
+    def test_watcher_sleeps_unless_a_full_batch_was_resolved(self):
+        self.assertEqual(self.run_passes([PGN_BATCH_SIZE, PGN_BATCH_SIZE, 3]), 1)
+        self.assertEqual(self.run_passes([0, 0, 0]), 3)

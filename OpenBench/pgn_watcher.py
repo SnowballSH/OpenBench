@@ -18,6 +18,7 @@
 #                                                                             #
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 
+import logging
 import os
 import sys
 import tarfile
@@ -33,37 +34,45 @@ from django.db import close_old_connections
 # a graceful shutdown's join() can block (one batch, never the whole backlog).
 PGN_BATCH_SIZE = 128
 
+LOGGER = logging.getLogger(__name__)
+
 class PGNWatcher(threading.Thread):
 
     def __init__(self, stop_event, *args, **kwargs):
         self.stop_event = stop_event
         super().__init__(*args, **kwargs)
 
-    def process_test(self, storage, test_id, pgns):
+    def process_test(self, storage, test_id, pgns) -> int:
 
         # Bulk add individual .bz2 PGNs to the archive. We bulk add in order to avoid
         # scanning the entire archive on every individual write, which is very slow.
 
-        # A row whose file is missing stays pending, without blocking every other test
-        if not (pgns := [pgn for pgn in pgns if storage.exists(pgn.filename())]):
-            return
+        # The row and its file are saved atomically, so a missing file never arrives
+        if (missing := [pgn for pgn in pgns if not storage.exists(pgn.filename())]):
+            LOGGER.warning('Skipping PGNs with no file on disk: %s', ', '.join(map(str, missing)))
+            PGN.objects.filter(pk__in=[pgn.pk for pgn in missing]).update(processed=True)
+
+        if not (present := [pgn for pgn in pgns if pgn not in missing]):
+            return len(missing)
 
         tar_path = storage.path('PGNs/%d.pgn.tar' % (test_id))
         os.makedirs(os.path.dirname(tar_path), exist_ok=True)
 
         mode = 'a' if os.path.exists(tar_path) else 'w'
         with tarfile.open(tar_path, mode) as tar:
-            for pgn in pgns:
+            for pgn in present:
                 tar.add(storage.path(pgn.filename()), arcname=pgn.filename())
 
         # Flag each of the PGNs as having been processed into the archive
-        PGN.objects.filter(pk__in=[pgn.pk for pgn in pgns]).update(processed=True)
+        PGN.objects.filter(pk__in=[pgn.pk for pgn in present]).update(processed=True)
 
         # Only delete the files after flagging; in case something goes wrong
-        for pgn in pgns:
+        for pgn in present:
             storage.delete(pgn.filename())
 
-    def process_pending(self):
+        return len(pgns)
+
+    def process_pending(self) -> int:
 
         # Bounded slice, ordered by test so a test's PGNs share one tar open.
         pgns = list(PGN.objects.filter(processed=False).order_by('test_id')[:PGN_BATCH_SIZE])
@@ -73,10 +82,8 @@ class PGNWatcher(threading.Thread):
         for pgn in pgns:
             groups.setdefault(pgn.test_id, []).append(pgn)
 
-        for test_id, group in groups.items():
-            self.process_test(FileSystemStorage(), test_id, group)
-
-        return len(pgns)
+        # Counts the rows taken out of the pending set, which is our progress
+        return sum(self.process_test(FileSystemStorage(), test_id, group) for test_id, group in groups.items())
 
     def run(self):
 
@@ -94,7 +101,7 @@ class PGNWatcher(threading.Thread):
                     sys.stdout.flush()
                     close_old_connections()
 
-            # If we only processed a partial patch, we can go into our sleep
+            # Sleep unless a full batch was resolved, as a backlog may remain.
             # Otherwise loop again immediately, which will check the stop_event
             if handled < PGN_BATCH_SIZE:
                 self.stop_event.wait(timeout=15)
