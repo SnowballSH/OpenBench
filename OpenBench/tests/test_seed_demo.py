@@ -1,8 +1,11 @@
 import io
 
+from datetime import timedelta
+
 from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.test import TestCase, override_settings
+from django.utils import timezone
 
 from OpenBench.models import Machine, Profile, Result, Test, WorkloadSnapshot
 from OpenBench.management.commands.seed_demo import WORKLOADS
@@ -28,6 +31,7 @@ class SeedDemoTests(TestCase):
             self.assertEqual(test.games, 2 * sum(test.as_penta()))
 
         self.assertEqual(sum(Profile.objects.values_list('games', flat=True)), sum(Result.objects.values_list('games', flat=True)))
+        self.assertEqual(sum(Profile.objects.values_list('tests', flat=True)), Test.objects.count())
 
     @override_settings(DEBUG=True)
     def test_histories_end_at_the_workload_counters(self):
@@ -47,3 +51,16 @@ class SeedDemoTests(TestCase):
         call_command('seed_demo', stdout=io.StringIO())
         with self.assertRaises(CommandError):
             call_command('seed_demo')
+
+    @override_settings(DEBUG=True)
+    def test_fleet_has_online_and_offline_machines(self):
+        call_command('seed_demo', stdout=io.StringIO())
+
+        now    = timezone.now()
+        online = Machine.objects.filter(updated__gte=now - timedelta(minutes=2))
+        self.assertTrue(online.exists())
+        self.assertTrue(Machine.objects.filter(updated__lt=now - timedelta(hours=1), updated__gte=now - timedelta(days=1)).exists())
+        self.assertTrue(Machine.objects.filter(updated__lt=now - timedelta(days=7)).exists())
+
+        for machine in Machine.objects.exclude(id__in=online):
+            self.assertFalse(Result.objects.filter(machine=machine, updated__gt=machine.updated).exists())

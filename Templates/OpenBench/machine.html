@@ -4,49 +4,116 @@
 
 {% block content %}
 
-    <div id="config" class="table-wrap w-100 machine-config">
+    {% with row=detail.row %}
+    <div class="fleet">
 
-        <table class="test-config wrappable">
-
-            <tr><td class="td-label">User</td><td>{{machine.user.username}}</td></tr>
-            <tr><td class="td-label">Machine Name</td><td>{{machine.info.machine_name}}</td></tr>
-            <tr><td class="td-label">Last Seen</td><td class="timestamp">{{machine.updated|date:'U'}}</td></tr>
-            <tr class="spacer-row"><td class="td-label"></td><td></td></tr>
-
-            <tr><td class="td-label">Client Version</td><td>{{machine.info.client_ver}}</td></tr>
-            <tr><td class="td-label">Fastchess Version</td><td>{{machine.info.fastchess_ver}}</td></tr>
-            <tr><td class="td-label">Python Version</td><td>{{machine.info.python_ver}}</td></tr>
-            <tr><td class="td-label">System Version</td><td>{{machine.info.os_name}} {{machine.info.os_ver}}</td></tr>
-            <tr class="spacer-row"><td class="td-label"></td><td></td></tr>
-
-            <tr><td class="td-label">ISA Name</td><td>{{machine.info.isa_name}}</td></tr>
-            <tr><td class="td-label">CPU Name</td><td>{{machine.info.cpu_name}}</td></tr>
-            <tr><td class="td-label">CPU Flags</td><td><pre>{{machine|cpuflagsBlock}}</pre></td></tr>
-            <tr><td class="td-label">Logical Cores</td><td>{{machine.info.logical_cores}}</td></tr>
-            <tr><td class="td-label">Physical Cores</td><td>{{machine.info.physical_cores}}</td></tr>
-            <tr><td class="td-label">Total RAM (MB)</td><td>{{machine.info.ram_total_mb}}</td></tr>
-            <tr><td class="td-label">Syzygy WDL</td><td>{{machine.info.syzygy_max}}-Man</td></tr>
-            <tr><td class="td-label">CLI Options</td><td>{{machine.info.cli_options}}</td></tr>
-
-            <tr class="spacer-row"><td class="td-label"></td><td></td></tr>
-
-            {% if machine.info.tokens|length > 0 %}
-                <tr><td class="td-label">Tokens</td><td>{{machine.info.tokens|join:" "}}</td></tr>
+        <header class="fleet-heading">
+            <h3>{{row.name|default:"Machine"}} <span class="muted mono">#{{row.id}}</span></h3>
+            {% if row.online %}
+                <span class="badge badge-pass">Online</span>
+            {% else %}
+                <span class="badge">Offline</span>
             {% endif %}
+        </header>
 
-            {% if machine.info.compilers|length > 0 %}
-                <tr><td class="td-label">Compilers</td><td><pre>{{machine|compilerBlock}}</pre></td></tr>
+        <section class="stat-tiles" aria-label="Machine summary">
+            <div class="stat-tile {% if row.online %}stat-tile-pass{% endif %}">
+                <span class="stat-label">Last heartbeat</span>
+                <span class="stat-value"><time datetime="{{row.last_seen|date:'c'}}" title="{{row.last_seen|date:'c'}}">{{row.last_seen_ago}}</time></span>
+                <span class="stat-meta timestamp">{{row.last_seen|date:'U'}}</span>
+            </div>
+            <div class="stat-tile stat-tile-info">
+                <span class="stat-label">{% if row.online %}Current workload{% else %}Last workload{% endif %}</span>
+                <span class="stat-value fleet-tile-link">
+                    {% if row.workload %}
+                        <a href="{{row.workload|workload_url}}">{{row.workload|workload_pretty_name}}</a>
+                    {% else %}
+                        <span class="muted">Idle</span>
+                    {% endif %}
+                </span>
+            </div>
+            <div class="stat-tile">
+                <span class="stat-label">Threads</span>
+                <span class="stat-value">{{row.threads}}</span>
+                <span class="stat-meta">{{row.total_mnps|floatformat:2}} MNPS</span>
+            </div>
+            <div class="stat-tile">
+                <span class="stat-label">Lifetime games</span>
+                <span class="stat-value">{{row.lifetime_games|insertCommas}}</span>
+                <span class="stat-meta">{{detail.workloads_total|insertCommas}} workload{{detail.workloads_total|pluralize}}</span>
+            </div>
+        </section>
+
+        <div class="fleet-columns">
+
+            <section class="card fleet-section" aria-labelledby="machine-hardware-title">
+                <div class="card-header"><h3 class="card-title" id="machine-hardware-title">Hardware</h3></div>
+                <dl class="fleet-facts">
+                    <dt>Owner</dt><dd><a href="/user/{{row.owner|urlencode:''}}/">{{row.owner}}</a></dd>
+                    <dt>CPU</dt><dd>{{row.cpu_name}}</dd>
+                    <dt>ISA</dt><dd class="mono">{{row.isa_name|default:"—"}}</dd>
+                    <dt>Cores</dt><dd>{{machine.info.physical_cores|default:"?"}} physical / {{machine.info.logical_cores|default:"?"}} logical</dd>
+                    <dt>Sockets</dt><dd>{{machine.info.sockets|default:"—"}}</dd>
+                    <dt>RAM</dt><dd>{% if machine.info.ram_total_mb %}{{machine.info.ram_total_mb|insertCommas}} MB{% else %}—{% endif %}</dd>
+                    <dt>Syzygy</dt><dd>{% if machine.info.syzygy_max %}{{machine.info.syzygy_max}}-man{% else %}None{% endif %}</dd>
+                    <dt>NPS per thread</dt><dd class="mono">{{machine.dev_mnps|twoDigitPrecision}}M dev / {{machine.base_mnps|twoDigitPrecision}}M base</dd>
+                    {% if machine.info.cpu_flags %}<dt>CPU flags</dt><dd class="mono">{{machine|cpuflagsBlock}}</dd>{% endif %}
+                </dl>
+            </section>
+
+            <section class="card fleet-section" aria-labelledby="machine-software-title">
+                <div class="card-header"><h3 class="card-title" id="machine-software-title">Software</h3></div>
+                <dl class="fleet-facts">
+                    <dt>System</dt><dd>{{row.os_name|default:"—"}} {{machine.info.os_ver}}</dd>
+                    <dt>Client</dt><dd class="mono">{{machine.info.client_ver|default:"—"}}</dd>
+                    <dt>Fastchess</dt><dd class="mono">{{machine.info.fastchess_ver|default:"—"}}</dd>
+                    <dt>Python</dt><dd class="mono">{{machine.info.python_ver|default:"—"}}</dd>
+                    <dt>CLI options</dt><dd class="mono">{{machine.info.cli_options|default:"—"}}</dd>
+                    {% if machine.info.tokens %}<dt>Tokens</dt><dd>{{machine.info.tokens|join:" "}}</dd>{% endif %}
+                    {% if machine.info.compilers %}<dt>Compilers</dt><dd><pre class="mono">{{machine|compilerBlock}}</pre></dd>{% endif %}
+                </dl>
+            </section>
+
+        </div>
+
+        <section class="fleet-section" aria-labelledby="machine-workloads-title">
+            <div class="card-header">
+                <h3 class="card-title" id="machine-workloads-title">Workloads</h3>
+                {% if detail.truncated %}<span class="muted">Newest {{detail.contributions|length}} of {{detail.workloads_total|insertCommas}}</span>{% endif %}
+            </div>
+            {% if detail.contributions %}
+                <div class="table-wrap w-100">
+                    <table class="hoverable">
+                        <thead>
+                            <tr class="table-header">
+                                <th>Workload</th>
+                                <th>Mode</th>
+                                <th class="numeric">Games</th>
+                                <th class="numeric">Elo</th>
+                                <th class="numeric">NPS</th>
+                                <th>Updated</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for item in detail.contributions %}
+                                <tr>
+                                    <td><a href="{{item.test|workload_url}}">{{item.test|workload_pretty_name}}</a></td>
+                                    <td class="mono">{{item.test.test_mode}}</td>
+                                    <td class="numeric">{{item.games|insertCommas}}</td>
+                                    <td class="numeric">{% if item.elo %}{{item.elo.value|floatformat:2}} ± {{item.elo_margin|floatformat:2}}{% else %}<span class="muted">—</span>{% endif %}</td>
+                                    <td class="numeric">{% if item.nps %}{{item.nps|insertCommas}}{% else %}<span class="muted">—</span>{% endif %}</td>
+                                    <td><time class="muted" datetime="{{item.updated|date:'c'}}" title="{{item.updated|date:'c'}}">{{item.updated_ago}}</time></td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% else %}
+                <p class="card muted">This machine has not contributed to any workload yet.</p>
             {% endif %}
-
-        </table>
+        </section>
 
     </div>
+    {% endwith %}
 
 {% endblock %}
-
-
-    system_info = {
-        'compilers'      : SYSTEM_COMPILERS,      # Key: Engine, Value: (Compiler, Version)
-        'tokens'         : SYSTEM_GIT_TOKENS,     # Key: Engine, Value: True, for tokens we have
-        'cpu_flags'      : SYSTEM_CPU_FLAGS,      # List of CPU flags found in the Client or Server
-    }

@@ -33,6 +33,7 @@ from django.utils import timezone
 import OpenBench.views
 import OpenBench.stats
 from OpenBench.insights.grouping import sum_by_key
+from OpenBench.insights.speed import nodes_per_second
 from OpenBench.models import *
 
 def view_workload(request, workload, workload_type):
@@ -138,9 +139,6 @@ def fetch_result_summaries(workload):
         return '%.2f ± %.2f' % (mu, (upper - lower) / 2)
 
     def summarize(bucket, nps_stats):
-        def compute_nps(nodes, time_ms):
-            return round((1000 * nodes) / time_ms) if nodes and time_ms else 0
-
         total_pairs = sum(sum(penta) for penta in bucket.values())
         rows = [{
             'key'             : key,
@@ -148,10 +146,10 @@ def fetch_result_summaries(workload):
             'elo'             : elo_display(penta),
             'pairs'           : sum(penta),
             'percent'         : '%.2f' % (100.0 * sum(penta) / total_pairs if total_pairs else 0.0),
-            'dev_nps'         : compute_nps(nps_stats[key][0], nps_stats[key][1]),
-            'dev_nps_scaled'  : compute_nps(nps_stats[key][0], nps_stats[key][2]),
-            'base_nps'        : compute_nps(nps_stats[key][3], nps_stats[key][4]),
-            'base_nps_scaled' : compute_nps(nps_stats[key][3], nps_stats[key][5]),
+            'dev_nps'         : nodes_per_second(nps_stats[key][0], nps_stats[key][1]),
+            'dev_nps_scaled'  : nodes_per_second(nps_stats[key][0], nps_stats[key][2]),
+            'base_nps'        : nodes_per_second(nps_stats[key][3], nps_stats[key][4]),
+            'base_nps_scaled' : nodes_per_second(nps_stats[key][3], nps_stats[key][5]),
         } for key, penta in bucket.items()]
         return sorted(rows, key=lambda row: row['pairs'], reverse=True)
 

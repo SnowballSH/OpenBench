@@ -1,31 +1,49 @@
 {% extends "OpenBench/base.html" %}
 
-{% load mytags %}
+{% load static mytags %}
+
+{% block scripts %}
+    <script src="{% static 'fleet.js' %}?{{ static_version }}" defer></script>
+{% endblock %}
 
 {% block content %}
 
     <div class="table-wrap">
-    <table class="hoverable">
+    <table class="hoverable" data-sortable>
 
-        <tr class="table-header">
-            <th>Username</th>
-            <th class="numeric">Games</th>
-            <th class="numeric">Tests</th>
-            <th>Engine</th>
-            <th>Created</th>
-        </tr>
+        <thead>
+            <tr class="table-header">
+                <th><button type="button" class="sort-button">Username</button></th>
+                <th class="numeric"><button type="button" class="sort-button" data-sort="number">Games</button></th>
+                <th class="numeric"><button type="button" class="sort-button" data-sort="number">Tests</button></th>
+                <th class="numeric"><button type="button" class="sort-button" data-sort="number">Machines</button></th>
+                <th class="numeric"><button type="button" class="sort-button" data-sort="number">Threads</button></th>
+                <th><button type="button" class="sort-button" data-sort="number">Last activity</button></th>
+                <th><button type="button" class="sort-button">Engine</button></th>
+                <th><button type="button" class="sort-button" data-sort="number">Created</button></th>
+            </tr>
+        </thead>
 
-        {% for profile in profiles %}
-            {% if profile.games or profile.tests or profile.approver %}
+        <tbody>
+            {% for row in rows %}
                 <tr>
-                    <td><a href="/user/{{profile.user.username}}">{{profile.user.username|capfirst}}</a></td>
-                    <td class="numeric">{{profile.games|insertCommas}}</td>
-                    <td class="numeric">{{profile.tests|insertCommas}}</td>
-                    <td>{{profile.engine}}</td>
-                    <td class="timestamp muted">{{profile.user.date_joined|date:'U'}}</td>
+                    <td><a href="/user/{{row.username|urlencode:''}}/">{{row.username|capfirst}}</a></td>
+                    <td class="numeric" data-sort-value="{{row.games}}">{{row.games|insertCommas}}</td>
+                    <td class="numeric" data-sort-value="{{row.tests}}">{{row.tests|insertCommas}}</td>
+                    <td class="numeric" data-sort-value="{{row.machines_online}}">{% if row.machines_online %}<span class="badge badge-pass">{{row.machines_online}} online</span>{% else %}<span class="muted">0</span>{% endif %}</td>
+                    <td class="numeric" data-sort-value="{{row.threads_online}}">{{row.threads_online|insertCommas}}</td>
+                    <td data-sort-value="{{row.last_activity|date:'U'|default:0}}">
+                        {% if row.last_activity %}
+                            <time class="muted" datetime="{{row.last_activity|date:'c'}}" title="{{row.last_activity|date:'c'}}">{{row.last_activity_ago}}</time>
+                        {% else %}
+                            <span class="muted">Never</span>
+                        {% endif %}
+                    </td>
+                    <td>{{row.engine}}</td>
+                    <td class="timestamp muted" data-sort-value="{{row.joined|date:'U'}}">{{row.joined|date:'U'}}</td>
                 </tr>
-            {% endif %}
-        {% endfor %}
+            {% endfor %}
+        </tbody>
 
     </table>
     </div>
