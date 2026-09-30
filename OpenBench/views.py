@@ -35,6 +35,10 @@ from OpenBench.workloads.modify_workload import modify_workload
 from OpenBench.workloads.verify_workload import verify_workload
 from OpenBench.workloads.view_workload import view_workload, fetch_results, fetch_result_summaries
 from OpenBench.insights.api import workload_payload
+from OpenBench.fleet.machine_detail import load_machine_detail
+from OpenBench.fleet.machines import load_machines_page
+from OpenBench.fleet.status import OfflineWindow
+from OpenBench.fleet.users import load_user_rows
 
 from OpenBench.config import OPENBENCH_CONFIG, OPENBENCH_STATIC_VERSION
 from OpenBench.security import throttle
@@ -477,9 +481,7 @@ def search(request):
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 
 def users(request):
-
-    data = { 'profiles' : Profile.objects.order_by('-games', '-tests') }
-    return render(request, 'users.html', data)
+    return render(request, 'users.html', { 'rows' : load_user_rows(timezone.now()) })
 
 def event(request, pk):
 
@@ -508,15 +510,13 @@ def events_errors(request, page=1):
 def machines(request, pk=None):
 
     if pk == None:
-        data = { 'machines' : OpenBench.utils.getRecentMachines() }
-        return render(request, 'machines.html', data)
+        page = load_machines_page(timezone.now(), OfflineWindow.parse(request.GET.get('show')))
+        return render(request, 'machines.html', { 'page' : page })
 
-    try:
-        data = { 'machine' : OpenBench.models.Machine.objects.get(id=int(pk)) }
-        return render(request, 'machine.html', data)
-
-    except:
+    if not (detail := load_machine_detail(int(pk), timezone.now())):
         return redirect(request, '/machines/', error='Machine does not exist')
+
+    return render(request, 'machine.html', { 'detail' : detail, 'machine' : detail.machine })
 
 
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #

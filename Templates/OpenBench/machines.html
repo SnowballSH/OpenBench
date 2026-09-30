@@ -1,45 +1,135 @@
 {% extends "OpenBench/base.html" %}
 
-{% load mytags %}
+{% load static mytags %}
+
+{% block scripts %}
+    <script src="{% static 'fleet.js' %}?{{ static_version }}" defer></script>
+{% endblock %}
 
 {% block content %}
 
-    <div class="table-wrap">
-    <table class="hoverable">
+    <div class="fleet">
 
-        <tr class="table-header">
-            <th>#</th>
-            <th>User</th>
-            <th>Name</th>
-            <th>System</th>
-            <th>ISA</th>
-            <th>Workload</th>
-            <th>Threads</th>
-            <th>NPS</th>
-        </tr>
+        <section class="stat-tiles" aria-label="Fleet summary">
+            <div class="stat-tile stat-tile-pass">
+                <span class="stat-label">Online machines</span>
+                <span class="stat-value">{{page.summary.online}}</span>
+                {% if page.summary.offline %}<span class="stat-meta">{{page.summary.offline}} offline shown</span>{% endif %}
+            </div>
+            <div class="stat-tile stat-tile-info">
+                <span class="stat-label">Threads</span>
+                <span class="stat-value">{{page.summary.threads|insertCommas}}</span>
+            </div>
+            <div class="stat-tile stat-tile-info">
+                <span class="stat-label">Total MNPS</span>
+                <span class="stat-value">{{page.summary.mnps|floatformat:1}}</span>
+            </div>
+            <div class="stat-tile">
+                <span class="stat-label">CPU models</span>
+                <span class="stat-value">{{page.summary.cpu_models}}</span>
+            </div>
+            <div class="stat-tile">
+                <span class="stat-label">Games, last 24h</span>
+                <span class="stat-value">{{page.summary.games_last_24h|insertCommas}}</span>
+            </div>
+        </section>
 
-        {% for machine in machines %}
-            <tr>
-                <td class="numeric"><a href="/machines/{{machine.id}}/">{{machine.id}}</a></td>
-                <td>{{machine.user.username|capfirst}}</td>
-                <td>{{machine.info.machine_name}}</td>
-                <td>{{machine.info.os_name}}</td>
-                <td>{{machine.info.isa_name}}</td>
-                <td>
-                    {% if machine.workload %}
-                        <a href="{{machine.workload|workload_url}}">
-                            {{machine.workload|workload_pretty_name}}
-                        </a>
-                    {% else %}
-                        None
-                    {% endif %}
-                </td>
-                <td class="numeric">{{machine.info.concurrency}}</td>
-                <td class="numeric">{{machine.dev_mnps|twoDigitPrecision}}M / {{machine.base_mnps|twoDigitPrecision}}M</td>
-            </tr>
-        {% endfor %}
+        <nav class="fleet-filter" aria-label="Machines shown">
+            {% for option in page.windows %}
+                <a href="?show={{option.value}}" class="fleet-filter-option"{% if option == page.window %} aria-current="true"{% endif %}>{{option.label}}</a>
+            {% endfor %}
+        </nav>
 
-    </table>
+        {% if page.rows %}
+
+            <div class="table-wrap w-100">
+                <table class="hoverable fleet-table" data-sortable>
+                    <thead>
+                        <tr class="table-header">
+                            <th><button type="button" class="sort-button" data-sort="number">Machine</button></th>
+                            <th><button type="button" class="sort-button">Owner</button></th>
+                            <th><button type="button" class="sort-button">CPU</button></th>
+                            <th><button type="button" class="sort-button">ISA</button></th>
+                            <th><button type="button" class="sort-button">OS</button></th>
+                            <th class="numeric"><button type="button" class="sort-button" data-sort="number">Threads</button></th>
+                            <th class="numeric"><button type="button" class="sort-button" data-sort="number">MNPS</button></th>
+                            <th><button type="button" class="sort-button">Workload</button></th>
+                            <th><button type="button" class="sort-button" data-sort="number">Last seen</button></th>
+                            <th class="numeric"><button type="button" class="sort-button" data-sort="number">Games</button></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in page.rows %}
+                            <tr{% if not row.online %} class="fleet-offline"{% endif %}>
+                                <td data-sort-value="{{row.id}}">
+                                    <a href="/machines/{{row.id}}/">{{row.name|default:"Machine"}}</a>
+                                    <span class="muted mono">#{{row.id}}</span>
+                                </td>
+                                <td><a href="/user/{{row.owner|urlencode}}/">{{row.owner}}</a></td>
+                                <td class="fleet-cpu" title="{{row.cpu_name}}">{{row.cpu_name}}</td>
+                                <td class="mono">{{row.isa_name|default:"—"}}</td>
+                                <td>{{row.os_name|default:"—"}}</td>
+                                <td class="numeric">{{row.threads}}</td>
+                                <td class="numeric" data-sort-value="{{row.total_mnps|stringformat:'f'}}" title="{{row.mnps|floatformat:2}} MNPS per thread">{{row.total_mnps|floatformat:2}}</td>
+                                <td>
+                                    {% if row.workload %}
+                                        <a href="{{row.workload|workload_url}}"{% if not row.online %} class="muted" title="Last workload"{% endif %}>{{row.workload|workload_pretty_name}}</a>
+                                    {% else %}
+                                        <span class="muted">Idle</span>
+                                    {% endif %}
+                                </td>
+                                <td data-sort-value="{{row.last_seen|date:'U'}}">
+                                    {% if row.online %}
+                                        <span class="badge badge-pass">Online</span>
+                                    {% else %}
+                                        <span class="badge">Offline</span>
+                                    {% endif %}
+                                    <time class="muted" datetime="{{row.last_seen|date:'c'}}" title="{{row.last_seen|date:'c'}}">{{row.last_seen_ago}}</time>
+                                </td>
+                                <td class="numeric" data-sort-value="{{row.lifetime_games}}">{{row.lifetime_games|insertCommas}}</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+
+            <section class="card fleet-section" aria-labelledby="fleet-cpus-title">
+                <div class="card-header">
+                    <h3 class="card-title" id="fleet-cpus-title">By CPU model</h3>
+                    <span class="muted">Threads and MNPS count online machines</span>
+                </div>
+                <div class="table-wrap w-100">
+                    <table class="hoverable" data-sortable>
+                        <thead>
+                            <tr class="table-header">
+                                <th><button type="button" class="sort-button">CPU</button></th>
+                                <th class="numeric"><button type="button" class="sort-button" data-sort="number">Online</button></th>
+                                <th class="numeric"><button type="button" class="sort-button" data-sort="number">Shown</button></th>
+                                <th class="numeric"><button type="button" class="sort-button" data-sort="number">Threads</button></th>
+                                <th class="numeric"><button type="button" class="sort-button" data-sort="number">MNPS</button></th>
+                                <th class="numeric"><button type="button" class="sort-button" data-sort="number">Games</button></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for group in page.cpus %}
+                                <tr>
+                                    <td class="fleet-cpu" title="{{group.cpu_name}}">{{group.cpu_name}}</td>
+                                    <td class="numeric">{{group.online}}</td>
+                                    <td class="numeric">{{group.shown}}</td>
+                                    <td class="numeric">{{group.threads}}</td>
+                                    <td class="numeric" data-sort-value="{{group.mnps|stringformat:'f'}}">{{group.mnps|floatformat:2}}</td>
+                                    <td class="numeric" data-sort-value="{{group.lifetime_games}}">{{group.lifetime_games|insertCommas}}</td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+        {% else %}
+            <p class="card muted">{% if page.window.value == 'active' %}No machines are online right now.{% else %}No machines reported in this window.{% endif %}</p>
+        {% endif %}
+
     </div>
 
 {% endblock %}
