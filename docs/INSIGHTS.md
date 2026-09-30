@@ -405,8 +405,8 @@ filter):
   `no_target`, which shows only the rate. A zero rate is not shown.
 - **Finished**: `took 5h 12m`, from the first snapshot (or `Test.creation`
   without one) to the finish time of the progress page
-  (`OpenBench.progress.sources.finish_time`): the newest snapshot for a passed
-  or failed Workload, otherwise `Test.updated`, which later edits also move.
+  (`OpenBench.progress.sources.finish_time`): the newest snapshot, or
+  `Test.updated` for a Workload without snapshots.
 - **Pending**: nothing.
 
 The timing costs no query. `page_queries.listing_tests` annotates each row
@@ -510,13 +510,17 @@ week with a finished SPRT test. Every series is bucketed by UTC day or UTC week
 
 ### Finish time
 
-`Test` has no finish timestamp. For a test that passed or failed, the finish
-time is its newest snapshot's `created`: `update_test` always records the report
-that finishes a Workload. A stopped test (or one without snapshots) uses
-`Test.updated`, which also moves when a finished test is edited later.
-The query first narrows on `updated ≥ since − 1 h` (the `test_completed_updated`
-index; the finish time is never later than `updated` plus the moment between
-saving the Test and recording its snapshot), then filters on the finish time.
+`Test` has no finish timestamp. For every finished test the finish time is its
+newest snapshot's `created`: `update_test` always records the report that
+finishes a Workload, and a manual stop leaves the last report as the newest
+snapshot, so later edits (stop, delete, restore, modify), which move
+`Test.updated`, do not move it. A stopped test's finish time is therefore its
+last report, up to a minute before its final counters (see Recording), not the
+moment someone stopped it. Only a test without snapshots falls back to
+`Test.updated`. The query first narrows on `updated ≥ since − 1 h` (the
+`test_completed_updated` index; the finish time is never later than `updated`
+plus the moment between saving the Test and recording its snapshot), then
+filters on the finish time.
 
 ### Metrics
 

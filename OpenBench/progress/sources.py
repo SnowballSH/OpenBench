@@ -2,7 +2,6 @@ from datetime import UTC, date, timedelta
 
 from django.db import connection
 from django.db.models import (
-    Case,
     Count,
     DateField,
     DateTimeField,
@@ -14,7 +13,6 @@ from django.db.models import (
     QuerySet,
     Subquery,
     Sum,
-    When,
 )
 from django.db.models.functions import Coalesce, TruncDate, TruncWeek
 
@@ -29,16 +27,9 @@ from OpenBench.progress.domain import DayMaximum, GreenRow, OutcomeCounts, Scope
 FINISH_SLACK = timedelta(hours=1)
 
 
-def finish_time() -> Case:
+def finish_time() -> Coalesce:
     last_report = WorkloadSnapshot.objects.filter(test=OuterRef('pk')).order_by('-created').values('created')[:1]
-    return Case(
-        When(
-            Q(passed=True) | Q(failed=True),
-            then=Coalesce(Subquery(last_report), F('updated')),
-        ),
-        default=F('updated'),
-        output_field=DateTimeField(),
-    )
+    return Coalesce(Subquery(last_report), F('updated'), output_field=DateTimeField())
 
 
 def finished_sprts(scope: Scope) -> QuerySet[Test]:
