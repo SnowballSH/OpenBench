@@ -49,7 +49,7 @@
             <section class="card fleet-section" aria-labelledby="machine-hardware-title">
                 <div class="card-header"><h3 class="card-title" id="machine-hardware-title">Hardware</h3></div>
                 <dl class="fleet-facts">
-                    <dt>Owner</dt><dd><a href="/user/{{row.owner|urlencode}}/">{{row.owner}}</a></dd>
+                    <dt>Owner</dt><dd><a href="/user/{{row.owner|urlencode:''}}/">{{row.owner}}</a></dd>
                     <dt>CPU</dt><dd>{{row.cpu_name}}</dd>
                     <dt>ISA</dt><dd class="mono">{{row.isa_name|default:"—"}}</dd>
                     <dt>Cores</dt><dd>{{machine.info.physical_cores|default:"?"}} physical / {{machine.info.logical_cores|default:"?"}} logical</dd>

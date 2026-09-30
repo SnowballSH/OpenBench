@@ -6,6 +6,7 @@ from django.db.models import Count, Sum
 from OpenBench.fleet.machines import MachineRow, load_workloads, machine_row
 from OpenBench.fleet.status import relative_age
 from OpenBench.insights.domain import Outcomes, WorkloadMode
+from OpenBench.insights.speed import nodes_per_second
 from OpenBench.insights.strength import EloInterval, elo_interval
 from OpenBench.models import Machine, Result, Test
 
@@ -17,7 +18,7 @@ class WorkloadContribution:
     test: Test
     games: int
     elo: EloInterval | None
-    nps: int | None
+    nps: int
     updated: datetime
     updated_ago: str
 
@@ -50,10 +51,6 @@ def result_elo(result: Result) -> EloInterval | None:
     if result.test.test_mode == WorkloadMode.SPSA:
         return None
     return elo_interval(result_outcomes(result).primary())
-
-
-def nodes_per_second(nodes: int, milliseconds: int) -> int | None:
-    return round(1000 * nodes / milliseconds) if nodes and milliseconds else None
 
 
 def workload_contribution(result: Result, now: datetime) -> WorkloadContribution:

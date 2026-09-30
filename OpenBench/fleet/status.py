@@ -50,14 +50,17 @@ def relative_age(delta: timedelta) -> str:
 
     for unit, size in (("d", 86400), ("h", 3600), ("m", 60)):
         if seconds >= size:
-            return "%d%s ago" % (seconds // size, unit)
+            return f"{seconds // size}{unit} ago"
 
-    return "just now" if seconds < 10 else "%ds ago" % (seconds)
+    return "just now" if seconds < 10 else f"{seconds}s ago"
+
+
+def known_text(value: object) -> str | None:
+    return str(value) if value not in (None, "", "None") else None
 
 
 def text_of(info: dict[str, Any], key: str) -> str | None:
-    value = info.get(key)
-    return str(value) if value not in (None, "", "None") else None
+    return known_text(info.get(key))
 
 
 def int_of(info: dict[str, Any], key: str) -> int:

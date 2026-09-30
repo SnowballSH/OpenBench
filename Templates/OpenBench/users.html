@@ -27,7 +27,7 @@
         <tbody>
             {% for row in rows %}
                 <tr>
-                    <td><a href="/user/{{row.username|urlencode}}/">{{row.username|capfirst}}</a></td>
+                    <td><a href="/user/{{row.username|urlencode:''}}/">{{row.username|capfirst}}</a></td>
                     <td class="numeric" data-sort-value="{{row.games}}">{{row.games|insertCommas}}</td>
                     <td class="numeric" data-sort-value="{{row.tests}}">{{row.tests|insertCommas}}</td>
                     <td class="numeric" data-sort-value="{{row.machines_online}}">{% if row.machines_online %}<span class="badge badge-pass">{{row.machines_online}} online</span>{% else %}<span class="muted">0</span>{% endif %}</td>

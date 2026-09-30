@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+from unittest import mock
 
 from django.contrib.auth.models import User
 from django.db import connection
@@ -6,17 +7,14 @@ from django.test import SimpleTestCase, TestCase
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
-from OpenBench.fleet.machine_detail import (
-    load_machine_detail,
-    nodes_per_second,
-    result_elo,
-)
+from OpenBench.fleet.machine_detail import load_machine_detail, result_elo
 from OpenBench.fleet.machines import (
+    CpuGroup,
     MachineRow,
     display_order,
-    group_by_cpu,
-    load_machine_rows,
+    load_machines_page,
     machine_row,
+    merge_cpu_groups,
     summarize_fleet,
 )
 from OpenBench.fleet.status import (
@@ -28,6 +26,7 @@ from OpenBench.fleet.status import (
     text_of,
 )
 from OpenBench.fleet.users import latest, load_user_rows
+from OpenBench.insights.speed import nodes_per_second
 from OpenBench.models import Engine, Machine, Profile, Result, Test
 from OpenBench.stats import Elo
 from OpenBench.tests.fixtures import create_test, create_user, ensure_book, system_info
@@ -43,6 +42,7 @@ def row(
     mnps: float = 1.5,
     online: bool = True,
     games: int = 0,
+    seen: timedelta = timedelta(),
 ) -> MachineRow:
     return MachineRow(
         id=id,
@@ -53,7 +53,7 @@ def row(
         os_name=None,
         threads=threads,
         mnps=mnps,
-        last_seen=NOW,
+        last_seen=NOW - seen,
         last_seen_ago="just now",
         presence=Presence.ONLINE if online else Presence.OFFLINE,
         workload=None,
@@ -158,43 +158,44 @@ class StatusTests(SimpleTestCase):
 
 
 class FleetAnalyticsTests(SimpleTestCase):
-    def test_summary_counts_only_online_machines(self):
-        rows = [
-            row(1, threads=8, mnps=2.0),
-            row(2, cpu="M4", threads=4, mnps=1.0),
-            row(3, cpu="Xeon", threads=64, online=False),
-        ]
-        summary = summarize_fleet(rows, games_last_24h=1234)
-        self.assertEqual((summary.online, summary.offline, summary.threads), (2, 1, 12))
-        self.assertAlmostEqual(summary.mnps, 20.0)
-        self.assertEqual((summary.cpu_models, summary.games_last_24h), (2, 1234))
-
-    def test_group_by_cpu(self):
-        rows = [
-            row(1, threads=8, games=10),
-            row(2, threads=8, online=False, games=5),
-            row(3, cpu="M4", threads=2, mnps=1.0, games=7),
-        ]
-        ryzen, m4 = group_by_cpu(rows)
-        self.assertEqual(
-            (
-                ryzen.cpu_name,
-                ryzen.online,
-                ryzen.shown,
-                ryzen.threads,
-                ryzen.lifetime_games,
+    def test_summary_sums_cpu_groups(self):
+        groups = [
+            CpuGroup(
+                "Ryzen", online=2, machines=3, threads=16, mnps=24.0, lifetime_games=9
             ),
-            ("Ryzen", 1, 2, 8, 15),
+            CpuGroup(
+                "Xeon", online=0, machines=4, threads=0, mnps=0.0, lifetime_games=5
+            ),
+        ]
+        summary = summarize_fleet(groups, games_last_24h=1234)
+        self.assertEqual(
+            (summary.online, summary.offline, summary.machines, summary.threads),
+            (2, 5, 7, 16),
         )
-        self.assertAlmostEqual(ryzen.mnps, 12.0)
-        self.assertEqual((m4.cpu_name, m4.shown, m4.lifetime_games), ("M4", 1, 7))
+        self.assertAlmostEqual(summary.mnps, 24.0)
+        self.assertEqual((summary.cpu_models, summary.games_last_24h), (1, 1234))
 
-    def test_display_order_puts_online_first_then_cpu(self):
+    def test_merge_cpu_groups_folds_missing_names_into_unknown(self):
+        machines = [
+            {"cpu": "Ryzen", "online": 1, "machines": 2, "threads": 8, "mnps": 12.0},
+            {"cpu": None, "online": 0, "machines": 1, "threads": None, "mnps": None},
+            {"cpu": "None", "online": 1, "machines": 1, "threads": 2, "mnps": 2.0},
+        ]
+        games = [
+            {"cpu": "Ryzen", "games": 15},
+            {"cpu": None, "games": 4},
+            {"cpu": "M4", "games": 1},
+        ]
+        ryzen, unknown = merge_cpu_groups(machines, games)
+        self.assertEqual(ryzen, CpuGroup("Ryzen", 1, 2, 8, 12.0, 15))
+        self.assertEqual(unknown, CpuGroup("Unknown", 1, 2, 2, 2.0, 4))
+
+    def test_display_order_puts_online_first_by_cpu_then_offline_by_recency(self):
         rows = [
-            row(1, cpu="b", online=False),
+            row(1, cpu="b", online=False, seen=timedelta(hours=3)),
             row(2, cpu="B"),
             row(3, cpu="a"),
-            row(4, cpu="A", online=False),
+            row(4, cpu="A", online=False, seen=timedelta(hours=1)),
         ]
         self.assertEqual([item.id for item in display_order(rows)], [3, 2, 4, 1])
 
@@ -227,8 +228,8 @@ class FleetAnalyticsTests(SimpleTestCase):
 
     def test_nodes_per_second(self):
         self.assertEqual(nodes_per_second(3_000_000, 2000), 1_500_000)
-        self.assertIsNone(nodes_per_second(0, 2000))
-        self.assertIsNone(nodes_per_second(10, 0))
+        self.assertEqual(nodes_per_second(0, 2000), 0)
+        self.assertEqual(nodes_per_second(10, 0), 0)
 
     def test_result_elo_follows_the_workload_mode(self):
         wins, losses = 2 * PENTA[4] + PENTA[3], 2 * PENTA[0] + PENTA[1]
@@ -277,7 +278,7 @@ class FleetPageTests(TestCase):
         self.client.force_login(self.reader)
 
     def test_anonymous_is_redirected(self):
-        for url in ["/machines/", "/machines/%d/" % (self.online.id), "/users/"]:
+        for url in ["/machines/", f"/machines/{self.online.id}/", "/users/"]:
             self.assertRedirects(
                 self.client.get(url),
                 "/login/",
@@ -293,7 +294,7 @@ class FleetPageTests(TestCase):
         self.assertEqual(page.rows[0].lifetime_games, 2 * sum(PENTA))
 
         content = self.client.get("/machines/").content.decode()
-        self.assertIn('href="/test/%d/"' % (self.test.id), content)
+        self.assertIn(f'href="/test/{self.test.id}/"', content)
         self.assertIn("lmr-tweak", content)
 
     def test_machines_window_includes_recently_offline(self):
@@ -314,40 +315,59 @@ class FleetPageTests(TestCase):
     def test_lifetime_games_sum_across_workloads(self):
         other = create_test(self.reader)
         add_result(other, self.online, (0, 1, 1, 1, 0))
-        rows = {
-            item.id: item
-            for item in load_machine_rows(timezone.now(), OfflineWindow.WEEK)
-        }
+        page = load_machines_page(timezone.now(), OfflineWindow.WEEK)
+        rows = {item.id: item for item in page.rows}
         self.assertEqual(rows[self.online.id].lifetime_games, 2 * sum(PENTA) + 6)
         self.assertEqual(rows[self.old.id].lifetime_games, 0)
+
+    def test_machines_listing_caps_offline_rows(self):
+        newest = [
+            make_machine(self.worker, f"gone-{hours}", seen=timedelta(hours=hours))
+            for hours in (1, 2, 3, 4)
+        ]
+        page = load_machines_page(timezone.now(), OfflineWindow.WEEK, offline_limit=3)
+
+        self.assertEqual(
+            [item.id for item in page.rows],
+            [self.online.id, *(machine.id for machine in newest[:3])],
+        )
+        self.assertTrue(page.truncated)
+        self.assertEqual((page.offline_listed, page.summary.offline), (3, 6))
+        self.assertEqual(sum(group.machines for group in page.cpus), 7)
+
+        self.login()
+        with mock.patch("OpenBench.fleet.machines.OFFLINE_LISTED", 2):
+            response = self.client.get("/machines/?show=7d")
+        self.assertEqual(len(response.context["page"].rows), 3)
+        self.assertContains(response, "the 2 most recently seen of 6 offline machines")
 
     def test_machines_query_count_is_bounded(self):
         self.login()
         for index in range(8):
             host = make_machine(
                 self.worker,
-                "extra-%d" % (index),
-                cpu="CPU %d" % (index),
+                f"extra-{index}",
+                cpu=f"CPU {index}",
                 workload=create_test(self.reader).id,
             )
             add_result(self.test, host)
 
-        with self.assertNumQueries(10):
+        with self.assertNumQueries(13):
             self.client.get("/machines/?show=7d")
 
         for index in range(8):
             make_machine(
-                self.reader, "more-%d" % (index), workload=create_test(self.reader).id
+                self.reader, f"more-{index}", workload=create_test(self.reader).id
             )
 
-        self.assertEqual(query_count(self.client, "/machines/?show=7d"), 10)
+        self.assertEqual(query_count(self.client, "/machines/?show=7d"), 13)
 
     def test_machine_detail(self):
         self.login()
         spsa = create_test(self.reader, test_mode="SPSA")
         add_result(spsa, self.online)
 
-        response = self.client.get("/machines/%d/" % (self.online.id))
+        response = self.client.get(f"/machines/{self.online.id}/")
         detail = response.context["detail"]
         self.assertTrue(detail.row.online)
         self.assertEqual(detail.row.workload, self.test)
@@ -404,6 +424,12 @@ class FleetPageTests(TestCase):
             timezone.now() - rows["reader"].last_activity, timedelta(minutes=1)
         )
 
+    def test_last_activity_ignores_logins(self):
+        idle = create_user("idle", approver=True)
+        self.client.force_login(idle)
+        rows = {item.username: item for item in load_user_rows(timezone.now())}
+        self.assertIsNone(rows["idle"].last_activity)
+
     def test_user_with_only_an_online_machine_is_listed(self):
         rows = {item.username: item for item in load_user_rows(timezone.now())}
         self.assertIn("lab-worker", rows)
@@ -412,16 +438,16 @@ class FleetPageTests(TestCase):
     def test_users_query_count_is_bounded(self):
         self.login()
         for index in range(6):
-            owner = create_user("user-%d" % (index))
+            owner = create_user(f"user-{index}")
             Profile.objects.filter(user=owner).update(games=index + 1)
-            make_machine(owner, "box-%d" % (index))
+            make_machine(owner, f"box-{index}")
 
-        with self.assertNumQueries(8):
+        with self.assertNumQueries(10):
             self.client.get("/users/")
 
         for index in range(6, 12):
-            owner = create_user("user-%d" % (index))
+            owner = create_user(f"user-{index}")
             Profile.objects.filter(user=owner).update(games=index + 1)
-            make_machine(owner, "box-%d" % (index), seen=timedelta(hours=1))
+            make_machine(owner, f"box-{index}", seen=timedelta(hours=1))
 
-        self.assertEqual(query_count(self.client, "/users/"), 8)
+        self.assertEqual(query_count(self.client, "/users/"), 10)

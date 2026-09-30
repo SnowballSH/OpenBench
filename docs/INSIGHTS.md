@@ -16,6 +16,7 @@ Code lives in `OpenBench/insights/`:
 | `eta.py` | Remaining games per Workload mode, converted into time. |
 | `series.py` | One chart point per snapshot. |
 | `grouping.py`, `contributions.py` | Per-machine and per-CPU contribution; `grouping.sum_by_key` also backs `fetch_result_summaries`. |
+| `speed.py` | Nodes per second from node and millisecond counters, shared by the result summaries and the machine page. |
 | `sources.py` | Reads a Workload's Test, snapshots and Results and turns them into domain values. |
 | `workload.py`, `server.py` | Assemble the two payloads; `server.py` runs its own aggregate queries over Machines, Tests, snapshots and Profiles. |
 | `serialize.py`, `api.py`, `views.py` | JSON conversion and the HTTP endpoints. |
@@ -400,8 +401,12 @@ payload's `top_contributors` is populated.
 - **Online** is the same rule as the server payload's `fleet`: a heartbeat
   within the last 2 minutes (`ACTIVE_MACHINE`). `/machines/?show=24h` and
   `?show=7d` also list Machines last seen within that window, marked offline.
-  Summary tiles, threads and MNPS (`Σ concurrency · mnps`) count online
-  Machines only; `Games, last 24h` is `games_last_24h` above.
+  Supervisors register a Machine per workload, so a window can hold
+  thousands: the table lists every online Machine plus the 200 most recently
+  seen offline ones (`OFFLINE_LISTED`), and says so when it is cut. The tiles
+  and the CPU table are SQL aggregates over every Machine in the window, so
+  they never depend on the cut. Threads and MNPS (`Σ concurrency · mnps`)
+  count online Machines only; `Games, last 24h` is `games_last_24h` above.
 - **Lifetime games** is the sum of a Machine's `Result.games`, computed by a
   correlated subquery in the Machine query.
 - **Workload** is `Machine.workload`: the current one while online, the last
@@ -411,8 +416,11 @@ payload's `top_contributors` is populated.
   (pentanomial unless the Workload is trinomial, none for SPSA); NPS is
   `1000 · dev_nodes / dev_time`.
 - **Users** lists Profiles with games, tests, approver rights or an online
-  Machine. Last activity is the latest of the last login, the newest Machine
-  heartbeat and the newest Workload the user authored.
+  Machine. Last activity is the later of the newest heartbeat of the user's
+  Machines and the newest Workload they authored; logins are deliberately left
+  out, so the page does not reveal when someone last signed in. Machine
+  figures come from one query grouped by owner and authored Workloads from one
+  query grouped by author, merged in Python rather than correlated per row.
 
 Each page runs a fixed number of queries whatever the row count
 (`OpenBench/tests/test_fleet.py` asserts it).

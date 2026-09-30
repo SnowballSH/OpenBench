@@ -1,23 +1,22 @@
-from collections.abc import Iterable
+from collections.abc import Collection, Iterable
 from dataclasses import dataclass
 from datetime import datetime
 
-from django.db.models import (
-    Count,
-    IntegerField,
-    Max,
-    OuterRef,
-    Q,
-    QuerySet,
-    Subquery,
-    Sum,
-)
-from django.db.models.fields.json import KT
-from django.db.models.functions import Cast, Coalesce
+from django.db.models import Count, Max, Q, Sum
 
+from OpenBench.fleet.machines import online_since, threads_of
 from OpenBench.fleet.status import relative_age
-from OpenBench.insights.server import ACTIVE_MACHINE
 from OpenBench.models import Machine, Profile, Test
+
+
+@dataclass(frozen=True, slots=True)
+class MachineStats:
+    online: int
+    threads: int
+    last_heartbeat: datetime | None
+
+
+NO_MACHINES = MachineStats(online=0, threads=0, last_heartbeat=None)
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,58 +36,79 @@ def latest(moments: Iterable[datetime | None]) -> datetime | None:
     return max((moment for moment in moments if moment is not None), default=None)
 
 
-def machine_aggregate(expression: Count | Sum | Max, **filters: object) -> Subquery:
-    owned = (
-        Machine.objects.filter(user=OuterRef("user"), **filters)
-        .order_by()
-        .values("user")
-    )
-    return Subquery(owned.annotate(value=expression).values("value"))
-
-
-def annotated_profiles(now: datetime) -> QuerySet[Profile]:
-    online = {"updated__gte": now - ACTIVE_MACHINE}
-    threads = Sum(Cast(KT("info__concurrency"), IntegerField()))
-    newest_test = (
-        Test.objects.filter(author=OuterRef("user__username"))
-        .order_by("-creation")
-        .values("creation")[:1]
-    )
-
-    return (
-        Profile.objects.select_related("user")
-        .annotate(
-            machines_online=Coalesce(machine_aggregate(Count("id"), **online), 0),
-            threads_online=Coalesce(machine_aggregate(threads, **online), 0),
-            last_heartbeat=machine_aggregate(Max("updated")),
-            last_test=Subquery(newest_test),
-        )
-        .filter(
-            Q(games__gt=0)
-            | Q(tests__gt=0)
-            | Q(approver=True)
-            | Q(machines_online__gt=0)
-        )
-        .order_by("-games", "-tests", "user__username")
-    )
-
-
-def user_row(profile: Profile, now: datetime) -> UserRow:
-    last_activity = latest(
-        (profile.user.last_login, profile.last_heartbeat, profile.last_test)
-    )
+def user_row(
+    profile: Profile, machines: MachineStats, last_test: datetime | None, now: datetime
+) -> UserRow:
+    last_activity = latest((machines.last_heartbeat, last_test))
     return UserRow(
         username=profile.user.username,
         games=profile.games,
         tests=profile.tests,
         engine=profile.engine,
         joined=profile.user.date_joined,
-        machines_online=profile.machines_online,
-        threads_online=profile.threads_online,
+        machines_online=machines.online,
+        threads_online=machines.threads,
         last_activity=last_activity,
         last_activity_ago=relative_age(now - last_activity) if last_activity else None,
     )
 
 
+def load_machine_stats(now: datetime) -> dict[int, MachineStats]:
+    online = online_since(now)
+    rows = (
+        Machine.objects.order_by()
+        .values("user_id")
+        .annotate(
+            online=Count("id", filter=online),
+            threads=Sum(threads_of(), filter=online),
+            last_heartbeat=Max("updated"),
+        )
+    )
+    return {
+        row["user_id"]: MachineStats(
+            row["online"], row["threads"] or 0, row["last_heartbeat"]
+        )
+        for row in rows
+    }
+
+
+def load_listed_profiles(online_owners: Collection[int]) -> list[Profile]:
+    listed = (
+        Q(games__gt=0)
+        | Q(tests__gt=0)
+        | Q(approver=True)
+        | Q(user_id__in=online_owners)
+    )
+    return list(
+        Profile.objects.select_related("user")
+        .filter(listed)
+        .order_by("-games", "-tests", "user__username")
+    )
+
+
+def load_latest_tests(usernames: Collection[str]) -> dict[str, datetime]:
+    rows = (
+        Test.objects.filter(author__in=usernames)
+        .order_by()
+        .values("author")
+        .annotate(latest=Max("creation"))
+    )
+    return {row["author"]: row["latest"] for row in rows}
+
+
 def load_user_rows(now: datetime) -> list[UserRow]:
-    return [user_row(profile, now) for profile in annotated_profiles(now)]
+    machines = load_machine_stats(now)
+    profiles = load_listed_profiles(
+        [user for user, stats in machines.items() if stats.online]
+    )
+    tests = load_latest_tests([profile.user.username for profile in profiles])
+
+    return [
+        user_row(
+            profile,
+            machines.get(profile.user_id, NO_MACHINES),
+            tests.get(profile.user.username),
+            now,
+        )
+        for profile in profiles
+    ]
