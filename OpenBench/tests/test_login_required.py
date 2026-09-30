@@ -58,3 +58,21 @@ class LoginRequiredTests(TestCase):
     def test_public_servers_are_unaffected(self):
         with mock.patch.dict(OPENBENCH_CONFIG, {'require_login_to_view': False}):
             self.assertEqual(self.client.get('/index/').status_code, 200)
+
+
+class AnonymousSessionTests(TestCase):
+    def assert_no_session(self):
+        self.assertFalse(Session.objects.exists())
+        self.assertNotIn('sessionid', self.client.cookies)
+
+    def test_closed_registration_explains_itself_without_a_session(self):
+        with mock.patch.dict(OPENBENCH_CONFIG, {'require_manual_registration': True}):
+            response = self.client.get('/register/')
+        self.assertContains(response, 'Registration can only be done via an Administrator')
+        self.assertContains(response, 'action="/login/"')
+        self.assert_no_session()
+
+    def test_scripts_get_redirects_without_a_session(self):
+        response = self.client.get('/scripts/')
+        self.assertRedirects(response, '/login/', fetch_redirect_response=False)
+        self.assert_no_session()

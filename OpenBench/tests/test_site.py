@@ -18,7 +18,9 @@ class PageTests(TestCase):
             self.assertRedirects(response, '/login/', fetch_redirect_response=False, msg_prefix=url)
 
     def test_registration_is_manual(self):
-        self.assertRedirects(self.client.get('/register/'), '/login/', fetch_redirect_response=False)
+        response = self.client.get('/register/')
+        self.assertContains(response, 'Registration can only be done via an Administrator')
+        self.assertNotContains(response, 'password1')
 
     def test_login_renders_the_sidebar(self):
         response = self.client.get('/login/')

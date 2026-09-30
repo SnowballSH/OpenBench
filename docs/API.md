@@ -973,7 +973,8 @@ logged in: the response sets `sessionid` and `csrftoken` cookies (see
 | Outcome | Answer |
 |---|---|
 | `Sec-Fetch-Site` is `cross-site` or `same-site` (a browser on another site) | 403, plain text, nobody is logged in |
-| `GET`, missing, wrong or not-enabled credentials | 302 to `/login/`, banner "Unable to authenticate user" |
+| `GET` (or any method but `POST`) | 302 to `/login/`, no banner and no session |
+| Missing, wrong or not-enabled credentials | 302 to `/login/`, banner "Unable to authenticate user" |
 | Throttled | 302 to `/login/`, banner "Too many failed logins. Try again later" |
 | Any `action` other than the two below | 302 to `/index/`, banner "Unknown scripts action" |
 
