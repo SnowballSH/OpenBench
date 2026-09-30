@@ -231,7 +231,10 @@ Rules the charts follow:
   re-render every chart when the theme changes.
 - `prefers-reduced-motion: reduce` turns animation off; refreshes never
   animate.
-- One series per chart, so no legend; the card title names it. The Elo chart
+- One series per chart, so no legend; the card title names it. The
+  comparison page (`compare.js`) is the exception: its charts overlay two
+  workloads, `--series-1` solid and `--series-2` dashed, with a legend, and the
+  summary table's column headers carry the same line keys. The Elo chart
   draws the 95% interval as a 14% wash of the series colour. Its y range is
   fitted to the interval from 10% of the games onwards, so the very wide first
   points are clipped rather than flattening the rest; the tooltip still shows
