@@ -65,7 +65,7 @@ def engine_json(usage: EngineNetworks) -> Json:
 def spool_json(spool: DirectoryUsage | None) -> Json:
     if spool is None:
         return None
-    return {"files": spool.files, "bytes": spool.size}
+    return {"files": spool.files, "bytes": spool.size, "truncated": spool.truncated}
 
 
 def report_json(report: StorageReport) -> Json:
@@ -78,6 +78,7 @@ def report_json(report: StorageReport) -> Json:
             "files": report.media_files,
             "bytes": report.media_size,
             "skipped_symlinks": report.skipped_symlinks,
+            "unreadable_dirs": report.unreadable_dirs,
             "truncated": report.truncated,
             "categories": [category_json(usage) for usage in report.categories],
         },

@@ -39,6 +39,7 @@ class MediaFile:
 class MediaScan:
     files: tuple[MediaFile, ...]
     skipped_symlinks: int
+    unreadable_dirs: int
     truncated: bool
 
 
@@ -98,7 +99,7 @@ class EngineNetworks:
     files: int
     missing: int
     size: int
-    url: str
+    url: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -109,6 +110,7 @@ class StorageReport:
     media_files: int
     media_size: int
     skipped_symlinks: int
+    unreadable_dirs: int
     truncated: bool
     categories: tuple[CategoryUsage, ...]
     networks_by_engine: tuple[EngineNetworks, ...]

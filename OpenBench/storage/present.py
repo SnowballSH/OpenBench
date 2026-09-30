@@ -69,7 +69,7 @@ class LargestTable:
 @dataclass(frozen=True, slots=True)
 class EngineRow:
     engine: str
-    url: str
+    url: str | None
     networks: int
     files: int
     missing: int
@@ -86,6 +86,7 @@ class StoragePage:
     engines: tuple[EngineRow, ...]
     spool: str | None
     skipped_symlinks: int
+    unreadable_dirs: int
     truncated: bool
     low_disk: bool
     low_disk_rule: str
@@ -175,7 +176,8 @@ def engine_row(usage: EngineNetworks) -> EngineRow:
 def spool_text(report: StorageReport) -> str | None:
     if (spool := report.upload_spool) is None:
         return None
-    return f"{format_bytes(spool.size)} in {count(spool.files, 'file')}"
+    partial = ", partial: the spool has too many entries" if spool.truncated else ""
+    return f"{format_bytes(spool.size)} in {count(spool.files, 'file')}{partial}"
 
 
 def storage_page(report: StorageReport) -> StoragePage:
@@ -197,6 +199,7 @@ def storage_page(report: StorageReport) -> StoragePage:
         engines=tuple(engine_row(usage) for usage in report.networks_by_engine),
         spool=spool_text(report),
         skipped_symlinks=report.skipped_symlinks,
+        unreadable_dirs=report.unreadable_dirs,
         truncated=report.truncated,
         low_disk=report.disk is not None and report.disk.low,
         low_disk_rule=f"under {format_bytes(LOW_FREE_BYTES)} or {format_percent(LOW_FREE_FRACTION)} free",

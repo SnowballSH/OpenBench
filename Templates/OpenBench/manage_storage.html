@@ -26,6 +26,7 @@
             Scanned {{storage.generated_at|date:"Y-m-d H:i:s"}} UTC, cached for up to {{storage.cache_seconds}} seconds.
             {% if storage.spool %}Upload spool: {{storage.spool}}.{% endif %}
             {% if storage.skipped_symlinks %}{{storage.skipped_symlinks}} symbolic link{{storage.skipped_symlinks|pluralize}} in Media {{storage.skipped_symlinks|pluralize:"was,were"}} not followed.{% endif %}
+            {% if storage.unreadable_dirs %}{{storage.unreadable_dirs}} director{{storage.unreadable_dirs|pluralize:"y,ies"}} could not be read, so totals are low.{% endif %}
             {% if storage.truncated %}The scan stopped at its entry limit, so totals are partial.{% endif %}
         </p>
     </section>
@@ -65,7 +66,7 @@
             </tr>
             {% for row in storage.engines %}
                 <tr>
-                    <td><a href="{{row.url}}">{{row.engine}}</a></td>
+                    <td>{% if row.url %}<a href="{{row.url}}">{{row.engine}}</a>{% else %}{{row.engine}} <span class="muted">(no Engine configured)</span>{% endif %}</td>
                     <td class="numeric">{{row.networks}}</td>
                     <td class="numeric">{{row.files}}</td>
                     <td class="numeric">{{row.missing}}</td>

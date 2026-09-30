@@ -68,15 +68,16 @@ replaces an exited worker with a new one that takes it over.
 
 ## Storage
 
-`/manage/storage/` shows what fills the data directory. Any logged-in user may
-view it, like the rest of `/manage/`; anonymous visitors are sent to the login
-page. It has no forms and changes nothing.
+`/manage/storage/` shows what fills the data directory. It needs a login with
+an enabled account, the same rule as `/api/storage/`: anonymous visitors are
+sent to the login page and accounts not yet enabled back to the index. It has
+no forms and changes nothing.
 
 | Section | Contents |
 |---|---|
-| Tiles | Free space on the filesystem holding `Media/` (warning edge and a banner when under 2 GiB or 15% free), the database (`db.sqlite3` plus its `-wal` and `-shm` files), everything under `Media/`, and the network files. |
+| Tiles | Free space on the filesystem holding `Media/`, or `OPENBENCH_DATA_DIR` when `Media/` does not exist yet (warning edge and a banner when under 2 GiB or 15% free), the database (`db.sqlite3` plus its `-wal` and `-shm` files), everything under `Media/`, and the network files. |
 | Media by category | Files and bytes per category, with each category's share of `Media/`. |
-| Networks by engine | Networks, distinct files, rows whose file is missing, and bytes, linked to that engine's Networks page. A file shared by several engines counts once per engine here and once in the totals. |
+| Networks by engine | Networks, distinct files, rows whose file is missing, and bytes, linked to that engine's Networks page (unlinked when the Engine is no longer configured). Each network's file is checked directly with `lstat`, so this table stays exact when the Media scan is cut short. A file shared by several engines counts once per engine here and once in the totals. |
 | Largest items | The ten largest files per category, linked to the owning network list, workload or event. |
 
 Categories come from the file layout in `Media/`:
@@ -90,10 +91,12 @@ Categories come from the file layout in `Media/`:
 | Other | Anything else. A top-level eight-hex-digit file no `Network` names is flagged; a directory other than `PGNs/` is one item with the sum of its files. |
 
 The upload spool (`OPENBENCH_UPLOAD_TEMP_DIR`, `/data/upload-tmp` in the
-container) is reported beside the tiles. Symbolic links are never followed, so
-nothing outside `Media/` is counted. The scan reads directory entries and
-`stat` results only, never file contents, stops after 100,000 entries (the page
-then says the totals are partial), and is cached for 60 seconds per process.
+container) is reported beside the tiles, walked with its own limit of 10,000
+entries. Symbolic links are never followed, so nothing outside `Media/` is
+counted; the page says how many it skipped at any depth, and how many
+directories it could not read. The scan reads directory entries and `stat`
+results only, never file contents, stops after 100,000 entries (the page then
+says the totals are partial), and is cached for 60 seconds per process.
 
 ### Freeing space safely
 
@@ -140,6 +143,7 @@ POST body like the other API endpoints. Otherwise it answers 401 with
             "files": 412,
             "bytes": 1610612736,
             "skipped_symlinks": 0,
+            "unreadable_dirs": 0,
             "truncated": false,
             "categories": [
                 {
@@ -156,15 +160,17 @@ POST body like the other API endpoints. Otherwise it answers 401 with
         "networks_by_engine": [
             { "engine": "Avalanche", "networks": 12, "files": 12, "missing_files": 0, "bytes": 402653184, "url": "/networks/Avalanche/" }
         ],
-        "upload_spool": { "files": 0, "bytes": 0 }
+        "upload_spool": { "files": 0, "bytes": 0, "truncated": false }
     }
 }
 ```
 
 | Field | Meaning |
 |---|---|
-| `disk` | `null` when no ancestor of `Media/` can be measured. `low` is true under 2 GiB or 15% free. |
+| `disk` | Measured on `Media/`, or on `OPENBENCH_DATA_DIR` when `Media/` is missing; `null` when neither can be measured. `low` is true under 2 GiB or 15% free. |
 | `media.categories` | Always all five, in order: `networks`, `pgn_archives`, `pgn_pending`, `event_logs`, `other`. `largest` holds up to ten items, biggest first. |
-| `largest[].url` | The owning page, or `null` when nothing owns the file (a deleted workload, an unreferenced log or network file, anything in `other`). |
+| `largest[].url`, `networks_by_engine[].url` | The owning page, or `null` when nothing owns the file (a deleted workload, an Engine no longer configured, an unreferenced log or network file, anything in `other`). |
+| `networks_by_engine[].files`, `missing_files`, `bytes` | From an `lstat` of each network's file, independent of the Media scan limit. |
+| `media.skipped_symlinks`, `media.unreadable_dirs` | Symbolic links not followed, and directories that could not be listed (their contents are not counted). |
 | `media.truncated` | The scan hit its entry limit, so totals are low. |
-| `upload_spool` | `null` when `OPENBENCH_UPLOAD_TEMP_DIR` is unset. |
+| `upload_spool` | `null` when `OPENBENCH_UPLOAD_TEMP_DIR` is unset. `truncated` is true when it holds more than 10,000 entries, so the figures are low. |

@@ -1,5 +1,7 @@
 import json
 import os
+import shutil
+import stat
 import tempfile
 from pathlib import Path
 from unittest import mock
@@ -8,12 +10,18 @@ from django.core.cache import cache
 from django.test import SimpleTestCase, TestCase, override_settings
 
 from OpenBench.models import LogEvent, Network
-from OpenBench.storage import scan
 from OpenBench.storage.classify import classify
 from OpenBench.storage.domain import GIB, Category, DiskUsage, MediaFile
 from OpenBench.storage.present import format_bytes, storage_page
 from OpenBench.storage.report import CACHE_KEY, build_report, current_report
-from OpenBench.storage.scan import ScanBudget, database_usage, disk_usage, scan_media
+from OpenBench.storage.scan import (
+    Walker,
+    database_usage,
+    directory_usage,
+    disk_usage,
+    network_file_sizes,
+    scan_media,
+)
 from OpenBench.tests.fixtures import (
     create_engine_config,
     create_test,
@@ -36,8 +44,8 @@ class MediaTree:
         path.write_bytes(b"x" * size)
         return path
 
-    def sizes(self, budget: ScanBudget | None = None) -> dict[str, int]:
-        return {file.path: file.size for file in scan_media(self.root, budget).files}
+    def sizes(self, walker: Walker | None = None) -> dict[str, int]:
+        return {file.path: file.size for file in scan_media(self.root, walker).files}
 
 
 class ScanTests(SimpleTestCase):
@@ -81,7 +89,18 @@ class ScanTests(SimpleTestCase):
 
         result = scan_media(self.media.root)
         self.assertEqual({file.path: file.size for file in result.files}, {"cache/": 1})
-        self.assertEqual(result.skipped_symlinks, 2)
+        self.assertEqual(result.skipped_symlinks, 3)
+
+    def test_unreadable_directories_are_counted(self):
+        if os.geteuid() == 0:
+            self.skipTest("root reads every directory")
+        locked = self.media.root / "locked"
+        self.media.write("locked/secret", 50)
+        locked.chmod(0)
+        self.addCleanup(locked.chmod, stat.S_IRWXU)
+        result = scan_media(self.media.root)
+        self.assertEqual(result.unreadable_dirs, 1)
+        self.assertEqual(result.files, (MediaFile("locked/", 0, is_dir=True),))
 
     def test_a_missing_media_root_is_empty(self):
         result = scan_media(self.media.root / "absent")
@@ -92,20 +111,20 @@ class ScanTests(SimpleTestCase):
     def test_a_file_deleted_mid_scan_is_skipped(self):
         doomed = self.media.write("1.1.0.pgn.bz2", 10)
         self.media.write("event1.log", 3)
-        listing = scan.list_entries
+        listing = Walker.entries
 
-        def list_then_delete(directory):
-            entries = listing(directory)
+        def list_then_delete(walker, directory):
+            entries = listing(walker, directory)
             doomed.unlink(missing_ok=True)
             return entries
 
-        with mock.patch.object(scan, "list_entries", list_then_delete):
+        with mock.patch.object(Walker, "entries", list_then_delete):
             self.assertEqual(self.media.sizes(), {"event1.log": 3})
 
     def test_the_entry_budget_bounds_the_scan(self):
         for index in range(5):
             self.media.write(f"file{index}", 1)
-        result = scan_media(self.media.root, ScanBudget(entries=3))
+        result = scan_media(self.media.root, Walker(entries=3))
         self.assertEqual(len(result.files), 3)
         self.assertTrue(result.truncated)
 
@@ -118,10 +137,33 @@ class ScanTests(SimpleTestCase):
             (usage.main, usage.wal, usage.shm, usage.total), (100, 20, 0, 120)
         )
 
-    def test_disk_usage_falls_back_to_an_existing_parent(self):
-        usage = disk_usage(self.media.root / "not" / "created")
-        self.assertIsNotNone(usage)
-        self.assertGreater(usage.total, 0)
+    def test_disk_usage_measures_media_or_else_the_data_directory(self):
+        data_dir = self.media.root.parent
+        with mock.patch("shutil.disk_usage", wraps=shutil.disk_usage) as usage:
+            self.assertIsNotNone(disk_usage(self.media.root, data_dir))
+            self.assertIsNotNone(disk_usage(self.media.root / "absent", data_dir))
+        self.assertEqual(
+            [call.args[0] for call in usage.call_args_list], [self.media.root, data_dir]
+        )
+        self.assertIsNone(disk_usage(data_dir / "absent", data_dir / "absent"))
+
+    def test_network_files_are_checked_directly_without_following_links(self):
+        outside = tempfile.TemporaryDirectory()
+        self.addCleanup(outside.cleanup)
+        (Path(outside.name) / "target").write_bytes(b"x" * 99)
+        self.media.write("AAAAAAAA", 10)
+        (self.media.root / "BBBBBBBB").symlink_to(Path(outside.name) / "target")
+        (self.media.root / "CCCCCCCC").mkdir()
+        self.media.write("PGNs/DDDDDDDD", 5)
+        shas = ["AAAAAAAA", "BBBBBBBB", "CCCCCCCC", "PGNs/DDDDDDDD", "..", "EEEEEEEE"]
+        self.assertEqual(network_file_sizes(self.media.root, shas), {"AAAAAAAA": 10})
+
+    def test_the_spool_has_its_own_entry_limit(self):
+        for index in range(3):
+            self.media.write(f"file{index}", 2)
+        self.assertEqual(directory_usage(self.media.root).truncated, False)
+        partial = directory_usage(self.media.root, entries=2)
+        self.assertEqual((partial.files, partial.size, partial.truncated), (2, 4, True))
 
 
 class ClassifyTests(SimpleTestCase):
@@ -173,9 +215,13 @@ class ReportTests(TestCase):
         ensure_book()
         self.author = create_user("author")
 
-    def report(self, count: int = 10):
+    def report(self, count: int = 10, walker: Walker | None = None):
         return build_report(
-            self.media.root, self.media.root.parent / "db.sqlite3", count=count
+            self.media.root,
+            self.media.root.parent,
+            self.media.root.parent / "db.sqlite3",
+            count=count,
+            walker=walker,
         )
 
     def test_networks_are_counted_per_engine_and_shared_files_once(self):
@@ -216,6 +262,27 @@ class ReportTests(TestCase):
             (largest.name, largest.detail),
             ("AAAAAAAA", "Avalanche / net-a, Torch / shared"),
         )
+
+    def test_network_presence_does_not_depend_on_the_scan_limit(self):
+        for sha in ("AAAAAAAA", "BBBBBBBB", "CCCCCCCC"):
+            self.media.write(sha, 10)
+            Network.objects.create(
+                engine="Avalanche", name=sha.lower(), sha256=sha, author="author"
+            )
+        report = self.report(walker=Walker(entries=1))
+        self.assertTrue(report.truncated)
+        (engine,) = report.networks_by_engine
+        self.assertEqual((engine.files, engine.missing, engine.size), (3, 0, 30))
+
+    def test_networks_of_unconfigured_engines_are_not_linked(self):
+        self.media.write("AAAAAAAA", 10)
+        Network.objects.create(
+            engine="Retired", name="old", sha256="AAAAAAAA", author="author"
+        )
+        report = self.report()
+        (engine,) = report.networks_by_engine
+        self.assertEqual((engine.engine, engine.url), ("Retired", None))
+        self.assertIsNone(report.category(Category.NETWORKS).largest[0].url)
 
     def test_pgn_files_link_to_their_workload(self):
         test = create_test(self.author)
@@ -294,7 +361,9 @@ class CachedReportTests(TestCase):
         (spool / "partial.upload").write_bytes(b"x" * 25)
         with override_settings(FILE_UPLOAD_TEMP_DIR=str(spool)):
             spool_usage = current_report().upload_spool
-        self.assertEqual((spool_usage.files, spool_usage.size), (1, 25))
+        self.assertEqual(
+            (spool_usage.files, spool_usage.size, spool_usage.truncated), (1, 25, False)
+        )
 
 
 class StorageViewTests(TestCase):
@@ -323,6 +392,11 @@ class StorageViewTests(TestCase):
     def test_anonymous_visitors_are_sent_to_login(self):
         response = self.client.get("/manage/storage/")
         self.assertRedirects(response, "/login/", fetch_redirect_response=False)
+
+    def test_accounts_not_yet_enabled_are_refused(self):
+        self.client.force_login(create_user("pending", enabled=False))
+        response = self.client.get("/manage/storage/")
+        self.assertRedirects(response, "/index/", fetch_redirect_response=False)
 
     def test_logged_in_users_see_the_overview(self):
         self.client.force_login(self.user)
@@ -420,6 +494,17 @@ class StorageApiTests(TestCase):
                     "url": None,
                 }
             ],
+        )
+        self.assertEqual(
+            set(payload["media"]),
+            {
+                "files",
+                "bytes",
+                "skipped_symlinks",
+                "unreadable_dirs",
+                "truncated",
+                "categories",
+            },
         )
         self.assertIsNone(payload["upload_spool"])
 

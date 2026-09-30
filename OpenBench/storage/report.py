@@ -1,6 +1,7 @@
 import heapq
 from collections import defaultdict
 from collections.abc import Callable, Iterable
+from collections.abc import Set as AbstractSet
 from pathlib import Path
 from urllib.parse import quote
 
@@ -9,7 +10,7 @@ from django.core.cache import cache
 from django.db import connection
 from django.utils import timezone
 
-from OpenBench.models import LogEvent, Network, Test
+from OpenBench.models import EngineConfig, LogEvent, Network, Test
 from OpenBench.storage.classify import Classified, classify
 from OpenBench.storage.domain import (
     Category,
@@ -19,10 +20,11 @@ from OpenBench.storage.domain import (
     StorageReport,
 )
 from OpenBench.storage.scan import (
-    ScanBudget,
+    Walker,
     database_usage,
     directory_usage,
     disk_usage,
+    network_file_sizes,
     scan_media,
 )
 
@@ -34,8 +36,8 @@ type NetworkRow = tuple[str, str, str]
 type ItemBuilder = Callable[[list[Classified]], list[StorageItem]]
 
 
-def networks_url(engine: str) -> str:
-    return f"/networks/{quote(engine, safe='')}/"
+def networks_url(engine: str, configured: AbstractSet[str]) -> str | None:
+    return f"/networks/{quote(engine, safe='')}/" if engine in configured else None
 
 
 def workload_links(test_ids: Iterable[int]) -> dict[int, str]:
@@ -43,7 +45,16 @@ def workload_links(test_ids: Iterable[int]) -> dict[int, str]:
     return {test.id: f"/{test.workload_type_str()}/{test.id}/" for test in tests}
 
 
-def network_items(rows: list[NetworkRow]) -> ItemBuilder:
+def owner_url(
+    owners: list[tuple[str, str]], configured: AbstractSet[str]
+) -> str | None:
+    return next(
+        (url for engine, _ in owners if (url := networks_url(engine, configured))),
+        None,
+    )
+
+
+def network_items(rows: list[NetworkRow], configured: AbstractSet[str]) -> ItemBuilder:
     owners: defaultdict[str, list[tuple[str, str]]] = defaultdict(list)
     for engine, name, sha256 in rows:
         owners[sha256].append((engine, name))
@@ -56,7 +67,7 @@ def network_items(rows: list[NetworkRow]) -> ItemBuilder:
                 detail=", ".join(
                     f"{engine} / {name}" for engine, name in owners[item.file.path]
                 ),
-                url=networks_url(owners[item.file.path][0][0]),
+                url=owner_url(owners[item.file.path], configured),
             )
             for item in files
         ]
@@ -147,7 +158,7 @@ def category_usage(
 
 
 def engine_networks(
-    rows: list[NetworkRow], sizes: dict[str, int]
+    rows: list[NetworkRow], sizes: dict[str, int], configured: AbstractSet[str]
 ) -> list[EngineNetworks]:
     by_engine: defaultdict[str, list[str]] = defaultdict(list)
     for engine, _, sha256 in rows:
@@ -160,7 +171,7 @@ def engine_networks(
             files=len({sha for sha in shas if sha in sizes}),
             missing=sum(sha not in sizes for sha in shas),
             size=sum(sizes[sha] for sha in set(shas) if sha in sizes),
-            url=networks_url(engine),
+            url=networks_url(engine, configured),
         )
         for engine, shas in by_engine.items()
     ]
@@ -169,17 +180,18 @@ def engine_networks(
 
 def build_report(
     media_root: Path,
+    data_dir: Path,
     database_path: Path,
     spool_dir: Path | None = None,
     count: int = LARGEST_ITEMS,
-    budget: ScanBudget | None = None,
+    walker: Walker | None = None,
 ) -> StorageReport:
-    budget = budget or ScanBudget()
-    scan = scan_media(media_root, budget)
+    scan = scan_media(media_root, walker)
     rows: list[NetworkRow] = list(
         Network.objects.values_list("engine", "name", "sha256")
     )
     shas = frozenset(sha256 for _, _, sha256 in rows)
+    configured = frozenset(EngineConfig.objects.values_list("name", flat=True))
 
     grouped: defaultdict[Category, list[Classified]] = defaultdict(list)
     for file in scan.files:
@@ -187,31 +199,30 @@ def build_report(
         grouped[item.category].append(item)
 
     builders: dict[Category, ItemBuilder] = {
-        Category.NETWORKS: network_items(rows),
+        Category.NETWORKS: network_items(rows, configured),
         Category.PGN_ARCHIVES: workload_items(pending=False),
         Category.PGN_PENDING: workload_items(pending=True),
         Category.EVENT_LOGS: event_log_items,
         Category.OTHER: other_items,
     }
-    network_sizes = {
-        item.file.path: item.file.size for item in grouped[Category.NETWORKS]
-    }
-    spool = directory_usage(spool_dir, budget) if spool_dir else None
 
     return StorageReport(
         generated_at=timezone.now(),
-        disk=disk_usage(media_root),
+        disk=disk_usage(media_root, data_dir),
         database=database_usage(database_path),
         media_files=len(scan.files),
         media_size=sum(file.size for file in scan.files),
         skipped_symlinks=scan.skipped_symlinks,
-        truncated=budget.exhausted,
+        unreadable_dirs=scan.unreadable_dirs,
+        truncated=scan.truncated,
         categories=tuple(
             category_usage(category, grouped[category], count, builders[category])
             for category in Category
         ),
-        networks_by_engine=tuple(engine_networks(rows, network_sizes)),
-        upload_spool=spool,
+        networks_by_engine=tuple(
+            engine_networks(rows, network_file_sizes(media_root, shas), configured)
+        ),
+        upload_spool=directory_usage(spool_dir) if spool_dir else None,
     )
 
 
@@ -219,6 +230,7 @@ def configured_report() -> StorageReport:
     spool = settings.FILE_UPLOAD_TEMP_DIR
     return build_report(
         media_root=Path(settings.MEDIA_ROOT),
+        data_dir=Path(settings.DATA_DIR),
         database_path=Path(connection.settings_dict["NAME"]),
         spool_dir=Path(spool) if spool else None,
     )
