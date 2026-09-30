@@ -257,8 +257,9 @@ def schedule(state: str, rng: random.Random) -> Schedule:
     return Schedule(created, started, ended)
 
 def create_engine(name: str, rng: random.Random) -> Engine:
-    sha = f'{rng.getrandbits(160):040x}'
-    return Engine.objects.create(name=name, source=ENGINE_SOURCE, sha=sha, bench=rng.randint(2_000_000, 4_000_000))
+    sha    = f'{rng.getrandbits(160):040x}'
+    source = ENGINE_SOURCE.replace('github.com', 'api.github.com/repos') + f'/zipball/{sha}'
+    return Engine.objects.create(name=name, source=source, sha=sha, bench=rng.randint(2_000_000, 4_000_000))
 
 def create_workload(spec, author, machines, rng):
 

@@ -7,7 +7,7 @@ from django.core.management.base import CommandError
 from django.test import TestCase, override_settings
 from django.utils import timezone
 
-from OpenBench.models import Machine, Profile, Result, Test, WorkloadSnapshot
+from OpenBench.models import Engine, Machine, Profile, Result, Test, WorkloadSnapshot
 from OpenBench.management.commands.seed_demo import TUNES, WORKLOADS
 
 class SeedDemoTests(TestCase):
@@ -23,6 +23,9 @@ class SeedDemoTests(TestCase):
 
         self.assertEqual(Test.objects.count(), len(WORKLOADS) + len(TUNES))
         self.assertTrue(Machine.objects.exists())
+
+        for engine in Engine.objects.all():
+            self.assertEqual(engine.source, 'https://api.github.com/repos/SnowballSH/Avalanche/zipball/%s' % (engine.sha))
 
         for test in Test.objects.all():
             results = Result.objects.filter(test=test)
