@@ -54,7 +54,7 @@ def delete_network(args, network):
         print ('Dry run... deleting %s' % (network['name']))
 
     else:
-        url  = url_join(args.server, 'api', 'networks', args.engine, network['name'], 'delete')
+        url  = url_join(args.server, 'api', 'networks', args.engine, network['sha256'], 'delete')
         data = { 'username' : args.username, 'password' : args.password }
         print (requests.post(url, data=data).json())
 

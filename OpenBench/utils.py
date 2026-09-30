@@ -37,6 +37,7 @@ from django.db.models.fields.json import KT
 from django.db.models.functions import Cast
 from django.http import FileResponse, HttpResponse
 from django.utils import timezone
+from django.utils.cache import add_never_cache_headers, patch_cache_control, patch_response_headers
 from wsgiref.util import FileWrapper
 
 from OpenSite.settings import MEDIA_ROOT, PROJECT_PATH
@@ -139,7 +140,7 @@ def workload_uses_time_based_tc(workload):
 def path_join(*args):
     return "/".join([f.lstrip("/").rstrip("/") for f in args]).rstrip('/')
 
-def media_download_response(fpath, filename, expires):
+def media_download_response(fpath, filename, max_age=None):
 
     # Craft a download response for a file inside of MEDIA_ROOT. Django will
     # stream the file itself, unless configured to hand the file off to an
@@ -158,7 +159,13 @@ def media_download_response(fpath, filename, expires):
         response = HttpResponse(content_type='application/octet-stream')
         response['X-Accel-Redirect'] = urllib.parse.quote('%s/%s' % (root, relative))
 
-    response['Expires'] = expires
+    # Downloads are authenticated, so only the requesting browser may keep a copy
+    if max_age:
+        patch_response_headers(response, cache_timeout=max_age)
+        patch_cache_control(response, private=True)
+    else:
+        add_never_cache_headers(response)
+
     response['Content-Disposition'] = 'attachment; filename=%s' % (filename)
     return response
 
@@ -269,12 +276,12 @@ def network_disambiguate(engine, identifier):
 
     candidates = Network.objects.filter(engine=engine)
 
-    # Identifier actually refers to the Network name
-    if (network := candidates.filter(name=identifier).first()):
+    # A SHA is unique per engine, while a name may collide with another Network's SHA
+    if (network := candidates.filter(sha256=identifier).first()):
         return network
 
-    # Identifier actually refers to the Network SHA
-    if (network := candidates.filter(sha256=identifier).first()):
+    # Identifier actually refers to the Network name
+    if (network := candidates.filter(name=identifier).first()):
         return network
 
     # No Network exists with engine this Name or Sha
@@ -282,8 +289,10 @@ def network_disambiguate(engine, identifier):
 
 def network_upload(request, engine, name):
 
+    if not (netfile := request.FILES.get('netfile')):
+        return OpenBench.views.redirect(request, '/networks/', error='No network file was uploaded as netfile')
+
     # Extract and process the Network file to produce a SHA
-    netfile = request.FILES['netfile']
     digest  = hashlib.sha256()
     for chunk in netfile.chunks():
         digest.update(chunk)
@@ -336,12 +345,12 @@ def network_delete(request, engine, network):
     else:
         return OpenBench.views.redirect(request, '/networks/%s/' % (engine), error=message)
 
-def network_download(request, engine, network):
+def network_download(request, engine, network, identifier=None):
 
-    # Craft the download HTML response
+    # Only a SHA-addressed URL always names the same bytes; a name can be reused
     netfile = os.path.join(MEDIA_ROOT, network.sha256)
-    expires = (datetime.datetime.now(datetime.UTC) + datetime.timedelta(days=7)).ctime()
-    return media_download_response(netfile, network.sha256, expires)
+    max_age = int(datetime.timedelta(days=7).total_seconds()) if identifier == network.sha256 else None
+    return media_download_response(netfile, network.sha256, max_age)
 
 def network_edit(request, engine, network):
 

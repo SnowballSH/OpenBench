@@ -95,6 +95,12 @@ if __name__ == '__main__':
 
     # Get the build info, and default network info, for all applicable engines
     request = credentialed_request(args.server, args.username, args.password, 'api/buildinfo')
+
+    if request.status_code != 200 or request.headers.get('Content-Type') != 'application/json':
+        try: reason = request.json()['error']
+        except (ValueError, KeyError, TypeError): reason = 'HTTP %d' % (request.status_code)
+        sys.exit('Unable to fetch /api/buildinfo/: %s' % (reason))
+
     configs = request.json()
 
     # Filter down to only engines provided via --engines, if applicable

@@ -259,7 +259,7 @@ everywhere it appears; `Elo` below means that object or `null`.
 ### `GET|POST /api/workload/<id>/insights/`
 
 Authentication failures and unknown ids follow the other `api/workload/`
-queries: status 200 with `{ "error": "..." }`.
+queries: status 401 or 404 with `{ "error": "..." }`.
 
 ```jsonc
 {

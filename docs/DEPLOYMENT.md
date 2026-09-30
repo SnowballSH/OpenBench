@@ -59,7 +59,7 @@ queue for the write lock for up to 20 seconds instead of failing with
 copying `db.sqlite3` alone.
 
 `GET /health/` answers 200 when the database does and 503 otherwise, without a
-login. Host validation still applies, so a local health checker needs its
+login; methods other than `GET` and `HEAD` get 405. Host validation still applies, so a local health checker needs its
 address in `OPENBENCH_ALLOWED_HOSTS` (for example
 `openbench.example.com,127.0.0.1`) or must send the public `Host` header.
 
