@@ -98,7 +98,13 @@ without relying on fill alone.
   thin bar under an active row's stat block, rendered by the `workload_progress`
   template filter from the Test's own fields, with no extra queries. Templates
   pass these values as `data-fraction` and `data-share`, which `site.js` copies
-  into the custom properties; a missing value draws an empty bar.
+  into the custom properties; a missing value draws an empty bar. That makes
+  the server-rendered meters depend on JavaScript: without it, the progress and
+  share bars stay empty, while the figures beside them and the meters'
+  accessible labels (`aria-valuetext` and `title`, or `aria-label`) still
+  carry the value. The trade-off buys a
+  Content-Security-Policy with no `style-src-attr 'unsafe-inline'`; CSS
+  cannot yet read a typed number from an attribute in every browser.
 - **Sortable tables**: add `data-sortable` to a `<table>` with a `<thead>`
   and `<tbody>`, and put a `<button class="sort-button">` in each sortable
   header; `data-sort="number"` sorts numerically (largest first on the first
