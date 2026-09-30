@@ -63,6 +63,10 @@ class CreateWorkloadTests(TestCase):
         self.assertIn('Upload PGNs', self.create('test', test_fields(upload_pgns='SOMETIMES')))
         self.assertFalse(Test.objects.exists())
 
+    def test_unknown_engine_is_an_error_not_a_crash(self):
+        self.assertIn('Dev Engine was not found', self.create('test', test_fields(dev_engine='Nonexistent')))
+        self.assertFalse(Test.objects.exists())
+
     def test_valid_tune_is_created(self):
         self.assertIsNone(self.create('tune', tune_fields()))
         self.assertEqual(SPSARun.objects.get().a_ratio, 0.1)

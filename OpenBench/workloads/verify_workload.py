@@ -441,8 +441,11 @@ def collect_github_info(errors, request, field):
 
 def requests_illegal_fork(request, field):
 
+    # Unknown engines are reported by verify_engine()
+    if not (config := EngineConfig.objects.filter(name=request.POST['%s_engine' % (field)]).first()):
+        return False
+
     # Strip trailing '/'s for sanity
-    config  = EngineConfig.objects.filter(name=request.POST['%s_engine' % (field)]).first()
     eng_src = config.source.rstrip('/')
     tar_src = request.POST['%s_repo' % (field)].rstrip('/')
 
