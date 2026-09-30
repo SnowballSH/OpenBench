@@ -268,6 +268,9 @@ class RenderedPageTests(TestCase):
             '/manage/storage/',
             '/progress/',
             '/progress/Avalanche/?window=all',
+            '/compare/',
+            f'/compare/?a={self.test.id}&b={self.datagen.id}',
+            f'/compare/?a={self.test.id}&b={self.tune.id}',
         ]
         for page in pages:
             with self.subTest(page=page):

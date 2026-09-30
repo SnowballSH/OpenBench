@@ -2,6 +2,7 @@
 # ruff rule set, ruff format and mypy's strict profile.
 # shellcheck disable=SC2034
 fork_owned=(
+    OpenBench/compare
     OpenBench/converters.py
     OpenBench/fleet
     OpenBench/insights

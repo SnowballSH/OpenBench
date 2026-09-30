@@ -204,6 +204,9 @@ class RenderedPageAccessibilityTests(TestCase):
             '/manage/engines/Avalanche/',
             '/manage/storage/',
             '/progress/',
+            '/compare/',
+            f'/compare/?a={self.test.id}&b={self.datagen.id}',
+            f'/compare/?a={self.test.id}&b={self.tune.id}',
         ]
 
     def assert_accessible(self, page: str) -> None:
