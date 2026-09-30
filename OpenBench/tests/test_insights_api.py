@@ -120,7 +120,7 @@ class InsightsApiTests(TestCase):
         self.assertEqual(summary['cpu_name'], [
             { 'key' : 'Ryzen 9', 'penta' : '(3, 30, 70, 35, 8)', 'elo' : '17.86 ± 24.48', 'pairs' : 146, 'percent' : '73.00',
               'dev_nps' : 100000, 'dev_nps_scaled' : 50000, 'base_nps' : 90000, 'base_nps_scaled' : 45000 },
-            { 'key' : 'Apple M4', 'penta' : '(2, 10, 30, 10, 2)', 'elo' : '-0.00 ± 38.88', 'pairs' : 54, 'percent' : '27.00',
+            { 'key' : 'Apple M4', 'penta' : '(2, 10, 30, 10, 2)', 'elo' : '0.00 ± 38.88', 'pairs' : 54, 'percent' : '27.00',
               'dev_nps' : 0, 'dev_nps_scaled' : 0, 'base_nps' : 0, 'base_nps_scaled' : 0 },
         ])
         self.assertEqual([row['key'] for row in summary['user']], ['lab-worker', 'admin'])
