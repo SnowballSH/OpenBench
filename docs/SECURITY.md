@@ -53,6 +53,19 @@ the admin login, and a `user_login_failed` receiver counts the failures.
   stays in `AUTHENTICATION_BACKENDS`, so browser sessions from before this
   change stay logged in.
 
+## Login required to view
+
+While `require_login_to_view` is set (the default here),
+`OpenBench.security.login_required.LoginRequiredMiddleware` answers an
+anonymous `GET` or `HEAD` with a plain redirect to `/login/` before any view
+runs: no database query, and no flash message, so a cookieless request never
+creates a session row. The login page shows no "requires login" banner for
+these redirects. Paths that authenticate by themselves or must stay reachable
+are left to their views: `/login/`, `/register/`, `/logout/`, `/health/`,
+`/static/`, `/admin/` (Django's own login), `/scripts/`, `/api/` and every
+`/client*/` endpoint. Other methods also reach the view, and `render()` still
+refuses anonymous viewers as before.
+
 ## Sessions and state-changing requests
 
 - Logout is `POST /logout/` with a CSRF token; the sidebar link submits that
