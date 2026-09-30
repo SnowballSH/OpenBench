@@ -94,14 +94,14 @@ class InsightsApiTests(TestCase):
         self.client.post('/login/', {'username': 'reader', 'password': PASSWORD})
 
     def insights(self):
-        return self.client.get('/api/workload/%d/insights/' % (self.test.id)).json()
+        return self.client.get(f'/api/workload/{self.test.id}/insights/').json()
 
     def test_anonymous_is_rejected(self):
         self.assertIn('error', self.insights())
         self.assertEqual(self.client.get('/api/insights/server/').status_code, 401)
 
     def test_credentials_in_post_are_accepted(self):
-        response = self.client.post('/api/workload/%d/insights/' % (self.test.id), credentials(self.reader)).json()
+        response = self.client.post(f'/api/workload/{self.test.id}/insights/', credentials(self.reader)).json()
         self.assertIn('insights', response)
         self.assertEqual(self.client.post('/api/insights/server/', credentials(self.reader)).status_code, 200)
 
@@ -148,7 +148,7 @@ class InsightsApiTests(TestCase):
 
     def test_unknown_query_lists_insights(self):
         self.login()
-        self.assertIn('insights', self.client.get('/api/workload/%d/nothing/' % (self.test.id)).json()['error'])
+        self.assertIn('insights', self.client.get(f'/api/workload/{self.test.id}/nothing/').json()['error'])
 
     def test_server_shape(self):
         Machine.objects.filter(id=self.fast.id).update(workload=self.test.id)
@@ -239,7 +239,7 @@ class RunningAtDeployTests(TestCase):
         self.client.post('/login/', {'username': 'lab-worker', 'password': PASSWORD})
 
     def test_history_starts_at_creation(self):
-        insights = self.client.get('/api/workload/%d/insights/' % (self.test.id)).json()['insights']
+        insights = self.client.get(f'/api/workload/{self.test.id}/insights/').json()['insights']
         self.test.refresh_from_db()
 
         self.assertEqual([p['games'] for p in insights['history']['points']], [0, 180_200])
@@ -273,7 +273,7 @@ class TuneStatusTests(TestCase):
         return test
 
     def status(self, test):
-        return self.client.get('/api/workload/%d/insights/' % (test.id)).json()['insights']['workload']['status']
+        return self.client.get(f'/api/workload/{test.id}/insights/').json()['insights']['workload']['status']
 
     def test_a_tune_that_reached_its_iterations_is_completed(self):
         self.assertEqual(self.status(self.tune(1600)), 'completed')

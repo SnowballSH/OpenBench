@@ -72,12 +72,12 @@ class SPSAUtilsTests(TestCase):
         self.tune('MULTIPLE', [('Knight', False, 399, 200, 400, 10, 0.002), ('Scale', True, 1.0, 1.0, 2.0, 0.1, 0.002)])
         assignment = spsa_workload_assignment_dict(self.test, 32)
         for dev, base, flip in zip(
-            assignment['Knight']['dev'], assignment['Knight']['base'], assignment['Knight']['flip']
+            assignment['Knight']['dev'], assignment['Knight']['base'], assignment['Knight']['flip'], strict=True
         ):
             self.assertIsInstance(dev, int)
             self.assertTrue(200 <= dev <= 400 and 200 <= base <= 400)
             self.assertEqual(flip > 0, dev >= base)
-        for dev, base in zip(assignment['Scale']['dev'], assignment['Scale']['base']):
+        for dev, base in zip(assignment['Scale']['dev'], assignment['Scale']['base'], strict=True):
             self.assertIsInstance(dev, float)
             self.assertTrue(1.0 <= dev <= 2.0 and 1.0 <= base <= 2.0)
 
@@ -96,7 +96,7 @@ class SPSAUtilsTests(TestCase):
         self.tune('SINGLE', [('Scale', True, 1.5, 1.0, 2.0, 0.1, 0.002)])
         row = spsa_param_digest(self.test).split('\n')[1].split(',')
         scale = spsa_workload_assignment_dict(self.test, 1)['Scale']
-        self.assertEqual((row[5], row[7]), ('%.4f' % scale['c'], '%.4f' % scale['r']))
+        self.assertEqual((row[5], row[7]), (f'{scale["c"]:.4f}', f'{scale["r"]:.4f}'))
 
     def test_original_input_and_optimal_values(self):
         self.tune('SINGLE', [('Knight', False, 300, 200, 400, 10, 0.002), ('Scale', True, 1.5, 1.0, 2.0, 0.1, 0.002)])
@@ -117,6 +117,6 @@ class SPSAApiTests(TestCase):
 
     def test_non_spsa_workloads_are_refused(self):
         for query in ('inputs', 'outputs', 'digest', 'perturbation'):
-            response = self.client.get('/api/spsa/%d/%s/' % (self.sprt.id, query))
+            response = self.client.get(f'/api/spsa/{self.sprt.id}/{query}/')
             self.assertEqual(response.status_code, 404, query)
             self.assertEqual(response.json(), {'error': 'Requested Workload is not an SPSA tune'}, query)

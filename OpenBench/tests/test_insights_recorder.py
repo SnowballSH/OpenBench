@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+from itertools import pairwise
 from unittest import mock
 
 from django.db import connection
@@ -48,7 +49,7 @@ class ThinningTests(SimpleTestCase):
         self.assertTrue(set(recent) <= set(kept))
         self.assertLessEqual(len(kept), SNAPSHOT_TARGET + 1 + len(recent))
         self.assertGreaterEqual(len(kept), SNAPSHOT_TARGET + len(recent))
-        self.assertLessEqual(max(b - a for a, b in zip(kept, kept[1:])), 3)
+        self.assertLessEqual(max(b - a for a, b in pairwise(kept)), 3)
 
     def test_the_last_hour_is_never_thinned(self):
         points = [(i, at(i)) for i in range(SNAPSHOT_LIMIT + 1)]
@@ -162,9 +163,11 @@ class UpdateTestIntegrationTests(TestCase):
 
     def test_a_failing_recorder_never_loses_results(self):
         session, result = self.session()
-        with mock.patch('OpenBench.insights.recorder.record_snapshot', side_effect=RuntimeError('boom')):
-            with self.assertLogs('OpenBench.insights.recorder', level='ERROR'):
-                self.assertEqual(self.submit(session, result), {})
+        with (
+            mock.patch('OpenBench.insights.recorder.record_snapshot', side_effect=RuntimeError('boom')),
+            self.assertLogs('OpenBench.insights.recorder', level='ERROR'),
+        ):
+            self.assertEqual(self.submit(session, result), {})
         self.assertEqual(Result.objects.get(id=result).games, 6)
         self.test.refresh_from_db()
         self.assertEqual(self.test.games, 6)

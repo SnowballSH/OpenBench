@@ -89,7 +89,7 @@ class CreateWorkloadTests(TestCase):
 
     def create(self, kind, fields):
         with mock.patch('requests.get', side_effect=github_commit):
-            response = self.client.post('/%s/new/' % (kind), fields)
+            response = self.client.post(f'/{kind}/new/', fields)
         if response.status_code == 200:
             self.assertIsNotNone(error := rendered_error(response))
             return error

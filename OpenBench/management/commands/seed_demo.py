@@ -224,8 +224,8 @@ class Command(BaseCommand):
             age_offline_machines(machines)
 
         self.stdout.write(
-            'Seeded %d workloads on %d machines. Log in as admin / %s'
-            % (len(WORKLOADS) + len(PAST_SPRTS) + len(TUNES), len(machines), DEMO_PASSWORD)
+            f'Seeded {len(WORKLOADS) + len(PAST_SPRTS) + len(TUNES)} workloads on {len(machines)} machines. '
+            f'Log in as admin / {DEMO_PASSWORD}'
         )
 
 
@@ -285,7 +285,7 @@ def create_machines(users):
             'syzygy_max': 0,
             'noisy': False,
             'sockets': 1,
-            'machine_name': 'demo-%d' % (index + 1),
+            'machine_name': f'demo-{index + 1}',
             'client_ver': OPENBENCH_CONFIG['client_version'],
             'supported': ['Avalanche'],
         }
@@ -298,14 +298,14 @@ def assign_online_machines(machines: list[Machine]) -> None:
     active = list(
         Test.objects.filter(approved=True, finished=False).order_by('-priority', 'id').values_list('id', flat=True)
     )
-    online = [machine for machine, (*_, hours_ago) in zip(machines, CPUS) if not hours_ago]
+    online = [machine for machine, (*_, hours_ago) in zip(machines, CPUS, strict=True) if not hours_ago]
     for index, machine in enumerate(online):
         Machine.objects.filter(id=machine.id).update(workload=active[index % len(active)], updated=timezone.now())
 
 
 def age_offline_machines(machines):
     now = timezone.now()
-    for machine, (*_, hours_ago) in zip(machines, CPUS):
+    for machine, (*_, hours_ago) in zip(machines, CPUS, strict=True):
         if not hours_ago:
             continue
         seen = now - datetime.timedelta(hours=hours_ago)
@@ -378,7 +378,7 @@ def create_workload(spec, author, machines, rng):
 
     dev = create_engine(spec.name, rng)
     base = create_engine('master', rng)
-    options = 'Threads=%d Hash=%d' % (spec.threads, 16 * spec.threads)
+    options = f'Threads={spec.threads} Hash={16 * spec.threads}'
     times = schedule(spec.state, rng, spec.days_ago)
     is_sprt = spec.mode == 'SPRT'
     is_data = spec.mode == 'DATAGEN'
@@ -443,7 +443,7 @@ def sprt_to_verdict(spec: DemoWorkload, rng: random.Random) -> list[int]:
         if len(outcomes) >= SPRT_MAX_PAIRS:
             raise CommandError(f'{spec.name} did not reach a verdict in {SPRT_MAX_PAIRS} pairs; choose another elo')
         batch = simulate_pairs(spec.elo, SPRT_BATCH, rng)
-        penta = [total + added for total, added in zip(penta, tally(batch))]
+        penta = [total + added for total, added in zip(penta, tally(batch), strict=True)]
         outcomes.extend(batch)
     return outcomes
 
@@ -535,7 +535,7 @@ def simulate_tune(spec: DemoTune, run: SPSARun, parameters: list[SPSAParameter],
         gain = sum(
             (abs(param.value - flip * c - demo.optimum) - abs(param.value + flip * c - demo.optimum))
             / (demo.max_value - demo.min_value)
-            for param, demo, flip in zip(parameters, spec.parameters, flips)
+            for param, demo, flip in zip(parameters, spec.parameters, flips, strict=True)
             for c in [perturbation(param, c_compression)]
         )
 
@@ -543,7 +543,7 @@ def simulate_tune(spec: DemoTune, run: SPSARun, parameters: list[SPSAParameter],
         wins, losses, _ = trinomial(tally(batch))
         outcomes.extend(batch)
 
-        for param, flip in zip(parameters, flips):
+        for param, flip in zip(parameters, flips, strict=True):
             c = perturbation(param, c_compression)
             r = param.a_value / r_compression / c**2
             param.value = max(param.min_value, min(param.max_value, param.value + r * c * (wins - losses) * flip))
@@ -565,10 +565,10 @@ def record_outcomes(
     penta = tally(outcomes)
     playing = [
         machine
-        for machine, (*_, hours_ago) in zip(machines, CPUS)
+        for machine, (*_, hours_ago) in zip(machines, CPUS, strict=True)
         if datetime.timedelta(hours=hours_ago) < now - times.started
     ]
-    for machine, share in zip(playing, split_pairs(penta, len(playing), rng)):
+    for machine, share in zip(playing, split_pairs(penta, len(playing), rng), strict=True):
         if sum(share):
             create_result(test, machine, share, rng)
 
@@ -627,7 +627,7 @@ def create_history(test, bounds, outcomes, started, ended, rng):
     for index, weight in enumerate(weights, start=1):
         cumulative += weight
         played = len(outcomes) if index == points else round(len(outcomes) * cumulative / total)
-        penta = [so_far + added for so_far, added in zip(penta, tally(outcomes[counted:played]))]
+        penta = [so_far + added for so_far, added in zip(penta, tally(outcomes[counted:played]), strict=True)]
         counted = played
         wins, losses, draws = trinomial(penta)
         snapshots.append(

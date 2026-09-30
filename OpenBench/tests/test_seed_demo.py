@@ -24,9 +24,7 @@ class SeedDemoTests(TestCase):
         self.assertTrue(Machine.objects.exists())
 
         for engine in Engine.objects.all():
-            self.assertEqual(
-                engine.source, 'https://api.github.com/repos/SnowballSH/Avalanche/zipball/%s' % (engine.sha)
-            )
+            self.assertEqual(engine.source, f'https://api.github.com/repos/SnowballSH/Avalanche/zipball/{engine.sha}')
 
         for test in Test.objects.all():
             results = Result.objects.filter(test=test)

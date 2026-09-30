@@ -21,7 +21,7 @@ class ModifyWorkloadTests(TestCase):
         if user:
             self.client.login(username=user.username, password=PASSWORD)
         workload = workload or self.test
-        response = self.client.post('/test/%d/%s/' % (workload.id, action), data or {})
+        response = self.client.post(f'/test/{workload.id}/{action}/', data or {})
         self.assertEqual(response.status_code, 302)
         workload.refresh_from_db()
         session = self.client.session
@@ -97,7 +97,7 @@ class TweakWorkloadTests(TestCase):
         self.client.login(username='author', password=PASSWORD)
 
     def tweak(self, **fields):
-        response = self.client.post('/test/%d/MODIFY/' % (self.test.id), fields)
+        response = self.client.post(f'/test/{self.test.id}/MODIFY/', fields)
         self.assertEqual(response.status_code, 302)
         self.test.refresh_from_db()
 
@@ -127,6 +127,6 @@ class TweakWorkloadTests(TestCase):
     def test_tunes_keep_their_workload_size(self):
         self.test.test_mode = 'SPSA'
         self.test.save()
-        self.client.post('/tune/%d/MODIFY/' % (self.test.id), {'workload_size': '64'})
+        self.client.post(f'/tune/{self.test.id}/MODIFY/', {'workload_size': '64'})
         self.test.refresh_from_db()
         self.assertEqual(self.test.workload_size, 32)

@@ -133,8 +133,8 @@ class EloTests(SimpleTestCase):
         self.assertAlmostEqual(Elo((1, 2, 3, 2, 1))[1], 0.0, places=9)
 
     def test_even_results_are_not_negative_zero(self):
-        self.assertEqual('%.2f' % Elo((1, 2, 3, 2, 1))[1], '0.00')
-        self.assertEqual('%.2f' % Elo((5, 10, 5))[1], '0.00')
+        self.assertEqual(f'{Elo((1, 2, 3, 2, 1))[1]:.2f}', '0.00')
+        self.assertEqual(f'{Elo((5, 10, 5))[1]:.2f}', '0.00')
 
     def test_interval_uses_the_t_distribution(self):
         half = 2.0930240544083087 * 0.5 / math.sqrt(20)
@@ -148,7 +148,7 @@ class EloTests(SimpleTestCase):
         for results in [R3, R5, (3, 7, 11), (1, 4, 10, 6, 2)]:
             lower, elo, upper = Elo(results)
             mirror = Elo(results[::-1])
-            for a, b in zip((lower, elo, upper), (-mirror[2], -mirror[1], -mirror[0])):
+            for a, b in zip((lower, elo, upper), (-mirror[2], -mirror[1], -mirror[0]), strict=True):
                 self.assertAlmostEqual(a, b, places=9)
 
     def test_ordering(self):

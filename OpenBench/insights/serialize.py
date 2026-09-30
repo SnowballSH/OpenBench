@@ -24,4 +24,4 @@ def to_json(value: object) -> Json:
         case _ if is_dataclass(value) and not isinstance(value, type):
             return {field.name: to_json(getattr(value, field.name)) for field in fields(value)}
 
-    raise TypeError('Cannot serialize %r' % (value,))
+    raise TypeError(f'Cannot serialize {value!r}')

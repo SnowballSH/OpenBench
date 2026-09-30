@@ -52,7 +52,7 @@ class NetworkTests(TestCase):
 
     def upload(self, name, content):
         netfile = SimpleUploadedFile('net.nnue', content)
-        return self.client.post('/networks/Avalanche/upload/%s/' % (name), {'netfile': netfile})
+        return self.client.post(f'/networks/Avalanche/upload/{name}/', {'netfile': netfile})
 
     def test_upload_then_download(self):
         content = b'nnue-weights' * 1000
@@ -62,7 +62,7 @@ class NetworkTests(TestCase):
         response = self.client.get('/networks/Avalanche/download/r1-ctrl/')
         self.assertEqual(response.status_code, 200)
         self.assertEqual(b''.join(response.streaming_content), content)
-        self.assertEqual(response['Content-Disposition'], 'attachment; filename=%s' % (network.sha256))
+        self.assertEqual(response['Content-Disposition'], f'attachment; filename={network.sha256}')
 
     def test_duplicate_upload_is_rejected(self):
         self.upload('r1-ctrl', b'same')

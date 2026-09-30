@@ -26,7 +26,7 @@ class PGNWatcherTests(TestCase):
         return pgn
 
     def archive(self, test_id):
-        path = os.path.join(self.media.name, 'PGNs', '%d.pgn.tar' % (test_id))
+        path = os.path.join(self.media.name, 'PGNs', f'{test_id}.pgn.tar')
         with tarfile.open(path) as tar:
             return sorted(tar.getnames())
 

@@ -284,7 +284,7 @@ class SeriesTests(SimpleTestCase):
 
 class ContributionTests(SimpleTestCase):
     def row(self, machine_id, cpu, penta, name=None):
-        return ResultRow(machine_id, name, 'owner-%d' % machine_id, cpu, outcomes(penta))
+        return ResultRow(machine_id, name, f'owner-{machine_id}', cpu, outcomes(penta))
 
     def test_machines_and_cpus(self):
         rows = [

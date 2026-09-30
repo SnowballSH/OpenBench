@@ -39,9 +39,9 @@ class EngineOptionsPopupTests(TestCase):
 
     def test_options_render_escaped_and_popup_uses_text_nodes(self):
         payload = '<img/src=x/onerror=alert(1)>'
-        test = create_test(self.user, dev_options='Threads=1 Hash=16 %s' % (payload))
+        test = create_test(self.user, dev_options=f'Threads=1 Hash=16 {payload}')
 
-        content = self.client.get('/test/%d/' % (test.id)).content.decode()
+        content = self.client.get(f'/test/{test.id}/').content.decode()
 
         self.assertNotIn(payload, content)
         self.assertIn('&lt;img/src=x/onerror=alert(1)&gt;', content)
@@ -348,7 +348,7 @@ class ThrottleTests(TestCase):
 
     def test_address_is_locked_after_its_own_limit(self):
         for index in range(throttle.ADDRESS_LIMIT):
-            self.fail_logins(1, username='guess%d' % (index))
+            self.fail_logins(1, username=f'guess{index}')
         self.assertRedirects(self.login(), '/login/', fetch_redirect_response=False)
         self.assertRedirects(self.login(REMOTE_ADDR='203.0.113.2'), '/index/', fetch_redirect_response=False)
 
@@ -461,11 +461,11 @@ class CrossSiteActionTests(TestCase):
 
     def test_cross_site_workload_action_is_refused(self):
         for site in ('cross-site', 'same-site'):
-            self.client.post('/test/%d/DELETE/' % (self.test.id), headers={'sec-fetch-site': site})
+            self.client.post(f'/test/{self.test.id}/DELETE/', headers={'sec-fetch-site': site})
             self.assertFalse(Test.objects.get(id=self.test.id).deleted, site)
 
     def test_same_origin_workload_action_is_allowed(self):
-        self.client.post('/test/%d/DELETE/' % (self.test.id), headers={'sec-fetch-site': 'same-origin'})
+        self.client.post(f'/test/{self.test.id}/DELETE/', headers={'sec-fetch-site': 'same-origin'})
         self.assertTrue(Test.objects.get(id=self.test.id).deleted)
 
     def test_cross_site_network_delete_is_refused(self):

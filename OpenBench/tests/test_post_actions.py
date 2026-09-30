@@ -60,8 +60,8 @@ class WorkloadActionTests(CsrfClientMixin, TestCase):
         for action, (_, _, expected) in self.STATES.items():
             workload = self.workload(action)
             client = self.csrf_client(self.approver)
-            token = self.form_token(client, '/test/%d/' % (workload.id))
-            response = client.post('/test/%d/%s/' % (workload.id, action), {'csrfmiddlewaretoken': token})
+            token = self.form_token(client, f'/test/{workload.id}/')
+            response = client.post(f'/test/{workload.id}/{action}/', {'csrfmiddlewaretoken': token})
             self.assertEqual(response.status_code, 302, action)
             self.assertEqual(self.field(workload, action), expected, action)
 
@@ -69,8 +69,8 @@ class WorkloadActionTests(CsrfClientMixin, TestCase):
         self.client.force_login(self.approver)
         for action, (_, _, expected) in self.STATES.items():
             workload = self.workload(action)
-            response = self.client.get('/test/%d/%s/' % (workload.id, action))
-            self.assertRedirects(response, '/test/%d/' % (workload.id), fetch_redirect_response=False)
+            response = self.client.get(f'/test/{workload.id}/{action}/')
+            self.assertRedirects(response, f'/test/{workload.id}/', fetch_redirect_response=False)
             self.assertIn('must be submitted', self.client.session['error_message'])
             self.assertNotEqual(self.field(workload, action), expected, action)
         self.assertFalse(LogEvent.objects.exists())
@@ -78,7 +78,7 @@ class WorkloadActionTests(CsrfClientMixin, TestCase):
     def test_get_of_modify_changes_nothing(self):
         workload = create_test(self.author)
         self.client.force_login(self.author)
-        self.client.get('/test/%d/MODIFY/?priority=9' % (workload.id))
+        self.client.get(f'/test/{workload.id}/MODIFY/?priority=9')
         self.assertEqual(Test.objects.get(id=workload.id).priority, 0)
         self.assertFalse(LogEvent.objects.exists())
 
@@ -87,7 +87,7 @@ class WorkloadActionTests(CsrfClientMixin, TestCase):
         for action, (_, _, expected) in self.STATES.items():
             workload = self.workload(action)
             self.assertEqual(
-                client.post('/test/%d/%s/' % (workload.id, action)).status_code,
+                client.post(f'/test/{workload.id}/{action}/').status_code,
                 403,
                 action,
             )
@@ -97,22 +97,22 @@ class WorkloadActionTests(CsrfClientMixin, TestCase):
     def test_viewing_a_workload_is_still_a_get(self):
         workload = create_test(self.author)
         self.client.force_login(self.author)
-        self.assertEqual(self.client.get('/test/%d/' % (workload.id)).status_code, 200)
+        self.assertEqual(self.client.get(f'/test/{workload.id}/').status_code, 200)
 
     def test_buttons_submit_the_csrf_protected_form(self):
         workload = create_test(self.author, approved=False)
         self.client.force_login(self.approver)
-        content = self.client.get('/test/%d/' % (workload.id)).content.decode()
+        content = self.client.get(f'/test/{workload.id}/').content.decode()
         self.assertRegex(
             content,
             r'<form id="workload-actions" method="post" hidden><input [^>]*name="csrfmiddlewaretoken"',
         )
         for action in ('APPROVE', 'STOP', 'DELETE'):
             self.assertIn(
-                'form="workload-actions" formaction="/test/%d/%s/"' % (workload.id, action),
+                f'form="workload-actions" formaction="/test/{workload.id}/{action}/"',
                 content,
             )
-        self.assertNotRegex(content, r'href="/test/%d/[A-Z]+' % (workload.id))
+        self.assertNotRegex(content, rf'href="/test/{workload.id}/[A-Z]+')
         self.assertIn('data-confirm="Delete this Workload?"', content)
 
 
@@ -154,7 +154,7 @@ class NetworkActionTests(CsrfClientMixin, TestCase):
     def test_get_changes_nothing_and_returns_to_the_networks(self):
         self.client.force_login(self.approver)
         for action in ('DEFAULT', 'DELETE'):
-            response = self.client.get('/networks/Avalanche/%s/BBBBBBBB/' % (action))
+            response = self.client.get(f'/networks/Avalanche/{action}/BBBBBBBB/')
             self.assertRedirects(response, '/networks/Avalanche/', fetch_redirect_response=False)
             self.assertIn('must be submitted', self.client.session['error_message'])
         self.refreshed()
@@ -164,7 +164,7 @@ class NetworkActionTests(CsrfClientMixin, TestCase):
         client = self.csrf_client(self.approver)
         for action in ('DEFAULT', 'DELETE'):
             self.assertEqual(
-                client.post('/networks/Avalanche/%s/BBBBBBBB/' % (action)).status_code,
+                client.post(f'/networks/Avalanche/{action}/BBBBBBBB/').status_code,
                 403,
             )
         self.refreshed()

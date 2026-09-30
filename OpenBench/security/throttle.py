@@ -25,7 +25,8 @@ def client_ip(request: HttpRequest) -> str:
 
 
 def _cache_key(kind: str, *parts: str) -> str:
-    return 'auth-failures:%s:%s' % (kind, hashlib.sha256('\0'.join(parts).encode()).hexdigest())
+    digest = hashlib.sha256('\0'.join(parts).encode()).hexdigest()
+    return f'auth-failures:{kind}:{digest}'
 
 
 def _limited_keys(request: HttpRequest, username: str) -> tuple[tuple[str, int], ...]:

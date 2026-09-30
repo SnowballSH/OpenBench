@@ -36,7 +36,7 @@ def ensure_book():
 def create_test(author, engine='Avalanche', threads=1, priority=0, **fields):
     dev = Engine.objects.create(name='dev', source='https://github.com/SnowballSH/Avalanche', sha='a' * 40, bench=1)
     base = Engine.objects.create(name='base', source='https://github.com/SnowballSH/Avalanche', sha='b' * 40, bench=1)
-    options = 'Threads=%d Hash=16' % (threads)
+    options = f'Threads={threads} Hash=16'
     return Test.objects.create(
         **{
             'author': author.username,

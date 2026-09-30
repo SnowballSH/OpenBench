@@ -31,8 +31,8 @@ class SprtForecast:
 
 
 def weighted_moments(weights: Sequence[float], values: Sequence[float]) -> tuple[float, float]:
-    mean = sum(w * v for w, v in zip(weights, values))
-    return mean, sum(w * (v - mean) ** 2 for w, v in zip(weights, values))
+    mean = sum(w * v for w, v in zip(weights, values, strict=True))
+    return mean, sum(w * (v - mean) ** 2 for w, v in zip(weights, values, strict=True))
 
 
 def pentanomial_increment(penta: Sequence[int], elo0: float, elo1: float) -> LlrIncrement:

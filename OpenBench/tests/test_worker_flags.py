@@ -1,5 +1,6 @@
 import argparse
 import contextlib
+import importlib
 import io
 import json
 import os
@@ -8,17 +9,24 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from types import ModuleType
 from unittest import mock
 
 import requests
 
 CLIENT_DIR = os.path.join(os.path.dirname(__file__), os.pardir, os.pardir, 'Client')
-sys.path.insert(0, os.path.abspath(CLIENT_DIR))
 
-import utils
-import worker
 
-import client
+def load_client_module(name: str) -> ModuleType:
+    client_dir = os.path.abspath(CLIENT_DIR)
+    if client_dir not in sys.path:
+        sys.path.insert(0, client_dir)
+    return importlib.import_module(name)
+
+
+utils = load_client_module('utils')
+worker = load_client_module('worker')
+client = load_client_module('client')
 
 CLIENT_ARGS = argparse.Namespace(username='lab-worker', password='secret', server='https://ob.invalid')
 

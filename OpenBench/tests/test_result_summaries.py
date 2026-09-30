@@ -27,7 +27,7 @@ class ResultSummaryTests(TestCase):
         )
         self.assertEqual((row['dev_nps'], row['dev_nps_scaled'], row['base_nps']), (2000, 4000, 0))
         self.assertEqual(
-            row['elo'], '0.00 ± %.2f' % ((lambda l, m, u: (u - l) / 2)(*OpenBench.stats.Elo((1, 3, 4, 3, 1))))
+            row['elo'], f'0.00 ± {(lambda l, m, u: (u - l) / 2)(*OpenBench.stats.Elo((1, 3, 4, 3, 1))):.2f}'
         )
 
     def test_nodes_without_time_do_not_divide_by_zero(self):
