@@ -120,7 +120,10 @@
             <ul>
                 <li class="header">Admin</li>
                 {% if user.is_authenticated %}
-                    <li><a href="/logout/"><i class="fa-solid fa-right-from-bracket fa-fw"></i> Logout</a></li>
+                    <li>
+                        <form id="logout-form" class="logout-form" method="post" action="/logout/" hidden>{% csrf_token %}</form>
+                        <a href="/logout/" onclick="event.preventDefault(); document.getElementById('logout-form').submit();"><i class="fa-solid fa-right-from-bracket fa-fw"></i> Logout</a>
+                    </li>
                     <li><a href="/profile/"><i class="fa-solid fa-user fa-fw"></i> Profile</a></li>
                 {% else %}
                     <li><a href="/login"><i class="fa-solid fa-right-to-bracket fa-fw"></i> Login</a></li>

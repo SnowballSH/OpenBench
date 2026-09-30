@@ -41,6 +41,31 @@ class EngineOptionsPopupTests(TestCase):
         self.assertNotIn('innerHTML', content)
         self.assertIn('createTextNode(option)', content)
 
+class LogoutTests(TestCase):
+
+    def setUp(self):
+        self.user = create_user('reader')
+        self.client.force_login(self.user)
+
+    def test_get_does_not_log_out(self):
+        self.assertRedirects(self.client.get('/logout/'), '/index/', fetch_redirect_response=False)
+        self.assertEqual(self.client.get('/index/').status_code, 200)
+
+    def test_post_logs_out(self):
+        self.assertRedirects(self.client.post('/logout/'), '/index/', fetch_redirect_response=False)
+        self.assertRedirects(self.client.get('/index/'), '/login/', fetch_redirect_response=False)
+
+    def test_sidebar_logs_out_with_a_csrf_protected_form(self):
+        content = self.client.get('/index/').content.decode()
+        self.assertRegex(content, r'<form action="/logout/" class="logout-form" hidden="" id="logout-form" method="post"><input name="csrfmiddlewaretoken"')
+        self.assertIn('name="csrfmiddlewaretoken"', content)
+
+    def test_post_without_csrf_token_is_refused(self):
+        client = self.client_class(enforce_csrf_checks=True)
+        client.force_login(self.user)
+        self.assertEqual(client.post('/logout/').status_code, 403)
+        self.assertEqual(client.get('/index/').status_code, 200)
+
 class RegistrationTests(TestCase):
 
     def test_manual_registration_refuses_posts(self):

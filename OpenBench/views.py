@@ -194,6 +194,10 @@ def login(request):
 
 def logout(request):
 
+    # A GET must never end a session, or any page could log a user out
+    if request.method != 'POST':
+        return redirect(request, '/index/')
+
     django.contrib.auth.logout(request)
     return redirect(request, '/index/', status='Logged out')
 
