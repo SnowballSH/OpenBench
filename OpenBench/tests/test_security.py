@@ -77,6 +77,20 @@ class RegistrationTests(TestCase):
         self.assertFalse(self.client.session.get('_auth_user_id'))
         self.assertFalse(OpenBench.views.User.objects.filter(username='intruder').exists())
 
+    def test_open_registration_still_logs_the_new_user_in(self):
+        with mock.patch.dict(OPENBENCH_CONFIG, { 'require_manual_registration' : False }):
+            response = self.client.post('/register/', {
+                'username' : 'newcomer', 'email' : '', 'password1' : PASSWORD, 'password2' : PASSWORD,
+            })
+        self.assertRedirects(response, '/index/', fetch_redirect_response=False)
+        self.assertTrue(self.client.session.get('_auth_user_id'))
+
+    def test_password_change_keeps_the_session(self):
+        self.client.force_login(create_user('reader'))
+        response = self.client.post('/profile/', { 'email' : '', 'password1' : 'a-new-long-password', 'password2' : 'a-new-long-password' })
+        self.assertRedirects(response, '/profile/', fetch_redirect_response=False)
+        self.assertEqual(self.client.get('/index/').status_code, 200)
+
 class ScriptsTests(TestCase):
 
     def setUp(self):
@@ -269,46 +283,77 @@ class ThrottleTests(TestCase):
         return self.client.post('/login/', credentials(self.user), **extra)
 
     def test_valid_login_survives_fewer_failures_than_the_limit(self):
-        self.fail_logins(throttle.FAILURE_LIMIT - 1)
+        self.fail_logins(throttle.ACCOUNT_LIMIT - 1)
         self.assertRedirects(self.login(), '/index/', fetch_redirect_response=False)
 
-    def test_username_is_locked_after_the_limit(self):
-        self.fail_logins(throttle.FAILURE_LIMIT, REMOTE_ADDR='203.0.113.1')
+    def test_account_is_locked_on_the_failing_address(self):
+        self.fail_logins(throttle.ACCOUNT_LIMIT, REMOTE_ADDR='203.0.113.1')
 
-        response = self.login(REMOTE_ADDR='203.0.113.2')
+        response = self.login(REMOTE_ADDR='203.0.113.1')
         self.assertRedirects(response, '/login/', fetch_redirect_response=False)
         self.assertEqual(self.client.session['error_message'], 'Too many failed logins. Try again later')
 
-    def test_address_is_locked_after_the_limit(self):
-        for index in range(throttle.FAILURE_LIMIT):
+    def test_failures_elsewhere_never_lock_out_a_correct_login(self):
+        self.fail_logins(throttle.ACCOUNT_LIMIT * 2, REMOTE_ADDR='203.0.113.66')
+
+        self.assertRedirects(self.login(REMOTE_ADDR='203.0.113.2'), '/index/', fetch_redirect_response=False)
+        response = self.client.post('/api/active/', register_payload(self.user), REMOTE_ADDR='203.0.113.2')
+        self.assertEqual(response.status_code, 200)
+
+    def test_address_is_locked_after_its_own_limit(self):
+        for index in range(throttle.ADDRESS_LIMIT):
             self.fail_logins(1, username='guess%d' % (index))
         self.assertRedirects(self.login(), '/login/', fetch_redirect_response=False)
-
-    def test_other_addresses_and_users_are_unaffected(self):
-        self.fail_logins(throttle.FAILURE_LIMIT, username='someone-else', REMOTE_ADDR='203.0.113.1')
         self.assertRedirects(self.login(REMOTE_ADDR='203.0.113.2'), '/index/', fetch_redirect_response=False)
 
-    def test_worker_registration_is_throttled(self):
+    def test_refused_attempts_do_not_count_against_the_address(self):
+        self.fail_logins(throttle.ADDRESS_LIMIT)
+        other = create_user('lab-readonly')
+        response = self.client.post('/login/', credentials(other))
+        self.assertRedirects(response, '/index/', fetch_redirect_response=False)
+
+    def test_worker_registration_gets_a_distinct_error(self):
         payload = register_payload(self.user)
-        for _ in range(throttle.FAILURE_LIMIT):
+        for _ in range(throttle.ACCOUNT_LIMIT):
             self.client.post('/clientWorkerInfo/', { **payload, 'password' : 'wrong' })
 
-        self.assertIn('error', self.client.post('/clientWorkerInfo/', payload).json())
+        response = self.client.post('/clientWorkerInfo/', payload).json()
+        self.assertEqual(response, { 'error' : 'Too many failed logins. Try again later' })
         self.assertFalse(Machine.objects.exists())
 
-    def test_api_is_throttled(self):
-        for _ in range(throttle.FAILURE_LIMIT):
+    def test_api_answers_429(self):
+        for _ in range(throttle.ACCOUNT_LIMIT):
             self.client.post('/api/config/', { 'username' : 'lab-worker', 'password' : 'wrong' })
-        self.assertIn('error', json.loads(self.client.post('/api/config/', credentials(self.user)).content))
+
+        for url in ['/api/config/', '/api/active/']:
+            response = self.client.post(url, register_payload(self.user))
+            self.assertEqual(response.status_code, 429, url)
+            self.assertEqual(response.json(), { 'error' : 'Too many failed logins' }, url)
 
     def test_admin_login_is_throttled(self):
         self.user.is_staff = True
         self.user.save()
-        self.fail_logins(throttle.FAILURE_LIMIT)
+        self.fail_logins(throttle.ACCOUNT_LIMIT)
 
         response = self.client.post('/admin/login/', { **credentials(self.user), 'next' : '/admin/' })
         self.assertEqual(response.status_code, 200)
         self.assertFalse(self.client.session.get('_auth_user_id'))
+
+    def test_admin_failures_are_counted(self):
+        for _ in range(throttle.ACCOUNT_LIMIT):
+            self.client.post('/admin/login/', { 'username' : 'lab-worker', 'password' : 'wrong', 'next' : '/admin/' })
+        self.assertRedirects(self.login(), '/login/', fetch_redirect_response=False)
+
+    def test_sessions_from_the_stock_backend_stay_valid(self):
+        self.client.force_login(self.user, backend='django.contrib.auth.backends.ModelBackend')
+        self.assertEqual(self.client.get('/index/').status_code, 200)
+
+    def test_path_is_logged_escaped(self):
+        with self.assertLogs('OpenBench.views', 'WARNING') as logs:
+            self.client.post('/api/config/x%0Aforged/', { 'username' : 'x', 'password' : 'y' })
+        self.assertEqual(len(logs.output), 1)
+        self.assertNotIn('\n', logs.output[0])
+        self.assertIn('\\nforged', logs.output[0])
 
 class ClientAddressTests(TestCase):
 

@@ -133,22 +133,24 @@ def authenticate(request, requireEnabled=False):
     if not username or not password:
         raise UnableToAuthenticate()
 
+    if throttle.is_throttled(request, username):
+        logger.warning('Throttled login for username %r from %s on %r',
+            username[:150], throttle.client_ip(request), request.path)
+        raise throttle.LoginThrottled()
+
     user = django.contrib.auth.authenticate(request, username=username, password=password)
 
     if user and requireEnabled and not Profile.objects.filter(user=user, enabled=True).exists():
         user = None
 
     if user is None:
-        logger.warning('Authentication failed for username %r from %s on %s',
+        logger.warning('Authentication failed for username %r from %s on %r',
             username[:150], throttle.client_ip(request), request.path)
         raise UnableToAuthenticate()
 
     return user
 
-def authentication_error(request):
-    if throttle.is_throttled(request, request.POST.get('username', '')):
-        return 'Too many failed logins. Try again later'
-    return 'Unable to authenticate user'
+THROTTLED_MESSAGE = 'Too many failed logins. Try again later'
 
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 #                            ADMINISTRATIVE VIEWS                             #
@@ -176,7 +178,7 @@ def register(request):
     password = request.POST['password1']
 
     user = User.objects.create_user(username, email, password)
-    django.contrib.auth.login(request, user)
+    django.contrib.auth.login(request, user, backend='django.contrib.auth.backends.ModelBackend')
     Profile.objects.create(user=user)
 
     return redirect(request, '/index/')
@@ -190,8 +192,11 @@ def login(request):
         django.contrib.auth.login(request, authenticate(request))
         return redirect(request, '/index/')
 
+    except throttle.LoginThrottled:
+        return redirect(request, '/login/', error=THROTTLED_MESSAGE)
+
     except UnableToAuthenticate:
-        return redirect(request, '/login/', error=authentication_error(request))
+        return redirect(request, '/login/', error='Unable to authenticate user')
 
 def logout(request):
 
@@ -225,7 +230,7 @@ def profile(request):
     if request.POST['password1']:
         request.user.set_password(request.POST['password1'])
         request.user.save()
-        django.contrib.auth.login(request, request.user)
+        django.contrib.auth.update_session_auth_hash(request, request.user)
         changes_message += '\nUpdated password'
 
     return redirect(request, '/profile/', status=changes_message.removeprefix('\n'))
@@ -700,8 +705,10 @@ def scripts(request):
 
     # Exempt from CSRF, so the request must carry its own credentials
     try: user = authenticate(request, requireEnabled=True)
+    except throttle.LoginThrottled:
+        return redirect(request, '/login/', error=THROTTLED_MESSAGE)
     except UnableToAuthenticate:
-        return redirect(request, '/login/', error=authentication_error(request))
+        return redirect(request, '/login/', error='Unable to authenticate user')
 
     django.contrib.auth.login(request, user)
 
@@ -788,6 +795,8 @@ def client_worker_info(request):
 
     # Verify the User's credentials
     try: user = authenticate(request, True)
+    except throttle.LoginThrottled:
+        return JsonResponse({ 'error' : THROTTLED_MESSAGE })
     except UnableToAuthenticate:
         return JsonResponse({ 'error' : 'Bad Credentials' })
 
@@ -850,6 +859,7 @@ def client_get_network(request, engine, name):
 
     # Verify the User's credentials
     try: django.contrib.auth.login(request, authenticate(request, True))
+    except throttle.LoginThrottled: return HttpResponse(THROTTLED_MESSAGE, status=429)
     except UnableToAuthenticate: return HttpResponse('Bad Credentials')
 
     # Return the requested Neural Network file for the Client
@@ -992,7 +1002,8 @@ def api_response(data, status=200):
 def api_user(request):
 
     # The enabled User behind an API request, from the browser session or else
-    # from credentials in the POST body. None if there is no such User
+    # from credentials in the POST body. None if there is no such User. Raises
+    # LoginThrottled, which LoginThrottleMiddleware turns into a 429
 
     if request.user.is_authenticated:
         return request.user if Profile.objects.filter(user=request.user, enabled=True).exists() else None

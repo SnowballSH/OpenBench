@@ -65,10 +65,14 @@ CACHES = {
     'default': {
         'BACKEND'  : 'django.core.cache.backends.locmem.LocMemCache',
         'LOCATION' : 'openbench',
+        'OPTIONS'  : { 'MAX_ENTRIES' : 10000 },
     }
 }
 
-AUTHENTICATION_BACKENDS = ['OpenBench.security.backends.ThrottledModelBackend']
+AUTHENTICATION_BACKENDS = [
+    'OpenBench.security.backends.LoginThrottleBackend',
+    'django.contrib.auth.backends.ModelBackend',
+]
 
 LOGGING = {
     'version'                  : 1,
@@ -118,6 +122,7 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'htmlmin.middleware.HtmlMinifyMiddleware',
     'htmlmin.middleware.MarkRequestMiddleware',
+    'OpenBench.security.middleware.LoginThrottleMiddleware',
 ]
 
 ROOT_URLCONF = 'OpenSite.urls'

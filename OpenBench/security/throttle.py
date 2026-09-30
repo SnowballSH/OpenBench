@@ -4,8 +4,12 @@ from django.conf import settings
 from django.core.cache import cache
 from django.http import HttpRequest
 
-FAILURE_LIMIT  = 10
 WINDOW_SECONDS = 15 * 60
+ACCOUNT_LIMIT  = 10
+ADDRESS_LIMIT  = 50
+
+class LoginThrottled(Exception):
+    pass
 
 def client_ip(request: HttpRequest) -> str:
 
@@ -17,19 +21,25 @@ def client_ip(request: HttpRequest) -> str:
 
     return request.META.get('REMOTE_ADDR', '')
 
-def _cache_key(kind: str, value: str) -> str:
-    return 'auth-failures:%s:%s' % (kind, hashlib.sha256(value.encode()).hexdigest())
+def _cache_key(kind: str, *parts: str) -> str:
+    return 'auth-failures:%s:%s' % (kind, hashlib.sha256('\0'.join(parts).encode()).hexdigest())
 
-def _failure_keys(request: HttpRequest, username: str) -> tuple[str, str]:
-    return (_cache_key('user', username.casefold()), _cache_key('ip', client_ip(request)))
+def _limited_keys(request: HttpRequest, username: str) -> tuple[tuple[str, int], ...]:
+
+    # No key is the username alone, so failures elsewhere never lock out a correct login here
+    address = client_ip(request)
+    return (
+        (_cache_key('account', username.casefold(), address), ACCOUNT_LIMIT),
+        (_cache_key('address', address), ADDRESS_LIMIT),
+    )
 
 def is_throttled(request: HttpRequest, username: str) -> bool:
-    return any(cache.get(key, 0) >= FAILURE_LIMIT for key in _failure_keys(request, username))
+    return any(cache.get(key, 0) >= limit for key, limit in _limited_keys(request, username))
 
 def record_failure(request: HttpRequest, username: str) -> None:
 
     # The window is fixed from the first failure; incr() leaves the expiry untouched
-    for key in _failure_keys(request, username):
+    for key, _ in _limited_keys(request, username):
         cache.add(key, 0, WINDOW_SECONDS)
         try: cache.incr(key)
         except ValueError: cache.set(key, 1, WINDOW_SECONDS)

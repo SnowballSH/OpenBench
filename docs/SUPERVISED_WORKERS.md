@@ -37,6 +37,7 @@ is written: no Machine, Result, or session is created.
 | 200 | `{"assignable": n}`: the workloads `clientGetWorkload` would choose among. `n > 0` exactly when a registered Client with this `system_info` and blacklist would be assigned work now. |
 | 400 | `{"error": ...}`: malformed `system_info` or `blacklist`. |
 | 401 | `{"error": "Bad Credentials"}`: unknown user, wrong password, or disabled profile. |
+| 429 | `{"error": "Too many failed logins"}`: this username failed 10 times from this address, or 50 checks failed from this address, within 15 minutes. The password was not checked. Back off and retry after the window; failures from other addresses never cause this. See [SECURITY.md](SECURITY.md). |
 | 405 | `{"error": "POST required"}` |
 
 ## Client flags

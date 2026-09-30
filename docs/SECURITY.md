@@ -5,29 +5,49 @@ Operator-visible security behaviour of this fork. Settings live in
 
 ## Failed-login throttle
 
-Every password check that passes its request through Django's authentication
-goes through `ThrottledModelBackend`: the website login, `/scripts/`, the
+Every password check is throttled: the website login, `/scripts/`, the
 Client's `/clientWorkerInfo/` and `/clientGetNetwork/`, credentialed `/api/`
-calls (including the supervisor's `POST /api/active/`), and `/admin/login/`.
+calls (including the supervisor's `POST /api/active/` and the Client's network
+downloads from `/api/networks/`), and `/admin/login/`. The views check the
+throttle before testing a password; `LoginThrottleBackend` does the same for
+the admin login, and a `user_login_failed` receiver counts the failures.
 
-- After 10 failed checks within 15 minutes for one username, or from one client
-  address, further checks for that key fail without testing the password,
-  even when it is correct. The window runs from the first failure; it is not
-  extended by later ones. Successful logins do not count.
-- A worker or supervisor with correct credentials never fails, so it is never
-  throttled in normal operation. It is locked out only while someone else keeps
-  failing for its username or from its address; it recovers by itself when
-  the window ends. Restarting the container clears every counter.
+- Two counters, each over a 15-minute window fixed from its first failure:
+  - one per username and client address pair, refused after 10 failures;
+  - one per client address, refused after 50 failures.
+- No counter is keyed on the username alone. Failures from one address never
+  lock that account out anywhere else, so an outsider cannot lock out
+  `lab-worker` or `lab-readonly` without sharing their address.
+- A refused check does not test the password and is not counted again. A
+  worker retrying a stale password therefore locks only its own username on
+  its own address, and never grows the address counter past its own 10.
+- A refused check answers:
+
+  | Where | Answer |
+  |---|---|
+  | `/login/`, `/scripts/` | Redirect to `/login/` with "Too many failed logins. Try again later" |
+  | `/clientWorkerInfo/` | `{"error": "Too many failed logins. Try again later"}`. The Client treats it like any other error: it sleeps and registers again. |
+  | `/clientGetNetwork/` | 429, plain text |
+  | `/api/*` | 429 `{"error": "Too many failed logins"}` |
+  | `/admin/login/` | The admin's usual invalid-login form |
+
+  The Client writes whatever `/api/networks/` returns into the network file,
+  so a throttled worker fails that download's SHA check (exit 4 under
+  `--single-workload`). That only happens once its own credentials have
+  failed 10 times from its address, or 50 checks failed from that address.
 - The client address is `REMOTE_ADDR`, or, when `OPENBENCH_BEHIND_TLS_PROXY` is
   set, the right-most `X-Forwarded-For` entry, which is the one the proxy
   appended. Never set that flag when clients can reach gunicorn directly.
-- Counters live in Django's per-process local-memory cache. Each gunicorn
-  process counts on its own, so the effective limit is up to 10 ×
-  `OPENBENCH_WORKERS` failures per window. A shared cache would be needed for
-  an exact limit.
-- Each failed check logs one line on the `OpenBench.views` logger:
-  `Authentication failed for username '<name>' from <address> on <path>`. The
-  password is never logged.
+- Counters live in Django's per-process local-memory cache (up to 10,000
+  entries). Each gunicorn process counts on its own, so the effective limits
+  are up to `OPENBENCH_WORKERS` times higher. Restarting the container clears
+  every counter.
+- Each failed or refused check logs one line on the `OpenBench.views` logger,
+  with the username and path quoted by `repr`, so a crafted value cannot forge
+  log lines. The password is never logged.
+- `django.contrib.auth.backends.ModelBackend` still checks every password and
+  stays in `AUTHENTICATION_BACKENDS`, so browser sessions from before this
+  change stay logged in.
 
 ## Sessions and state-changing requests
 
