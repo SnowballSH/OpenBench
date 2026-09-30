@@ -38,10 +38,12 @@ the admin login, and a `user_login_failed` receiver counts the failures.
 - The client address is `REMOTE_ADDR`, or, when `OPENBENCH_BEHIND_TLS_PROXY` is
   set, the right-most `X-Forwarded-For` entry, which is the one the proxy
   appended. Never set that flag when clients can reach gunicorn directly.
-- Counters live in Django's per-process local-memory cache (up to 10,000
-  entries). Each gunicorn process counts on its own, so the effective limits
-  are up to `OPENBENCH_WORKERS` times higher. Restarting the container clears
-  every counter.
+- Counters live in their own per-process local-memory cache, the `throttle`
+  alias in `CACHES` (up to 10,000 entries), which nothing else writes to.
+  Filling the `default` cache, as report caches can, never culls them. Each
+  gunicorn process counts on its own, so the effective limits are up to
+  `OPENBENCH_WORKERS` times higher. Restarting the container clears every
+  counter.
 - Each failed or refused check logs one line on the `OpenBench.views` logger,
   with the username and path quoted by `repr`, so a crafted value cannot forge
   log lines. The password is never logged.
