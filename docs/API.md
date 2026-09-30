@@ -17,7 +17,7 @@ The examples below were captured from a local server filled by
 - [Configuration](#configuration): `api/config/`, `api/config/<engine>/`, `api/buildinfo/`
 - [Networks](#networks): list, download, delete
 - [Workloads](#workloads): `api/workload/<id>/<query>/`, `api/spsa/<id>/<query>/`, `api/pgns/<id>/`
-- [Server](#server): `api/insights/server/`, `api/storage/`, `api/active/`
+- [Server](#server): `api/insights/server/`, `api/progress/`, `api/storage/`, `api/active/`
 - [`/scripts/`](#scripts): upload a network, create a test
 - [`/health/`](#health)
 - [Client worker endpoints](#client-worker-endpoints)
@@ -163,6 +163,7 @@ The read endpoints and `POST api/active/` change nothing and do not check CSRF.
 | GET, POST | `/api/spsa/<id>/<inputs\|outputs\|digest\|perturbation>/` | view | SPSA tune parameters |
 | GET, POST | `/api/pgns/<id>/` | view | The workload's PGN archive |
 | GET, POST | `/api/insights/server/` | view | Fleet and workload counters |
+| GET, POST | `/api/progress/?engine=&window=` | view | Engine progress over a time window |
 | GET, POST | `/api/storage/` | user | Disk usage of the data directory |
 | POST | `/api/active/` | user | Workloads a described machine could be assigned |
 | POST | `/scripts/` | user / Approver | Upload a network or create a test (HTML) |
@@ -824,6 +825,16 @@ Schema in [INSIGHTS.md](INSIGHTS.md#getpost-apiinsightsserver).
 |---|---|---|
 | Authentication failed | 401 | `{"error": "API requires authentication for this server"}` |
 | Throttled | 429 | `{"error": "Too many failed logins"}` |
+
+### `GET|POST /api/progress/?engine=&window=`
+
+Elo gained from greens, weekly SPRT outcomes, games per day and top
+contributors over a window. `window` is `30d`, `90d` (default), `1y` or `all`,
+ignoring case and surrounding whitespace; `engine` filters by the workloads'
+dev engine. Authentication is the same as `api/insights/server/`: a failed
+login is 401, an unknown `window` is 400 `{"error": ...}`. Reports are cached
+for 60 seconds per window and engine. The JSON schema, formulas and caveats are
+in [INSIGHTS.md](INSIGHTS.md#engine-progress).
 
 ### `GET|POST /api/storage/`
 
