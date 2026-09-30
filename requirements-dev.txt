@@ -1,0 +1,47 @@
+asgiref==3.12.1
+    # via
+    #   -c requirements.txt
+    #   django
+ast-serialize==0.11.2
+    # via mypy
+django==5.2.17
+    # via
+    #   -c requirements.txt
+    #   django-stubs
+    #   django-stubs-ext
+django-stubs==6.1.1
+    # via -r requirements-dev.in
+django-stubs-ext==6.1.1
+    # via django-stubs
+librt==0.16.0
+    # via mypy
+mypy==2.3.1
+    # via
+    #   -r requirements-dev.in
+    #   django-stubs
+mypy-extensions==1.1.0
+    # via mypy
+numpy==2.5.3
+    # via
+    #   -c requirements.txt
+    #   numpy-typing-compat
+    #   optype
+numpy-typing-compat==20260602.2.5
+    # via optype
+optype==0.18.0
+    # via scipy-stubs
+pathspec==1.1.1
+    # via mypy
+scipy-stubs==1.18.1.1
+    # via -r requirements-dev.in
+sqlparse==0.6.0
+    # via
+    #   -c requirements.txt
+    #   django
+types-pyyaml==6.0.12.20260906
+    # via django-stubs
+typing-extensions==4.16.0
+    # via
+    #   django-stubs
+    #   django-stubs-ext
+    #   mypy

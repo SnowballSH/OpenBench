@@ -13,6 +13,15 @@ with `--upgrade`:
 uv pip compile requirements.in -o requirements.txt --python-version 3.14 --no-header
 ```
 
+The development tools (mypy, django-stubs and scipy-stubs) are pinned the same
+way: `requirements-dev.in` lists them, constrained by `requirements.txt` so
+that Django and every shared dependency resolve to the server's versions.
+Recompile it after changing either file:
+
+```bash
+uv pip compile requirements-dev.in -o requirements-dev.txt --python-version 3.14 --no-header
+```
+
 Dependabot opens a weekly grouped pull request for the workflow actions, which
 are pinned by commit SHA. It does not manage Python dependencies, because it
 would edit `requirements.txt` without recompiling it; recompile with
@@ -58,8 +67,53 @@ uvx --from ruff==0.16.9 bash .github/scripts/lint.sh
 To fix findings, run `ruff check --fix` and `ruff format` on the fork-owned
 files you changed; never on upstream-owned files.
 
-The script is the one place that lists the fork-owned paths. When you add a
-fork-owned module outside them, add it there and to the list below.
+[`.github/scripts/fork-owned.sh`](../.github/scripts/fork-owned.sh) is the
+one place that lists the fork-owned paths; the lint and type-check scripts
+both read it. When you add a fork-owned module outside them, add it there and
+to the list below.
+
+## Type checking
+
+CI runs [`.github/scripts/typecheck.sh`](../.github/scripts/typecheck.sh),
+which runs mypy with the django-stubs plugin over the fork-owned paths.
+Install the pinned tools and run it:
+
+```bash
+pip install -r requirements.txt -r requirements-dev.txt
+.github/scripts/typecheck.sh
+```
+
+The plugin imports `OpenSite.settings`, so the script supplies a placeholder
+`OPENBENCH_SECRET_KEY` when none is set. The profile lives under `[tool.mypy]`
+in `pyproject.toml`:
+
+- **Fork-owned modules** are checked with `strict = true` and
+  `warn_unreachable`: every function is fully annotated, `Any` never leaks
+  out through a return, and optional values are narrowed before use.
+- **Tests** (`OpenBench.tests.*`) may leave functions unannotated and call
+  unannotated helpers, but mypy still checks their bodies
+  (`check_untyped_defs`, part of strict), so a test that calls a fork-owned
+  API with the wrong types or reads a value that may be `None` fails.
+  Annotating every test method with `-> None` would catch nothing more. Tests
+  narrow optional results with `fixtures.present`, which fails the test on
+  `None`.
+- **Upstream-owned modules** are analysed so that fork code sees their
+  signatures and the plugin can type model querysets, but their own errors are
+  never reported (`follow_imports = "silent"`). Their functions are untyped,
+  so calling them is allowed (`untyped_calls_exclude`), and
+  `OpenBench.views` re-exports the names it imports, which the tests rely
+  on.
+- **Crossing into upstream code**: fork modules call the upstream views
+  helpers (`render`, `redirect`, `api_response`, `api_user`,
+  `api_authenticate`) and read `OPENBENCH_CONFIG` through
+  [`OpenBench/upstream.py`](../OpenBench/upstream.py), which gives each one a
+  typed signature instead of the `Any` it returns. Add a wrapper there rather
+  than calling a new upstream helper directly from a typed module.
+
+Fix a finding with a real annotation or narrowing. A `# type: ignore` must
+name its error code and give its reason on the same line; the only one today
+is where `page_queries.attach_event_workloads` attaches a workload to each
+`LogEvent` for the templates.
 
 ## Fork-owned and upstream-owned code
 
@@ -68,15 +122,17 @@ and upstream changes are merged in periodically.
 
 - **Fork-owned**: `OpenBench/fleet/`, `OpenBench/insights/`,
   `OpenBench/progress/`, `OpenBench/security/`, `OpenBench/storage/`,
-  `OpenBench/page_queries.py`, `OpenBench/workloads/clone.py`,
+  `OpenBench/page_queries.py`, `OpenBench/upstream.py`,
+  `OpenBench/workloads/clone.py`,
   `OpenBench/management/commands/seed_demo.py` and `OpenBench/tests/`. These
-  are held to the full rule set in `pyproject.toml` and to `ruff format`.
+  are held to the full rule set in `pyproject.toml`, to `ruff format` and to
+  mypy's strict profile.
 - **Upstream-owned**: everything else, including `OpenBench/views.py`,
   `OpenBench/utils.py`, `OpenBench/workloads/` apart from `clone.py`,
   `OpenBench/templatetags/`, `Client/` and `Scripts/`. Restyling these would
   turn every upstream merge into a conflict, so they keep upstream's style and
   receive only the edits a feature needs. They are checked by the
-  bug-catching rules only.
+  bug-catching rules only, and are not type-checked.
 
 ## Feature notes
 
