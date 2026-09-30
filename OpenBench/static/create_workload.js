@@ -316,10 +316,10 @@ function report_unrestored(names) {
     banner.setAttribute('role', 'status');
 
     const text = document.createElement('span');
-    text.textContent = 'Not available any more, so left at the preset: ' + names.map(field_label).join(', ');
+    text.textContent = 'Not available, so left at the preset: ' + names.map(field_label).join(', ');
     banner.appendChild(text);
 
-    const form = document.querySelector('form');
+    const form = document.getElementById('workload-form');
     form.parentNode.insertBefore(banner, form);
 }
 

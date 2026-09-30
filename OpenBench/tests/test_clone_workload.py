@@ -2,9 +2,11 @@ import io
 import json
 import re
 from html.parser import HTMLParser
+from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
+from django.conf import settings
 from django.core.management import call_command
 from django.test import RequestFactory, TestCase, override_settings
 
@@ -102,17 +104,26 @@ class FormControls(HTMLParser):
     def __init__(self):
         super().__init__()
         self.controls = {}
+        self.form_ids = []
 
     def handle_starttag(self, tag, attrs):
         attributes = dict(attrs)
         if tag in ("input", "select", "textarea") and "name" in attributes:
             self.controls[attributes["name"]] = attributes.get("value")
+        if tag == "form":
+            self.form_ids.append(attributes.get("id"))
 
 
 def form_controls(response):
     parser = FormControls()
     parser.feed(response.content.decode())
     return parser.controls
+
+
+def form_ids(response):
+    parser = FormControls()
+    parser.feed(response.content.decode())
+    return parser.form_ids
 
 
 def prefill_payload(response):
@@ -138,6 +149,7 @@ class CloneFieldsTests(TestCase):
                 **engine_side("dev", "dev"),
                 **engine_side("base", "base"),
                 **GENERAL,
+                "info": "",
                 "workload_size": "32",
                 "test_mode": "SPRT",
                 "test_bounds": "[0.0, 3.0]",
@@ -182,6 +194,12 @@ class CloneFieldsTests(TestCase):
         )
         self.assertEqual(clone_fields(test)["dev_bench"], "7654321")
         self.assertEqual(clone_fields(test)["base_bench"], "")
+
+    def test_test_info_is_kept_only_for_a_pinned_commit(self):
+        test = seeded_test(self.author, info="Old commit message")
+        self.assertEqual(clone_fields(test)["info"], "")
+        test.dev = Engine.objects.create(name="a" * 40, source=REPO, sha="a" * 40)
+        self.assertEqual(clone_fields(test)["info"], "Old commit message")
 
     def test_an_unset_scale_nps_is_left_to_the_engine_preset(self):
         self.assertNotIn("scale_nps", clone_fields(create_test(self.author)))
@@ -335,11 +353,13 @@ class ClonePageTests(TestCase):
         self.assertNotIn("Cloned from", response.content.decode())
 
     def test_payload_cannot_break_out_of_its_script(self):
-        self.test.info = "</script><script>alert(1)</script>"
+        self.test.dev_options = "</script><script>alert(1)</script>"
         self.test.save()
         response = self.client.get(f"/test/new/?clone={self.test.id}")
         self.assertNotIn("<script>alert(1)", response.content.decode())
-        self.assertEqual(prefill_payload(response)["info"], self.test.info)
+        self.assertEqual(
+            prefill_payload(response)["dev_options"], self.test.dev_options
+        )
 
     def test_invalid_ids_are_ignored_with_a_warning(self):
         for raw in ["abc", "", "-1", "0", "999999", str(10**30), "1e3"]:
@@ -380,6 +400,22 @@ class ClonePageTests(TestCase):
         self.assertEqual(prefill_payload(response), fields)
         self.assertIn(f"#{self.test.id} dev</a>", response.content.decode())
         self.assertEqual(Test.objects.count(), 1)
+
+    def test_unrestored_fields_are_reported_above_the_create_form(self):
+        response = self.client.get(f"/test/new/?clone={self.test.id}")
+        self.assertEqual(form_ids(response).count("workload-form"), 1)
+        script = (
+            Path(settings.BASE_DIR) / "OpenBench/static/create_workload.js"
+        ).read_text()
+        self.assertIn("getElementById('workload-form')", script)
+        self.assertNotIn("querySelector('form')", script)
+
+    def test_a_disabled_user_sees_a_disabled_clone_button(self):
+        create_user("reader", enabled=False)
+        self.client.login(username="reader", password=PASSWORD)
+        content = self.client.get(f"/test/{self.test.id}/").content.decode()
+        self.assertNotIn(f"?clone={self.test.id}", content)
+        self.assertRegex(content, r'<a class="anchorbutton btn-disabled">Clone</a>')
 
     def test_the_workload_page_links_to_clone(self):
         for workload in (

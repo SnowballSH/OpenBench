@@ -23,15 +23,17 @@ workload, after the engine presets have run, so the clone wins over them.
   test keeps it equal to the controls the template renders.
 - The payload reaches the page through `json_script` as `json-prefill`, and
   `apply_prefill` in `create_workload.js` assigns each value with `.value`.
-  A `<select>` value that no longer exists (a deleted network, a disabled
-  engine or book) is left at the preset and named in a warning banner.
+  A `<select>` value that is not available (a deleted network, a disabled
+  engine or book) is left at the preset and named in a warning banner above
+  the `#workload-form` form.
 - The form notes "Cloned from #id name" and carries the id in a hidden
   `clone_of` field, so the note survives a rejected submission. The create
   flow ignores `clone_of`.
 - Nothing is trusted from the source workload: the submission goes through
   `verify_workload` like any other, and branches are resolved on GitHub again.
 - Any workload a signed-in user can open can be cloned; creating still requires
-  an enabled account. An id that is malformed, unknown, or of another type is
+  an enabled account, so the button is disabled for other viewers. An id
+  that is malformed, unknown, or of another type is
   ignored with a warning banner.
 
 ### Mapping rules
@@ -40,6 +42,7 @@ workload, after the engine presets have run, so the clone wins over them.
 | --- | --- |
 | `dev_branch`, `base_branch` | `dev.name`, `base.name`: the branch, tag or SHA as typed |
 | `dev_bench`, `base_bench` | The stored bench only when the branch was a pinned commit SHA; otherwise empty, so the bench is read again from the branch's newest commit |
+| `info` (tests) | Only when the dev branch was a pinned commit SHA; otherwise empty, since a test's info is usually the dev commit message and the branch may have moved. Tunes and datagen store info verbatim, so theirs is always copied |
 | `dev_network`, `base_network` | The network SHA, selected by value |
 | `test_bounds` | `[elolower, eloupper]`, in plain decimals |
 | `test_confidence` | `[beta, alpha]`, the order the create flow parses |
@@ -50,5 +53,5 @@ workload, after the engine presets have run, so the clone wins over them.
 | `datagen_play_reverses` | `YES` / `NO` from `play_reverses` |
 
 Everything else (engines, repos, options, time controls, book, PGN upload,
-priority, throughput, workload size, Syzygy, adjudication, scale method, info,
-SPSA and datagen settings) is copied as stored.
+priority, throughput, workload size, Syzygy, adjudication, scale method,
+tune and datagen info, SPSA and datagen settings) is copied as stored.

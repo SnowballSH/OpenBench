@@ -27,7 +27,7 @@
 
 {% block content %}
 
-    <form method="POST" action="{{submit_endpoint}}">
+    <form id="workload-form" method="POST" action="{{submit_endpoint}}">
         {% csrf_token %}
 
         {% if clone_source %}

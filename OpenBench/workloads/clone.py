@@ -105,8 +105,16 @@ def decimal_text(value: float) -> str:
     return format(Decimal(repr(value)), "f")
 
 
+def is_pinned(engine: Engine) -> bool:
+    return engine.name.lower() == engine.sha.lower()
+
+
 def pinned_bench(engine: Engine) -> str:
-    return str(engine.bench) if engine.name.lower() == engine.sha.lower() else ""
+    return str(engine.bench) if is_pinned(engine) else ""
+
+
+def test_info(workload: Test) -> FormFields:
+    return {"info": workload.info if is_pinned(workload.dev) else ""}
 
 
 def engine_fields(
@@ -222,6 +230,7 @@ def clone_fields(workload: Test) -> FormFields:
                 dev_fields(workload),
                 base_fields(workload),
                 general_fields(workload),
+                test_info(workload),
                 {"workload_size": str(workload.workload_size)},
                 test_mode_fields(workload),
             )
