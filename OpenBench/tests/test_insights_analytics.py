@@ -12,7 +12,8 @@ from OpenBench.insights.grouping import sum_by_key
 from OpenBench.insights.serialize import to_json
 from OpenBench.insights.series import build_series
 from OpenBench.insights.server import Edge, FinishedWorkload, fleet_status, games_in_window, summarize_finished
-from OpenBench.insights.sprt import LlrIncrement, expected_exit, forecast_sprt, pentanomial_increment, trinomial_increment
+from OpenBench.insights.sprt import (
+    LlrIncrement, expected_exit, forecast_sprt, pentanomial_increment, trinomial_increment, upper_exit_probability)
 from OpenBench.insights.strength import (
     draw_ratio, elo_interval, likelihood_of_superiority, normalized_elo, penta_fractions, summarize_strength)
 from OpenBench.insights.timing import Rate, games_at, rate_between, summarize_timing
@@ -144,6 +145,12 @@ class SprtTests(SimpleTestCase):
         self.assertEqual(up.pass_probability, 1.0)
         self.assertAlmostEqual(down.pass_probability, 0.0)
 
+    def test_small_negative_drift_keeps_precision(self):
+        lower, start, upper = -2.94, 0.5, 2.94
+        k      = -1e-8 / (upper - lower)
+        linear = (start - lower) / (upper - lower)
+        self.assertAlmostEqual(upper_exit_probability(k, start, lower, upper), linear * (1 + k * (upper - start) / 2), places=13)
+
     def test_extreme_drift_does_not_overflow(self):
         for drift in (-100.0, 100.0):
             estimate = expected_exit(LlrIncrement(drift, 1e-6, 2), 0.0, -2.94, 2.94)
@@ -196,6 +203,11 @@ class EtaTests(SimpleTestCase):
     def test_sprt_without_enough_games(self):
         eta = estimate_eta(facts(penta=(0, 1, 2, 1, 0)), self.rate, at(0))
         self.assertEqual((eta.kind, eta.remaining_games), (EtaKind.UNAVAILABLE, None))
+
+    def test_unreachable_completion_time_is_null(self):
+        eta = estimate_eta(facts(WorkloadMode.GAMES, target=10**9), Rate(1e-9, 3600.0), at(0))
+        self.assertGreater(eta.remaining_seconds, 1e15)
+        self.assertIsNone(eta.completes_at)
 
     def test_missing_target(self):
         self.assertEqual(estimate_eta(facts(WorkloadMode.SPSA), self.rate, at(0)).kind, EtaKind.UNAVAILABLE)

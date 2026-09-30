@@ -65,7 +65,7 @@ def upper_exit_probability(k: float, start: float, lower: float, upper: float) -
     # P(hit upper before lower) for Brownian motion with 2 * drift / variance = k, rearranged to avoid overflow
     if k > 0:
         return math.expm1(-k * (start - lower)) / math.expm1(-k * (upper - lower))
-    return (math.exp(k * (upper - lower)) - math.exp(k * (upper - start))) / math.expm1(k * (upper - lower))
+    return math.exp(k * (upper - start)) * math.expm1(k * (start - lower)) / math.expm1(k * (upper - lower))
 
 def expected_exit(increment: LlrIncrement, start: float, lower: float, upper: float) -> ExitEstimate | None:
 

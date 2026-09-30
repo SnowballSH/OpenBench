@@ -29,13 +29,21 @@ def seconds_for(games: int, rate: Rate | None) -> float | None:
         return None
     return 3600 * games / rate.games_per_hour
 
+def completion_time(now: datetime, seconds: float | None) -> datetime | None:
+    if seconds is None:
+        return None
+    try:
+        return now + timedelta(seconds=seconds)
+    except OverflowError:
+        return None
+
 def with_rate(kind: EtaKind, games: int, rate: Rate | None, now: datetime) -> Eta:
     seconds = seconds_for(games, rate)
     return Eta(
         kind              = kind,
         remaining_games   = games,
         remaining_seconds = seconds,
-        completes_at      = None if seconds is None else now + timedelta(seconds=seconds),
+        completes_at      = completion_time(now, seconds),
     )
 
 def estimate_eta(facts: WorkloadFacts, rate: Rate | None, now: datetime) -> Eta:
