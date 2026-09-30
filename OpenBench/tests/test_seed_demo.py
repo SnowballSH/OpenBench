@@ -31,6 +31,7 @@ class SeedDemoTests(TestCase):
             self.assertEqual(test.games, 2 * sum(test.as_penta()))
 
         self.assertEqual(sum(Profile.objects.values_list('games', flat=True)), sum(Result.objects.values_list('games', flat=True)))
+        self.assertEqual(sum(Profile.objects.values_list('tests', flat=True)), Test.objects.count())
 
     @override_settings(DEBUG=True)
     def test_histories_end_at_the_workload_counters(self):

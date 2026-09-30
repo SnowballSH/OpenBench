@@ -102,7 +102,8 @@ def create_users():
 def credit_profiles(users):
     for user in users:
         games = Result.objects.filter(machine__user=user).aggregate(total=Sum('games'))['total'] or 0
-        Profile.objects.filter(user=user).update(games=games)
+        tests = Test.objects.filter(author=user.username).count()
+        Profile.objects.filter(user=user).update(games=games, tests=tests)
 
 def create_engine_config():
     presets = { 'test_presets' : { 'default' : {} }, 'tune_presets' : { 'default' : {} }, 'datagen_presets' : { 'default' : {} } }
