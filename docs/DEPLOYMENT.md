@@ -18,8 +18,13 @@ environment, so no secret or host name lives in the repository.
 
 ```bash
 OPENBENCH_DEBUG=1 python manage.py migrate
+OPENBENCH_DEBUG=1 python manage.py seed_demo
 OPENBENCH_DEBUG=1 python manage.py runserver
 ```
+
+`seed_demo` fills an empty development database with accounts, Machines and
+Workloads in every state, so pages can be seen with realistic data. It refuses
+to run without `OPENBENCH_DEBUG`, and prints the demo login it created.
 
 The PGN watcher is started by the WSGI entrypoint (`OpenSite/wsgi.py`), which
 both `runserver` and production WSGI servers load, and never by management
