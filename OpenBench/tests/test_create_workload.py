@@ -94,3 +94,18 @@ class CreateWorkloadTests(TestCase):
         for value in ['abc', '-1']:
             self.assertIn('A-Ratio', self.create('tune', tune_fields(spsa_A_ratio=value)))
         self.assertFalse(Test.objects.exists())
+
+    def test_duplicate_spsa_parameter_names_are_rejected(self):
+        inputs = 'Knight, int, 300, 200, 400, 10, 0.002\nKnight, int, 500, 400, 600, 10, 0.002'
+        self.assertIn('unique', self.create('tune', tune_fields(spsa_inputs=inputs)))
+        self.assertFalse(Test.objects.exists())
+
+    def test_unnamed_spsa_parameters_are_rejected(self):
+        self.assertIn('name', self.create('tune', tune_fields(spsa_inputs=' , int, 300, 200, 400, 10, 0.002')))
+        self.assertFalse(Test.objects.exists())
+
+    def test_spsa_parameters_keep_their_order(self):
+        inputs = 'Knight, int, 300, 200, 400, 10, 0.002\r\nBishop, float, 3.5, 3.0, 4.0, 0.1, 0.002'
+        self.assertIsNone(self.create('tune', tune_fields(spsa_inputs=inputs)))
+        params = SPSARun.objects.get().parameters.order_by('index')
+        self.assertEqual([(p.name, p.is_float, p.value) for p in params], [('Knight', False, 300.0), ('Bishop', True, 3.5)])

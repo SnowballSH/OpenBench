@@ -326,8 +326,16 @@ def verify_spsa_inputs(errors, request, field):
         if not (lines := request.POST[field].split('\n')):
             errors.append('No Parameters Provided')
 
+        # Parameters are keyed by name when sent to the Client
+        names = [line.split(',')[0].strip() for line in lines]
+        if (duplicates := sorted({ name for name in names if names.count(name) > 1 })):
+            errors.append('Parameter names must be unique, found %s' % (', '.join(duplicates)))
+
         for line in lines:
             name, data_type, value, minimum, maximum, c, r = line.split(',')
+
+            if not name.strip():
+                errors.append('Every Parameter needs a name')
 
             if data_type.strip() not in [ 'int', 'float' ]:
                 errors.append('Datatype must be int for float, for %s' % (name))
