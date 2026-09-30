@@ -1,51 +1,64 @@
 from datetime import datetime, timedelta
 from enum import StrEnum
-from typing import Any
+from typing import Any, Self
 
 from OpenBench.insights.server import ACTIVE_MACHINE
 
-UNKNOWN = 'Unknown'
+UNKNOWN = "Unknown"
+
 
 class Presence(StrEnum):
-    ONLINE  = 'online'
-    OFFLINE = 'offline'
+    ONLINE = "online"
+    OFFLINE = "offline"
+
 
 class OfflineWindow(StrEnum):
-    NONE = 'active'
-    DAY  = '24h'
-    WEEK = '7d'
+    NONE = "active"
+    DAY = "24h"
+    WEEK = "7d"
 
     @property
     def span(self) -> timedelta:
-        return { OfflineWindow.NONE : ACTIVE_MACHINE, OfflineWindow.DAY : timedelta(days=1), OfflineWindow.WEEK : timedelta(days=7) }[self]
+        return {
+            OfflineWindow.NONE: ACTIVE_MACHINE,
+            OfflineWindow.DAY: timedelta(days=1),
+            OfflineWindow.WEEK: timedelta(days=7),
+        }[self]
 
     @property
     def label(self) -> str:
-        return { OfflineWindow.NONE : 'Online now', OfflineWindow.DAY : 'Seen in 24h', OfflineWindow.WEEK : 'Seen in 7d' }[self]
+        return {
+            OfflineWindow.NONE: "Online now",
+            OfflineWindow.DAY: "Seen in 24h",
+            OfflineWindow.WEEK: "Seen in 7d",
+        }[self]
 
     @classmethod
-    def parse(cls, value: str | None) -> OfflineWindow:
+    def parse(cls, value: str | None) -> Self:
         try:
             return cls(value or cls.NONE)
         except ValueError:
             return cls.NONE
 
+
 def presence(updated: datetime, now: datetime) -> Presence:
     return Presence.ONLINE if now - updated <= ACTIVE_MACHINE else Presence.OFFLINE
 
-def relative_age(delta: timedelta) -> str:
 
+def relative_age(delta: timedelta) -> str:
     seconds = max(0, int(delta.total_seconds()))
 
-    for unit, size in (('d', 86400), ('h', 3600), ('m', 60)):
+    for unit, size in (("d", 86400), ("h", 3600), ("m", 60)):
         if seconds >= size:
-            return '%d%s ago' % (seconds // size, unit)
+            return "%d%s ago" % (seconds // size, unit)
 
-    return 'just now' if seconds < 10 else '%ds ago' % (seconds)
+    return "just now" if seconds < 10 else "%ds ago" % (seconds)
+
 
 def text_of(info: dict[str, Any], key: str) -> str | None:
     value = info.get(key)
-    return str(value) if value not in (None, '', 'None') else None
+    return str(value) if value not in (None, "", "None") else None
+
 
 def int_of(info: dict[str, Any], key: str) -> int:
     try:

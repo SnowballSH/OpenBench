@@ -132,10 +132,6 @@ def create_machines(users):
     return machines
 
 def age_offline_machines(machines):
-
-    # Offline Machines stop reporting, so none of their Results is newer than their
-    # last heartbeat, and their workload is the last one they played
-
     now = timezone.now()
     for machine, (*_, hours_ago) in zip(machines, CPUS):
         if not hours_ago:

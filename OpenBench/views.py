@@ -509,7 +509,7 @@ def events_errors(request, page=1):
 
 def machines(request, pk=None):
 
-    if pk == None:
+    if pk is None:
         page = load_machines_page(timezone.now(), OfflineWindow.parse(request.GET.get('show')))
         return render(request, 'machines.html', { 'page' : page })
 
