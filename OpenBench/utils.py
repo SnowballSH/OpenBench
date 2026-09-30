@@ -37,6 +37,7 @@ from django.db.models.fields.json import KT
 from django.db.models.functions import Cast
 from django.http import FileResponse, HttpResponse
 from django.utils import timezone
+from django.utils.cache import add_never_cache_headers, patch_cache_control, patch_response_headers
 from wsgiref.util import FileWrapper
 
 from OpenSite.settings import MEDIA_ROOT, PROJECT_PATH
@@ -139,7 +140,7 @@ def workload_uses_time_based_tc(workload):
 def path_join(*args):
     return "/".join([f.lstrip("/").rstrip("/") for f in args]).rstrip('/')
 
-def media_download_response(fpath, filename, expires):
+def media_download_response(fpath, filename, max_age=None):
 
     # Craft a download response for a file inside of MEDIA_ROOT. Django will
     # stream the file itself, unless configured to hand the file off to an
@@ -158,7 +159,13 @@ def media_download_response(fpath, filename, expires):
         response = HttpResponse(content_type='application/octet-stream')
         response['X-Accel-Redirect'] = urllib.parse.quote('%s/%s' % (root, relative))
 
-    response['Expires'] = expires
+    # Downloads are authenticated, so only the requesting browser may keep a copy
+    if max_age:
+        patch_response_headers(response, cache_timeout=max_age)
+        patch_cache_control(response, private=True)
+    else:
+        add_never_cache_headers(response)
+
     response['Content-Disposition'] = 'attachment; filename=%s' % (filename)
     return response
 
@@ -342,8 +349,8 @@ def network_download(request, engine, network):
 
     # Craft the download HTML response
     netfile = os.path.join(MEDIA_ROOT, network.sha256)
-    expires = (datetime.datetime.now(datetime.UTC) + datetime.timedelta(days=7)).ctime()
-    return media_download_response(netfile, network.sha256, expires)
+    max_age = int(datetime.timedelta(days=7).total_seconds())
+    return media_download_response(netfile, network.sha256, max_age)
 
 def network_edit(request, engine, network):
 

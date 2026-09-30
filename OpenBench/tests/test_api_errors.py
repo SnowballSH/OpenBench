@@ -1,9 +1,11 @@
 import tempfile
+import time
 from pathlib import Path
 from unittest import mock
 
 from django.core.cache import cache
 from django.test import TestCase, override_settings
+from django.utils.http import http_date, parse_http_date
 
 from OpenBench.config import OPENBENCH_CONFIG
 from OpenBench.models import Network
@@ -18,6 +20,7 @@ AUTH_SERVER = {"error": "API requires authentication for this server"}
 AUTH_ENDPOINT = {"error": "API requires authentication for this endpoint"}
 ENGINE_NOT_FOUND = {"error": "Engine not found. Check /api/config/ for a full list"}
 NO_WORKLOAD = {"error": "Requested Workload Id does not exist"}
+NETWORK_MAX_AGE = 7 * 24 * 60 * 60
 
 VIEW_PATHS = (
     "/api/config/",
@@ -200,4 +203,29 @@ class NetworkIdentifierTests(ApiTestCase):
         response = self.post("/api/networks/Avalanche/first/", self.reader)
         self.assertEqual(
             response["Content-Disposition"], "attachment; filename=ABCDEF01"
+        )
+
+
+class DownloadCachingHeaderTests(ApiTestCase):
+    def test_network_download_expires_in_a_week_privately(self):
+        self.add_network("ABCDEF01", "r1")
+        response = self.post("/api/networks/Avalanche/r1/", self.reader)
+        expires = parse_http_date(response["Expires"])
+        self.assertEqual(response["Expires"], http_date(expires))
+        self.assertAlmostEqual(expires - time.time(), NETWORK_MAX_AGE, delta=60)
+        self.assertEqual(
+            set(response["Cache-Control"].split(", ")),
+            {"private", f"max-age={NETWORK_MAX_AGE}"},
+        )
+
+    def test_pgn_archive_is_never_cached(self):
+        self.workload.finished = True
+        self.workload.save()
+        Path(self.media.name, "PGNs").mkdir()
+        Path(self.media.name, "PGNs", f"{self.workload.id}.pgn.tar").write_bytes(b"tar")
+        response = self.post(f"/api/pgns/{self.workload.id}/", self.reader)
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("no-store", response["Cache-Control"])
+        self.assertEqual(
+            response["Expires"], http_date(parse_http_date(response["Expires"]))
         )
