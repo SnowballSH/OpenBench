@@ -41,6 +41,17 @@ class EngineOptionsPopupTests(TestCase):
         self.assertNotIn('innerHTML', content)
         self.assertIn('createTextNode(option)', content)
 
+class RegistrationTests(TestCase):
+
+    def test_manual_registration_refuses_posts(self):
+        response = self.client.post('/register/', {
+            'username' : 'intruder', 'email' : '', 'password1' : PASSWORD, 'password2' : PASSWORD,
+        })
+        self.assertRedirects(response, '/login/', fetch_redirect_response=False)
+        self.assertFalse(Machine.objects.exists())
+        self.assertFalse(self.client.session.get('_auth_user_id'))
+        self.assertFalse(OpenBench.views.User.objects.filter(username='intruder').exists())
+
 class ScriptsTests(TestCase):
 
     def setUp(self):

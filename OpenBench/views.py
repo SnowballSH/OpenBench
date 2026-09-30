@@ -155,10 +155,11 @@ def authentication_error(request):
 
 def register(request):
 
-    if request.method == 'GET':
-        if not OPENBENCH_CONFIG['require_manual_registration']:
-            return render(request, 'register.html', always_allow=True)
+    if OPENBENCH_CONFIG['require_manual_registration']:
         return redirect(request, '/login/', error=ERROR_MESSAGES['manual_registration'])
+
+    if request.method == 'GET':
+        return render(request, 'register.html', always_allow=True)
 
     if request.POST['password1'] != request.POST['password2']:
         return redirect(request, '/register/', error='Passwords do not match')
