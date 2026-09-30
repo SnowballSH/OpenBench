@@ -139,7 +139,7 @@ def fetch_result_summaries(workload):
 
     def summarize(bucket, nps_stats):
         def compute_nps(nodes, time_ms):
-            return round((1000 * nodes) / time_ms) if nodes else 0
+            return round((1000 * nodes) / time_ms) if nodes and time_ms else 0
 
         total_pairs = sum(sum(penta) for penta in bucket.values())
         rows = [{

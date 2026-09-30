@@ -40,9 +40,21 @@ import requests
 import traceback
 
 import OpenBench.config
+import OpenBench.stats
 import OpenBench.utils
 
 from OpenBench.models import *
+
+# Bounds how long a slow Github API can hold up a workload submission
+GITHUB_TIMEOUT_SECONDS = 15
+
+# The portable range of a Django IntegerField, which every integer input is stored in
+INTEGER_FIELD_RANGE = (-2**31, 2**31 - 1)
+
+def parse_integer(value: str | None) -> int | None:
+    try: number = int(value)
+    except (TypeError, ValueError): return None
+    return number if INTEGER_FIELD_RANGE[0] <= number <= INTEGER_FIELD_RANGE[1] else None
 
 def verify_workload(request, workload_type):
 
@@ -97,6 +109,7 @@ def verify_test_creation(errors, request):
 
         # Verify everything about the General Settings
         (verify_integer        , 'priority', 'Priority'),
+        (verify_integer        , 'throughput', 'Throughput'),
         (verify_greater_than   , 'throughput', 'Throughput', 0),
         (verify_syzygy_field   , 'syzygy_wdl', 'Syzygy WDL'),
 
@@ -141,6 +154,7 @@ def verify_tune_creation(errors, request):
 
         # Verify everything about the General Settings
         (verify_integer               , 'priority', 'Priority'),
+        (verify_integer               , 'throughput', 'Throughput'),
         (verify_greater_than          , 'throughput', 'Throughput', 0),
         (verify_syzygy_field          , 'syzygy_wdl', 'Syzygy WDL'),
 
@@ -155,12 +169,12 @@ def verify_tune_creation(errors, request):
         (verify_draw_adj              , 'draw_adj'),
 
         # Verify everything about the SPSA Settings
-        (verify_float                 , 'spsa_alpha', 'SPSA A-Ratio'),
+        (verify_float                 , 'spsa_A_ratio', 'SPSA A-Ratio'),
         (verify_float                 , 'spsa_alpha', 'SPSA Alpha'),
         (verify_float                 , 'spsa_gamma', 'SPSA Gamma'),
         (verify_integer               , 'spsa_iterations', 'SPSA Iterations'),
         (verify_integer               , 'spsa_pairs_per', 'SPSA Pairs-Per'),
-        (verify_greater_than          , 'spsa_alpha', 'SPSA A-Ratio', 0.00),
+        (verify_greater_than          , 'spsa_A_ratio', 'SPSA A-Ratio', 0.00),
         (verify_greater_than          , 'spsa_alpha', 'SPSA Alpha', 0.00),
         (verify_greater_than          , 'spsa_gamma', 'SPSA Gamma', 0.00),
         (verify_greater_than          , 'spsa_iterations', 'SPSA Iterations', 0),
@@ -199,6 +213,7 @@ def verify_datagen_creation(errors, request):
 
         # Verify everything about the General Settings
         (verify_integer        , 'priority', 'Priority'),
+        (verify_integer        , 'throughput', 'Throughput'),
         (verify_greater_than   , 'throughput', 'Throughput', 0),
         (verify_syzygy_field   , 'syzygy_wdl', 'Syzygy WDL'),
 
@@ -222,8 +237,8 @@ def verify_datagen_creation(errors, request):
 
 
 def verify_integer(errors, request, field, field_name):
-    try: int(request.POST[field])
-    except: errors.append('"{0}" is not an Integer'.format(field_name))
+    if parse_integer(request.POST.get(field)) is None:
+        errors.append('"{0}" is not an Integer'.format(field_name))
 
 def verify_float(errors, request, field, field_name):
     try: float(request.POST[field])
@@ -281,8 +296,11 @@ def verify_sprt_bounds(errors, request, field):
         if request.POST['test_mode'] != 'SPRT': return
         pattern = r'^\[(-?\d+(?:\.\d+)?), (-?\d+(?:\.\d+)?)\]$'
         match   = re.match(pattern, request.POST['test_bounds'])
-        assert float(match.group(1)) < float(match.group(2))
-    except: errors.append('SPRT Bounds must be formatted as [float1, float2]')
+        lower, upper = float(match.group(1)), float(match.group(2))
+        assert lower < upper
+        assert max(abs(lower), abs(upper)) < OpenBench.stats.PENTANOMIAL_NELO_LIMIT
+    except: errors.append('SPRT Bounds must be formatted as [float1, float2], within (-%.1f, %.1f)' % (
+        OpenBench.stats.PENTANOMIAL_NELO_LIMIT, OpenBench.stats.PENTANOMIAL_NELO_LIMIT))
 
 def verify_sprt_conf(errors, request, field):
     try:
@@ -296,7 +314,7 @@ def verify_sprt_conf(errors, request, field):
 def verify_max_games(errors, request, field):
     try:
         if request.POST['test_mode'] != 'GAMES': return
-        assert int(request.POST['test_max_games']) > 0
+        assert parse_integer(request.POST['test_max_games']) > 0
     except: errors.append('Fixed Games Tests must last at least one game')
 
 def verify_syzygy_field(errors, request, field, field_name):
@@ -311,8 +329,16 @@ def verify_spsa_inputs(errors, request, field):
         if not (lines := request.POST[field].split('\n')):
             errors.append('No Parameters Provided')
 
+        # Parameters are keyed by name when sent to the Client
+        names = [line.split(',')[0].strip() for line in lines]
+        if (duplicates := sorted({ name for name in names if names.count(name) > 1 })):
+            errors.append('Parameter names must be unique, found %s' % (', '.join(duplicates)))
+
         for line in lines:
             name, data_type, value, minimum, maximum, c, r = line.split(',')
+
+            if not name.strip():
+                errors.append('Every Parameter needs a name')
 
             if data_type.strip() not in [ 'int', 'float' ]:
                 errors.append('Datatype must be int for float, for %s' % (name))
@@ -344,11 +370,11 @@ def verify_spsa_distribution_type(errors, request, field, field_name):
     except: errors.append('%s must be in %s' % (field_name, ', '.join(candidates)))
 
 def verify_upload_pgns(errors, request, field, field_name):
-    try: request.POST[field] in ['FALSE', 'COMPACT', 'VERBOSE']
+    try: assert request.POST[field] in ['FALSE', 'COMPACT', 'VERBOSE']
     except: errors.append('"%s" must be FALSE, COMPACT, or VERBOSE' % (field_name))
 
 def verify_datagen_games(errors, request, field):
-    try: assert int(request.POST[field]) > 0
+    try: assert parse_integer(request.POST[field]) > 0
     except: errors.append('Data Generation must last for at least one game')
 
 def verify_datagen_genfens(errors, request, field):
@@ -401,6 +427,12 @@ def collect_github_info(errors, request, field):
         errors.append('OpenBench may only reach Github\'s API')
         return
 
+    # A supplied bench must be usable, rather than silently replaced by the commit's
+    supplied = request.POST.get('%s_bench' % (field), '').strip()
+    if supplied and parse_integer(supplied) is None:
+        errors.append('Bench for %s is not an Integer in range' % (branch or 'Branch'))
+        return
+
     ## Step 2: Connect to the Github API for the given Branch or Commit SHA.
     ## - Parse the most recent commit message for a bench, unless one was supplied.
     ## - We will translate any branch name into a commit SHA for later use
@@ -410,12 +442,12 @@ def collect_github_info(errors, request, field):
 
         # Lookup branch or commit sha, but will fail for tags
         url  = OpenBench.utils.path_join(base, 'commits' if bysha else 'branches', branch)
-        data = requests.get(url, headers=headers).json()
+        data = requests.get(url, headers=headers, timeout=GITHUB_TIMEOUT_SECONDS).json()
 
         # Check to see if the branch name was actually a tag name
         if not bysha and 'commit' not in data:
             url  = OpenBench.utils.path_join(base, 'commits', branch)
-            data = requests.get(url, headers=headers).json()
+            data = requests.get(url, headers=headers, timeout=GITHUB_TIMEOUT_SECONDS).json()
 
         # Actual branches have to go one layer deeper
         elif not bysha: data = data['commit']
@@ -441,8 +473,11 @@ def collect_github_info(errors, request, field):
 
 def requests_illegal_fork(request, field):
 
+    # Unknown engines are reported by verify_engine()
+    if not (config := EngineConfig.objects.filter(name=request.POST['%s_engine' % (field)]).first()):
+        return False
+
     # Strip trailing '/'s for sanity
-    config  = EngineConfig.objects.filter(name=request.POST['%s_engine' % (field)]).first()
     eng_src = config.source.rstrip('/')
     tar_src = request.POST['%s_repo' % (field)].rstrip('/')
 
@@ -452,13 +487,13 @@ def requests_illegal_fork(request, field):
 def determine_bench(request, field, message):
 
     # Use the provided bench if possible
-    try: return int(request.POST['{0}_bench'.format(field)])
-    except: pass
+    if (bench := parse_integer(request.POST.get('{0}_bench'.format(field)))) is not None:
+        return bench
 
     # Fallback to try to parse the Bench from the commit
     try:
         benches = re.findall('(?:BENCH|NODES)[ :=]+([0-9,]+)', message, re.IGNORECASE)
-        return int(benches[-1].replace(',', ''))
+        return parse_integer(benches[-1].replace(',', ''))
     except: return None
 
 def strip_message(message):

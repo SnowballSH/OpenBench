@@ -42,7 +42,7 @@ import OpenBench.views
 
 from OpenBench.config import OPENBENCH_CONFIG
 from OpenBench.models import *
-from OpenBench.workloads.verify_workload import verify_workload
+from OpenBench.workloads.verify_workload import GITHUB_TIMEOUT_SECONDS, verify_workload
 
 def create_workload(request, workload_type):
 
@@ -313,7 +313,7 @@ def branch_is_out_of_date(workload):
     try:
         # Out of date if ahead_by is non-zero
         headers = OpenBench.utils.read_git_credentials(workload.dev_engine)
-        data    = requests.get(url, headers=headers).json()
+        data    = requests.get(url, headers=headers, timeout=GITHUB_TIMEOUT_SECONDS).json()
         return data.get('ahead_by', 0) > 0
 
     except:

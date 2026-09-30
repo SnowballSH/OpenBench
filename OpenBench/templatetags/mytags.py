@@ -153,8 +153,8 @@ def prettyDevName(test):
             return prettyName(test.dev.name)
 
         # Use the network's name, if we still have it saved
-        try: return OpenBench.models.Network.objects.get(sha256=test.dev_network).name
-        except: return test.dev_netname # File has since been deleted ?
+        network = OpenBench.models.Network.objects.filter(engine=test.dev_engine, sha256=test.dev_network).first()
+        return network.name if network else test.dev_netname
 
     return prettyName(test.dev.name)
 

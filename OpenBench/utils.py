@@ -57,39 +57,40 @@ class TimeControl(object):
     FISCHER     = 'FISCHER'     # Y or Y+Z
 
     @staticmethod
-    def parse(time_str):
+    def parse(time_str: str) -> str:
 
         # Display Nodes as N=, Depth as D=, MoveTime as MT=
         conversion = {
-            'N'  :  'N', 'nodes'    :  'N',
-            'D'  :  'D', 'depth'    :  'D',
-            'MT' : 'MT', 'movetime' : 'MT',
+            'N'  :  'N', 'NODES'    :  'N',
+            'D'  :  'D', 'DEPTH'    :  'D',
+            'MT' : 'MT', 'MOVETIME' : 'MT',
         }
 
+        time_str = time_str.strip()
+        seconds  = r'(?:\d+(?:\.\d*)?|\.\d+)'
+
         # Searching for "nodes=", "depth=", and "movetime=" time controls
-        pattern = r'(?P<mode>((N)|(D)|(MT)|(nodes)|(depth)|(movetime)))=(?P<value>(\d+))'
-        if results := re.search(pattern, time_str.upper()):
+        pattern = r'(?P<mode>NODES|DEPTH|MOVETIME|MT|N|D)=(?P<value>\d+)'
+        if results := re.fullmatch(pattern, time_str.upper()):
             mode, value = results.group('mode', 'value')
-            return '%s=%s' % (conversion[mode], value)
+            if int(value) > 0:
+                return '%s=%d' % (conversion[mode], int(value))
 
-        # Searching for "X/Y+Z" time controls, where "X/" is optional
-        pattern = r'(?P<moves>(\d+/)?)(?P<base>\d*(\.\d+)?)(?P<inc>\+(\d+\.)?\d+)?'
-        if results := re.search(pattern, time_str):
+        # Searching for "X/Y+Z" time controls, where "X/" and "+Z" are optional
+        pattern = r'(?:(?P<moves>\d+)/)?(?P<base>%s)(?:\+(?P<inc>%s))?' % (seconds, seconds)
+        if results := re.fullmatch(pattern, time_str):
             moves, base, inc = results.group('moves', 'base', 'inc')
-
-            # Strip the trailing and leading symbols
-            moves = None if moves == '' else moves.rstrip('/')
-            inc   = 0.0  if inc   is None else inc.lstrip('+')
+            # Rounded to the precision stored, before checking the control is not empty
+            base, inc = round(float(base), 1), round(float(inc or 0.0), 2)
 
             # Format the time control for match runner cleanly
-            if moves is None: return '%.1f+%.2f' % (float(base), float(inc))
-            return '%d/%.1f+%.2f' % (int(moves), float(base), float(inc))
+            if moves is None and base + inc > 0:
+                return '%.1f+%.2f' % (base, inc)
 
-        print ('FAIL')
-        import sys
-        sys.stdout.flush()
+            if moves is not None and int(moves) > 0 and base > 0:
+                return '%d/%.1f+%.2f' % (int(moves), base, inc)
 
-        raise Exception('Unable to parse Time Control (%s)' % (time_str))
+        raise ValueError('Unable to parse Time Control (%s)' % (time_str))
 
     @staticmethod
     def control_type(time_str):
@@ -117,9 +118,9 @@ class TimeControl(object):
         if '=' in time_str:
             return int(time_str.split('=')[1])
 
-        # Cyclic
+        # Cyclic, as X/Y+Z, where Y is the base
         if '/' in time_str:
-            return float(time_str.split('/')[0])
+            return float(time_str.split('/')[1].split('+')[0])
 
         # Fischer or Sudden Death otherwise
         return float(time_str.split('+')[0])
@@ -221,9 +222,12 @@ def getMachineStatus(username=None):
 
 def getPaging(content, page, url, pagelen=25):
 
-    start = max(0, pagelen * (page - 1))
-    end   = min(content.count(), pagelen * page)
-    count = 1 + math.ceil(content.count() / pagelen)
+    total = content.count()
+    count = 1 + math.ceil(total / pagelen)
+    page  = max(1, min(page, count - 1))
+
+    start = pagelen * (page - 1)
+    end   = min(total, pagelen * page)
 
     part1 = list(range(1, min(4, count)))
     part2 = list(range(page - 2, page + 1))
