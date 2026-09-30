@@ -47,11 +47,30 @@ if OPENBENCH_BEHIND_TLS_PROXY:
     SESSION_COOKIE_SECURE   = True
     CSRF_COOKIE_SECURE      = True
 
-# HSTS is set by the TLS proxy. No CSP yet, since the Templates use inline scripts
+# HSTS is set by the TLS proxy. The Content-Security-Policy is OPENBENCH_CSP below
 SECURE_REFERRER_POLICY            = 'same-origin'
 SECURE_CROSS_ORIGIN_OPENER_POLICY = 'same-origin'
 SECURE_CONTENT_TYPE_NOSNIFF       = True
 X_FRAME_OPTIONS                   = 'DENY'
+
+# See docs/SECURITY.md before relaxing either policy
+OPENBENCH_CSP = {
+    'default-src'     : ("'self'",),
+    'script-src'      : ("'self'",),
+    'style-src'       : ("'self'", 'https://cdnjs.cloudflare.com', 'https://fonts.googleapis.com'),
+    'font-src'        : ("'self'", 'https://cdnjs.cloudflare.com', 'https://fonts.gstatic.com'),
+    'img-src'         : ("'self'", 'data:'),
+    'connect-src'     : ("'self'",),
+    'object-src'      : ("'none'",),
+    'base-uri'        : ("'self'",),
+    'form-action'     : ("'self'",),
+    'frame-ancestors' : ("'none'",),
+}
+
+OPENBENCH_CSP_ADMIN = OPENBENCH_CSP | {
+    'style-src' : ("'self'",),
+    'font-src'  : ("'self'",),
+}
 
 SESSION_COOKIE_AGE      = 7 * 24 * 60 * 60
 SESSION_COOKIE_HTTPONLY = True
@@ -112,6 +131,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'OpenBench.security.csp.ContentSecurityPolicyMiddleware',
     'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
