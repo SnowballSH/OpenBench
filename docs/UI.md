@@ -160,4 +160,5 @@ Rules the charts follow:
 - Every canvas has `role="img"` and an `aria-label` stating the latest value.
 - The `--series-1` to `--series-4` values were re-stepped for this feature and
   pass the categorical palette checks (lightness band, chroma, colour-vision
-  separation, 3:1 contrast) against `--surface` in both themes.
+  separation, 3:1 contrast) against `--surface` in both themes; in light every
+  slot clears 4:1 against white.

@@ -7,6 +7,17 @@
     const MINUS = '−';
     const ELO_RANGE_WARMUP = 0.1;
     const MAX_TICKS = 6;
+    const MAX_BACKOFF_MS = 8 * REFRESH_MS;
+    const MAX_CLIENT_ERRORS = 3;
+    const POLLED_STATUSES = new Set(['pending', 'active']);
+    const ETA_REASONS = {
+        too_few_games: 'needs 200 games first',
+        outside_bounds: 'LLR is outside the bounds',
+        empty_outcome: 'needs wins, draws and losses',
+        no_variance: 'results too uniform to project',
+        no_target: 'no target to reach',
+        no_rate: 'no recent throughput',
+    };
     const DURATION_STEPS = [60, 300, 600, 900, 1800, 3600, 7200, 10800, 21600, 43200, 86400, 172800, 345600, 604800, 1209600];
 
     const count_format = new Intl.NumberFormat();
@@ -64,7 +75,7 @@
     }
 
     function format_interval(interval) {
-        if (!interval) return DASH;
+        if (!interval || ![interval.lower, interval.value, interval.upper].every(is_number)) return DASH;
         const half = Math.max(interval.upper - interval.value, interval.value - interval.lower);
         return `${format_signed(interval.value)} ± ${format_fixed(half)}`;
     }
@@ -81,14 +92,15 @@
     }
 
     function meter(fraction, variant, label) {
+        const clamped = Math.min(1, Math.max(0, fraction));
         const bar = element('span', `insight-meter insight-meter-${variant}`);
         bar.setAttribute('role', 'meter');
         bar.setAttribute('aria-valuemin', '0');
         bar.setAttribute('aria-valuemax', '1');
-        bar.setAttribute('aria-valuenow', fraction.toFixed(3));
+        bar.setAttribute('aria-valuenow', clamped.toFixed(3));
         bar.setAttribute('aria-valuetext', label);
         bar.title = label;
-        bar.style.setProperty('--fraction', Math.min(1, Math.max(0, fraction)).toFixed(4));
+        bar.style.setProperty('--fraction', clamped.toFixed(4));
         return bar;
     }
 
@@ -120,11 +132,21 @@
                 signal: controller.signal,
             });
             const data = await response.json().catch(() => null);
-            if (!response.ok || !data || data.error)
-                throw new Error(data && data.error ? data.error : `HTTP ${response.status}`);
+            if (!response.ok || !data || data.error) {
+                const client = (response.status >= 400 && response.status < 500) || Boolean(data && data.error);
+                throw new FetchError(data && data.error ? data.error : `HTTP ${response.status}`, client);
+            }
             return data;
         } finally {
             clearTimeout(timer);
+        }
+    }
+
+    class FetchError extends Error {
+        constructor(message, client) {
+            super(message);
+            this.name = 'FetchError';
+            this.client = client;
         }
     }
 
@@ -172,9 +194,8 @@
         const { eta, timing, workload } = insights;
         if (eta.kind === 'finished') return timing.ended_at ? `finished ${format_datetime(timing.ended_at)}` : 'finished';
         if (workload.status === 'pending') return 'not approved yet';
-        if (eta.kind === 'unavailable')
-            return workload.mode === 'SPRT' ? 'needs 200+ games inside the bounds' : 'no target to reach';
-        if (!is_number(eta.remaining_seconds)) return 'no recent throughput';
+        if (eta.reason) return ETA_REASONS[eta.reason] ?? 'not available';
+        if (!is_number(eta.remaining_seconds)) return 'not available';
 
         const prefix = eta.kind === 'sprt_estimate' ? '≈ ' : '';
         return `${prefix}${format_datetime(eta.completes_at)} · ${format_compact(eta.remaining_games)} left`;
@@ -391,16 +412,26 @@
         return DURATION_STEPS.find(step => span_seconds / step <= MAX_TICKS) ?? DURATION_STEPS.at(-1);
     }
 
+    function ticks_at_multiples(step) {
+        return scale => {
+            const values = [];
+            for (let value = Math.ceil(scale.min / step) * step; value <= scale.max; value += step) values.push(value);
+            scale.ticks = values.map(value => ({ value }));
+        };
+    }
+
     function axis_options(palette, format_tick, title, step) {
+        const font = { family: palette.font };
         return {
             type: 'linear',
             grid: { color: palette.grid, drawTicks: false },
             border: { color: palette.axis },
             ticks: {
-                color: palette.muted, padding: 6, maxTicksLimit: MAX_TICKS + 1, includeBounds: false,
-                callback: format_tick, stepSize: step,
+                color: palette.muted, font, padding: 6, maxTicksLimit: MAX_TICKS + 1, includeBounds: false,
+                callback: format_tick,
             },
-            title: title ? { display: true, text: title, color: palette.muted, padding: { top: 4 } } : { display: false },
+            afterBuildTicks: step ? ticks_at_multiples(step) : undefined,
+            title: title ? { display: true, text: title, color: palette.muted, font, padding: { top: 4 } } : { display: false },
         };
     }
 
@@ -643,7 +674,6 @@
 
         render(insights, palette, quiet) {
             if (typeof window.Chart === 'undefined') return this.show_empty('The charting library failed to load.');
-            window.Chart.defaults.font.family = palette.font;
 
             const built = this.spec.build(insights, palette);
             if (!built.config || built.points < 2)
@@ -677,6 +707,8 @@
             this.latest = null;
             this.timer = null;
             this.stale = false;
+            this.failures = 0;
+            this.client_failures = 0;
         }
 
         start() {
@@ -685,8 +717,16 @@
             watch_theme(() => this.render_charts(true));
         }
 
-        get live() {
-            return !this.latest || this.latest.workload.status === 'active';
+        get polled() {
+            return !this.latest || POLLED_STATUSES.has(this.latest.workload.status);
+        }
+
+        get retrying() {
+            return this.polled && this.client_failures < MAX_CLIENT_ERRORS;
+        }
+
+        get delay() {
+            return Math.min(MAX_BACKOFF_MS, REFRESH_MS * 2 ** Math.max(0, this.failures - 1));
         }
 
         async refresh() {
@@ -694,9 +734,12 @@
             try {
                 const data = await fetch_json(this.url);
                 this.latest = data.insights;
+                this.failures = this.client_failures = 0;
                 this.render();
                 this.show_error(null);
             } catch (err) {
+                this.failures += 1;
+                this.client_failures = err instanceof FetchError && err.client ? this.client_failures + 1 : 0;
                 this.show_error(err);
             } finally {
                 this.section.removeAttribute('aria-busy');
@@ -706,11 +749,11 @@
 
         schedule() {
             clearTimeout(this.timer);
-            if (!this.live) return;
+            if (!this.retrying) return;
             this.timer = setTimeout(() => {
                 if (document.hidden) this.stale = true;
                 else this.refresh();
-            }, REFRESH_MS);
+            }, this.delay);
         }
 
         on_visibility() {
@@ -724,7 +767,7 @@
             this.render_history();
             render_contributions(this.contributions, this.latest);
 
-            const refreshing = this.latest.workload.status === 'active' ? ' · refreshes every minute' : '';
+            const refreshing = this.polled ? ' · refreshes every minute' : '';
             this.status.textContent = `Updated ${time_format.format(new Date())}${refreshing}`;
         }
 
@@ -759,7 +802,7 @@
                 this.error.textContent = '';
                 return;
             }
-            const retry = this.live ? ' Retrying in a minute.' : '';
+            const retry = this.retrying ? ` Retrying in ${format_duration(this.delay / 1000)}.` : '';
             this.error.textContent = `Insights could not be loaded: ${describe_error(err)}.${retry}`;
             this.error.hidden = false;
             if (!this.latest) this.status.textContent = '';
@@ -781,9 +824,9 @@
             pending: `${format_count(workloads.pending)} pending`,
             games: format_count(server.games_last_24h),
             finished: format_count(finished.total),
-            outcomes: `${finished.passed} passed · ${finished.failed} failed · ${finished.stopped} stopped`,
+            outcomes: `${format_count(finished.passed)} passed · ${format_count(finished.failed)} failed · ${format_count(finished.stopped)} stopped`,
             pass_rate: format_percent(finished.sprt_pass_rate, 0),
-            decided: decided ? `${finished.sprt_passed} of ${decided} decided SPRTs` : 'no decided SPRTs',
+            decided: decided ? `${format_count(finished.sprt_passed)} of ${format_count(decided)} decided SPRTs` : 'no decided SPRTs',
         };
     }
 

@@ -134,9 +134,9 @@
     --odds: #a85400;
 
     --series-1: #2a78d6;
-    --series-2: #eb6834;
+    --series-2: #d4541f;
     --series-3: #4a3aa7;
-    --series-4: #169a6b;
+    --series-4: #12875e;
 }
 
 @media (prefers-color-scheme: light) {
@@ -184,9 +184,9 @@
         --odds: #a85400;
 
         --series-1: #2a78d6;
-        --series-2: #eb6834;
+        --series-2: #d4541f;
         --series-3: #4a3aa7;
-        --series-4: #169a6b;
+        --series-4: #12875e;
     }
 }
 
