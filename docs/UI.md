@@ -96,7 +96,10 @@ without relying on fill alone.
 - **Server strip**: `.server-stats` is the compact tile grid at the top of the
   index. `.row-progress` (`-games` fill or `-llr` marker, `--fraction`) is the
   thin bar under an active row's stat block, rendered by the `workload_progress`
-  template filter from the Test's own fields, with no extra queries. Templates
+  template filter from the Test's own fields, with no extra queries. `.row-timing` is the
+  line below it (`Blocks/row_timing.html`): time left and games per hour for a
+  running row, time taken for a finished one; `.row-timing-left` lifts the time
+  left to body colour. Templates
   pass these values as `data-fraction` and `data-share`, which `site.js` copies
   into the custom properties; a missing value draws an empty bar. That makes
   the server-rendered meters depend on JavaScript: without it, the progress and

@@ -30,6 +30,9 @@ pays.
   (`spsa_parameter_count`). The `prettyDevName` and `shortStatBlock` filters
   use those annotations when present and query only when handed a bare Test,
   as the workload page does.
+  The same query also annotates the snapshots and finish time behind each
+  row's time taken or time left (see [INSIGHTS.md](INSIGHTS.md#listings)),
+  so that line adds no query either.
 - **Pending and Active tests**, and the Machine status, are only shown on the
   first page of a listing, so later pages no longer fetch them.
 - **Events and errors** fetch the page's Tests in one `in_bulk` query and hang
