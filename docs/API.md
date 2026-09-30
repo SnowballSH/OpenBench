@@ -75,8 +75,9 @@ user only when that flag is set; the rest always demand one.
 | Rule | Endpoints |
 |---|---|
 | Enabled user when `require_login_to_view` is `true`, otherwise public | `api/config/`, `api/config/<engine>/`, `api/buildinfo/`, `api/networks/<engine>/`, `api/workload/…`, `api/spsa/…`, `api/pgns/<id>/`, `api/insights/server/` |
-| Always an enabled user | `api/active/`, `api/networks/<engine>/<id>/` (download), `api/storage/`, `/scripts/` |
+| Always an enabled user | `api/active/`, `api/networks/<engine>/<id>/` (download), `/scripts/` |
 | Always an enabled **Approver** | `api/networks/<engine>/<id>/delete/`, and `UPLOAD_NETWORK` through `/scripts/` |
+| Always a **manager** (Profile or Django superuser) | `api/storage/` |
 | None | `/health/` |
 
 When `require_login_to_view` is `false`, the public endpoints in the first row
@@ -164,7 +165,7 @@ The read endpoints and `POST api/active/` change nothing and do not check CSRF.
 | GET, POST | `/api/pgns/<id>/` | view | The workload's PGN archive |
 | GET, POST | `/api/insights/server/` | view | Fleet and workload counters |
 | GET, POST | `/api/progress/?engine=&window=` | view | Engine progress over a time window |
-| GET, POST | `/api/storage/` | user | Disk usage of the data directory |
+| GET, POST | `/api/storage/` | manager | Disk usage of the data directory |
 | POST | `/api/active/` | user | Workloads a described machine could be assigned |
 | POST | `/scripts/` | user / Approver | Upload a network or create a test (HTML) |
 | GET, HEAD | `/health/` | none | Database readiness |
@@ -838,7 +839,8 @@ in [INSIGHTS.md](INSIGHTS.md#engine-progress).
 
 ### `GET|POST /api/storage/`
 
-What fills the data directory. Always needs an enabled user. Sizes are bytes;
+What fills the data directory. Needs a manager: 401 without a login, 403 for
+an enabled user who is not a manager. Sizes are bytes;
 the scan is cached for 60 seconds per process. Field meanings and how to free
 space are in [DEPLOYMENT.md](DEPLOYMENT.md#storage).
 

@@ -69,10 +69,11 @@ replaces an exited worker with a new one that takes it over.
 
 ## Storage
 
-`/manage/storage/` shows what fills the data directory. It needs a login with
-an enabled account, the same rule as `/api/storage/`: anonymous visitors are
-sent to the login page and accounts not yet enabled back to the index. It has
-no forms and changes nothing.
+`/manage/storage/` shows what fills the data directory. Only managers (a
+Profile or Django superuser) see it, the same rule as `/api/storage/`, because
+it reveals filesystem totals and Media file names: anonymous visitors are sent
+to the login page, accounts not yet enabled back to the index, and other users
+to `/manage/books/`. It has no forms and changes nothing.
 
 | Section | Contents |
 |---|---|
