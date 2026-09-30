@@ -400,6 +400,12 @@ def verify_scale_method(errors, request, field):
 
 def collect_github_info(errors, request, field):
 
+    # Scripts may omit fields the website form always sends
+    required = [ '%s_%s' % (field, suffix) for suffix in ('branch', 'repo', 'engine') ]
+    if (missing := [ name for name in required if name not in request.POST ]):
+        errors.append('Missing form fields: %s' % (', '.join(missing)))
+        return
+
     # Get branch name / commit sha / tag, and the API path for it
     branch = request.POST['{0}_branch'.format(field)]
     bysha  = bool(re.search('^[0-9a-fA-F]{40}$', branch))
@@ -466,7 +472,7 @@ def collect_github_info(errors, request, field):
         return
 
     info = request.POST.get('info') or (
-        strip_message(data['commit']['message']) if request.POST['dev_branch'] != request.POST.get('base_branch') else ''
+        strip_message(data['commit']['message']) if request.POST.get('dev_branch') != request.POST.get('base_branch') else ''
     )
     source = OpenBench.utils.path_join(base, 'zipball', data['sha'])
     return (source, branch, data['sha'], bench, info)

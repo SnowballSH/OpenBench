@@ -282,8 +282,10 @@ def network_disambiguate(engine, identifier):
 
 def network_upload(request, engine, name):
 
+    if not (netfile := request.FILES.get('netfile')):
+        return OpenBench.views.redirect(request, '/networks/', error='No network file was uploaded as netfile')
+
     # Extract and process the Network file to produce a SHA
-    netfile = request.FILES['netfile']
     digest  = hashlib.sha256()
     for chunk in netfile.chunks():
         digest.update(chunk)

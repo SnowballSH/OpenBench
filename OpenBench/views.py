@@ -715,9 +715,14 @@ def scripts(request):
     django.contrib.auth.login(request, user)
 
     if request.POST.get('action') == 'UPLOAD_NETWORK':
-        engine = request.POST['engine']
-        name   = request.POST['name']
-        return networks(request, engine, 'upload', name)
+
+        if not Profile.objects.filter(user=user, approver=True).exists():
+            return redirect(request, '/index/', error='Only Approvers may upload Networks')
+
+        if (missing := [ field for field in ('engine', 'name') if not request.POST.get(field) ]):
+            return redirect(request, '/networks/', error='UPLOAD_NETWORK requires %s' % (', '.join(missing)))
+
+        return networks(request, request.POST['engine'], 'upload', request.POST['name'])
 
     if request.POST.get('action') == 'CREATE_TEST':
         return new_workload(request, "TEST")
