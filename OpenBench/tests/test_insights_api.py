@@ -6,7 +6,8 @@ from django.test import TestCase
 from django.utils import timezone
 
 from OpenBench.models import Machine, Result, Test, WorkloadSnapshot
-from OpenBench.tests.fixtures import PASSWORD, create_test, create_user, credentials, ensure_book, system_info
+from OpenBench.tests.fixtures import (
+    PASSWORD, create_engine_config, create_test, create_user, credentials, ensure_book, register_payload, system_info)
 
 PENTA = (5, 40, 100, 45, 10)
 
@@ -123,3 +124,42 @@ class InsightsApiTests(TestCase):
               'dev_nps' : 0, 'dev_nps_scaled' : 0, 'base_nps' : 0, 'base_nps_scaled' : 0 },
         ])
         self.assertEqual([row['key'] for row in summary['user']], ['lab-worker', 'admin'])
+
+class RunningAtDeployTests(TestCase):
+
+    PRIOR = { 'games' : 180_000, 'wins' : 31_500, 'losses' : 31_500, 'draws' : 117_000,
+              'LL' : 4_500, 'LD' : 22_500, 'DD' : 36_000, 'DW' : 22_500, 'WW' : 4_500 }
+
+    def setUp(self):
+        create_engine_config()
+        ensure_book()
+        self.worker = create_user('lab-worker')
+        self.test   = create_test(create_user('admin', approver=True), test_mode='GAMES', max_games=1_000_000)
+
+        response = self.client.post('/clientWorkerInfo/', register_payload(self.worker)).json()
+        self.session = { 'machine_id' : response['machine_id'], 'secret' : response['secret'] }
+        self.result  = self.client.post('/clientGetWorkload/', self.session).json()['workload']['result']['id']
+
+        Test.objects.filter(id=self.test.id).update(creation=timezone.now() - timedelta(hours=300), **self.PRIOR)
+        Result.objects.filter(id=self.result).update(**self.PRIOR)
+
+        batch = {
+            **self.session, 'test_id' : self.test.id, 'result_id' : self.result,
+            'crashes' : 0, 'timelosses' : 0, 'illegals' : 0,
+            'trinomial' : '60 80 60', 'pentanomial' : '10 20 40 20 10',
+        }
+        self.assertEqual(self.client.post('/clientSubmitResults/', batch).json(), {})
+        self.client.post('/login/', { 'username' : 'lab-worker', 'password' : PASSWORD })
+
+    def test_history_starts_at_creation(self):
+        insights = self.client.get('/api/workload/%d/insights/' % (self.test.id)).json()['insights']
+        self.test.refresh_from_db()
+
+        self.assertEqual([p['games'] for p in insights['history']['points']], [0, 180_200])
+        self.assertEqual(insights['timing']['started_at'], self.test.creation.isoformat())
+        self.assertAlmostEqual(insights['timing']['overall']['games_per_hour'], 600, delta=5)
+        self.assertAlmostEqual(insights['contributions']['machines'][0]['stats']['pairs_per_hour'], 300, delta=5)
+
+    def test_games_last_24h_excludes_earlier_play(self):
+        server = self.client.get('/api/insights/server/').json()['server']
+        self.assertAlmostEqual(server['games_last_24h'], 180_200 * 24 / 300, delta=50)

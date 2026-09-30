@@ -639,6 +639,6 @@ def update_test(request, machine):
             updated=timezone.now()
         )
 
-        OpenBench.insights.recorder.record_snapshot(test)
+        OpenBench.insights.recorder.record_snapshot_safely(test, games)
 
     return [{}, { 'stop' : True }][test.finished]

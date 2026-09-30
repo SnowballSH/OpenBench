@@ -291,7 +291,7 @@ class WorkloadSnapshot(Model):
 
     # Cumulative Test counters at a point in time; see docs/INSIGHTS.md. Derived
     # entirely from the Test, so the history is removed along with its Test.
-    test    = ForeignKey('Test', CASCADE, related_name='snapshots')
+    test    = ForeignKey('Test', CASCADE, related_name='snapshots', db_index=False)
     created = DateTimeField(default=timezone.now, db_index=True)
 
     games  = IntegerField(default=0)
