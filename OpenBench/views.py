@@ -737,13 +737,21 @@ def verify_worker(function):
             return JsonResponse({ 'error' : 'Bad Client Version: Server Configuration Changed' })
 
         # Use the secret token as our soft verification
-        if machine.secret != args[0].POST['secret']:
+        if not secrets.compare_digest(machine.secret.encode(), args[0].POST.get('secret', '').encode()):
             return JsonResponse({ 'error' : 'Bad Client Version: Invalid Secret Token' })
 
         # Otherwise, carry on, and pass along the machine
         return function(*args, machine)
 
     return wrapped_verify_worker
+
+NOT_ASSIGNED = { 'error' : 'Workload is not assigned to this Machine' }
+
+def is_assigned(machine, test_id, result_id=None):
+
+    # A Result row exists for each (Test, Machine) pair the Machine was given
+    results = Result.objects.filter(machine=machine, test_id=test_id)
+    return results.filter(id=result_id).exists() if result_id is not None else results.exists()
 
 @csrf_exempt
 def client_version_ref(request):
@@ -856,6 +864,9 @@ def client_get_workload(request, machine):
 @verify_worker
 def client_bench_error(request, machine):
 
+    if not is_assigned(machine, int(request.POST['test_id'])):
+        return JsonResponse(NOT_ASSIGNED)
+
     # Find and stop the test with the bad bench
     test = Test.objects.get(id=int(request.POST['test_id']))
     test.finished = True; test.save()
@@ -890,6 +901,9 @@ def client_submit_error(request, machine):
     # Report an error when working on test. This could be one three kinds.
     # 1. Error building the engine. Does not compile, for whatever reason.
     # 2. Error during actual gameplay. Timeloss, Disconnect, Crash, etc.
+
+    if not is_assigned(machine, int(request.POST['test_id'])):
+        return JsonResponse(NOT_ASSIGNED)
 
     # Log the Error into the Events table
     event = LogEvent.objects.create(
@@ -927,9 +941,12 @@ def client_heartbeat(request, machine):
 
 @csrf_exempt
 @verify_worker
-def client_submit_nps_stats(request, _):
+def client_submit_nps_stats(request, machine):
 
     result_id = int(request.POST['result_id'])
+
+    if not is_assigned(machine, int(request.POST['test_id']), result_id):
+        return JsonResponse(NOT_ASSIGNED)
 
     # No risk from concurrent access
     Result.objects.filter(id=result_id).update(
@@ -947,6 +964,9 @@ def client_submit_nps_stats(request, _):
 @csrf_exempt
 @verify_worker
 def client_submit_pgn(request, machine):
+
+    if not is_assigned(machine, int(request.POST['test_id']), int(request.POST['result_id'])):
+        return JsonResponse(NOT_ASSIGNED)
 
     with transaction.atomic():
 

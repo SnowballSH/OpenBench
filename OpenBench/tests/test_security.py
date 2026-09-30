@@ -166,6 +166,95 @@ class ApiAuthenticationLoggingTests(TestCase):
             response = self.client.post('/api/config/', credentials(self.user))
         self.assertIn('engines', json.loads(response.content))
 
+class WorkerOwnershipTests(TestCase):
+
+    def setUp(self):
+        self.media = tempfile.TemporaryDirectory()
+        self.enterContext(override_settings(MEDIA_ROOT=self.media.name))
+        self.addCleanup(self.media.cleanup)
+        create_engine_config()
+        ensure_book()
+        admin      = create_user('admin', approver=True)
+        self.test  = create_test(admin)
+        self.owner = self.start_session(create_user('lab-worker'))
+        self.thief = self.start_session(create_user('home-worker'))
+        self.other = create_test(admin)
+
+    def start_session(self, user):
+        response = self.client.post('/clientWorkerInfo/', register_payload(user)).json()
+        session  = { 'machine_id' : response['machine_id'], 'secret' : response['secret'] }
+        workload = self.client.post('/clientGetWorkload/', session).json()['workload']
+        return { **session, 'result_id' : workload['result']['id'], 'test_id' : workload['test']['id'] }
+
+    def results(self, session, **overrides):
+        return {
+            **session, 'crashes' : 0, 'timelosses' : 0, 'illegals' : 0,
+            'trinomial' : '1 2 3', 'pentanomial' : '0 1 1 1 0', **overrides,
+        }
+
+    def test_both_sessions_were_given_the_same_test(self):
+        self.assertEqual(self.owner['test_id'], self.thief['test_id'])
+        self.assertNotEqual(self.owner['result_id'], self.thief['result_id'])
+
+    def test_results_for_a_foreign_result_are_refused(self):
+        forged   = self.results(self.thief, result_id=self.owner['result_id'])
+        response = self.client.post('/clientSubmitResults/', forged).json()
+
+        self.assertEqual(response, { 'stop' : True })
+        self.assertEqual(Result.objects.get(id=self.owner['result_id']).games, 0)
+        self.assertEqual(Test.objects.get(id=self.test.id).games, 0)
+
+    def test_results_for_a_mismatched_test_are_refused(self):
+        forged = self.results(self.owner, test_id=self.other.id)
+        self.assertEqual(self.client.post('/clientSubmitResults/', forged).json(), { 'stop' : True })
+        self.assertEqual(Test.objects.get(id=self.other.id).games, 0)
+
+    def test_negative_results_are_refused(self):
+        forged = self.results(self.owner, trinomial='5 0 -5')
+        self.assertEqual(self.client.post('/clientSubmitResults/', forged).json(), { 'stop' : True })
+        self.assertEqual(Test.objects.get(id=self.test.id).games, 0)
+
+    def test_own_results_are_accepted(self):
+        self.assertEqual(self.client.post('/clientSubmitResults/', self.results(self.owner)).json(), {})
+        self.assertEqual(Result.objects.get(id=self.owner['result_id']).games, 6)
+
+    def test_nps_stats_for_a_foreign_result_are_refused(self):
+        stats = { name : 100 for name in ('dev_nodes', 'dev_time', 'dev_time_scaled', 'base_nodes', 'base_time', 'base_time_scaled') }
+        forged   = { **self.thief, **stats, 'result_id' : self.owner['result_id'] }
+        response = self.client.post('/clientSubmitNPSStats/', forged).json()
+
+        self.assertIn('error', response)
+        self.assertEqual(Result.objects.get(id=self.owner['result_id']).dev_nodes, 0)
+        self.assertEqual(self.client.post('/clientSubmitNPSStats/', { **self.owner, **stats }).json(), {})
+        self.assertEqual(Result.objects.get(id=self.owner['result_id']).dev_nodes, 100)
+
+    def test_bench_error_for_an_unassigned_test_is_refused(self):
+        response = self.client.post('/clientBenchError/', { **self.thief, 'test_id' : self.other.id, 'error' : 'x' }).json()
+        self.assertIn('error', response)
+        self.assertFalse(Test.objects.get(id=self.other.id).finished)
+        self.assertFalse(LogEvent.objects.exists())
+
+    def test_submit_error_for_an_unassigned_test_is_refused(self):
+        forged = { **self.thief, 'test_id' : self.other.id, 'error' : 'x', 'logs' : 'y' }
+        self.assertIn('error', self.client.post('/clientSubmitError/', forged).json())
+        self.assertFalse(LogEvent.objects.exists())
+
+    def test_pgn_for_a_foreign_result_is_refused(self):
+        forged = { **self.thief, 'result_id' : self.owner['result_id'], 'book_index' : 0,
+                   'file' : SimpleUploadedFile('games.pgn', b'x') }
+        self.assertIn('error', self.client.post('/clientSubmitPGN/', forged).json())
+        self.assertFalse(PGN.objects.exists())
+
+    def test_missing_secret_is_rejected_cleanly(self):
+        response = self.client.post('/clientHeartbeat/', { 'machine_id' : self.owner['machine_id'], 'test_id' : self.test.id })
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('Invalid Secret Token', response.json()['error'])
+
+    def test_wrong_secret_is_rejected(self):
+        forged   = { **self.owner, 'secret' : self.thief['secret'] }
+        response = self.client.post('/clientHeartbeat/', forged).json()
+        self.assertIn('Invalid Secret Token', response['error'])
+
 class ThrottleTests(TestCase):
 
     def setUp(self):
