@@ -1,10 +1,13 @@
 from datetime import UTC, date, timedelta
 
+from django.db import connection
 from django.db.models import (
     Case,
     Count,
+    DateField,
     DateTimeField,
     F,
+    Func,
     Max,
     OuterRef,
     Q,
@@ -111,12 +114,20 @@ def scoped_snapshots(scope: Scope) -> QuerySet[WorkloadSnapshot]:
     return snapshots
 
 
+def utc_date(field: str) -> Func:
+    # SQLite stores DateTimeField values as UTC text under USE_TZ, and its
+    # built-in date() avoids TruncDate's per-row Python function.
+    if connection.vendor == "sqlite":
+        return Func(F(field), function="date", output_field=DateField())
+    return TruncDate(field, tzinfo=UTC)
+
+
 def load_day_maxima(scope: Scope) -> list[DayMaximum]:
     snapshots = scoped_snapshots(scope)
     if scope.since is not None:
         snapshots = snapshots.filter(created__gte=scope.since)
     rows = (
-        snapshots.annotate(day=TruncDate("created", tzinfo=UTC))
+        snapshots.annotate(day=utc_date("created"))
         .values("test_id", "day")
         .annotate(games=Max("games"))
     )

@@ -1,9 +1,12 @@
 import re
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
+from unittest import mock
 
 from django.conf import settings
+from django.core.cache import cache
 from django.db import connection
+from django.db.models.functions import TruncDate
 from django.test import SimpleTestCase, TestCase
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
@@ -11,7 +14,7 @@ from django.utils import timezone
 from OpenBench.insights.domain import Outcomes
 from OpenBench.insights.strength import EloInterval
 from OpenBench.models import Machine, Result, Test, WorkloadSnapshot
-from OpenBench.progress import analysis
+from OpenBench.progress import analysis, sources
 from OpenBench.progress.domain import (
     DEFAULT_WINDOW,
     DailyGames,
@@ -126,6 +129,20 @@ class AnalysisTests(SimpleTestCase):
         )
         self.assertEqual((weeks[1].passed, weeks[1].failed), (2, 1))
 
+    def test_elo_steps_thin_to_the_limit_and_keep_both_ends(self):
+        greens = analysis.green_tests(
+            [green_row(index, NOW + timedelta(hours=index)) for index in range(1200)]
+        )
+        steps = analysis.elo_steps(greens, limit=500)
+        self.assertEqual(len(steps), 500)
+        self.assertEqual((steps[0].greens, steps[-1].greens), (1, 1200))
+        self.assertEqual(steps[-1].cumulative_elo, greens[-1].cumulative_elo)
+        for step in steps:
+            self.assertEqual(
+                step.cumulative_elo, greens[step.greens - 1].cumulative_elo
+            )
+        self.assertEqual(len(analysis.elo_steps(greens[:3], limit=500)), 3)
+
     def test_week_start_is_monday(self):
         self.assertEqual(analysis.week_start(date(2026, 9, 30)), date(2026, 9, 28))
         self.assertEqual(analysis.week_start(date(2026, 9, 28)), date(2026, 9, 28))
@@ -156,14 +173,14 @@ class AnalysisTests(SimpleTestCase):
             [OutcomeCounts(2, 3, 1), OutcomeCounts(1, 0, 0)],
             daily,
             {"a": 3, "b": 1},
-            {"w": 5, "z": 0},
+            {"w": 5, "y": 2},
         )
         self.assertAlmostEqual(summary.elo_gained, greens[-1].cumulative_elo)
         self.assertEqual(summary.sprt, OutcomeCounts(3, 3, 1))
         self.assertEqual(summary.sprt_pass_rate, 0.5)
         self.assertEqual((summary.games, summary.games_per_day), (60, 20.0))
         self.assertEqual((summary.tests_created, summary.authors), (4, 2))
-        self.assertEqual(summary.contributors, 1)
+        self.assertEqual(summary.contributors, 2)
 
     def test_empty_summary(self):
         summary = analysis.summarize([], [], [], {}, {})
@@ -177,12 +194,14 @@ class PresentTests(SimpleTestCase):
         self.assertEqual(elo_text(EloInterval(-1.0, 2.5, 7.0)), "+2.50 ± 4.50")
         self.assertEqual(elo_text(EloInterval(-5.0, -2.0, 0.5)), "−2.00 ± 3.00")
         self.assertEqual(elo_text(None), "—")
-        self.assertEqual(elo_text(EloInterval(1.0, float("inf"), 2.0)), "—")
 
     def test_urls_quote_the_engine(self):
         self.assertEqual(progress_url(None, Window.ALL), "/progress/?window=all")
         self.assertEqual(
-            progress_url("A B/C", Window.DAYS_30), "/progress/A%20B%2FC/?window=30d"
+            progress_url("A B", Window.DAYS_30), "/progress/A%20B/?window=30d"
+        )
+        self.assertEqual(
+            progress_url("A/B", Window.YEAR), "/progress/?engine=A%2FB&window=1y"
         )
 
     def test_tiles_label_the_elo_sum_an_estimate(self):
@@ -329,6 +348,59 @@ class ProgressDataTests(TestCase):
         self.assertEqual(report.top_contributors, [])
         self.assertEqual(self.report(engine="Missing").summary.sprt.total, 0)
 
+    def test_trinomial_greens_use_their_trinomial_counts(self):
+        tri = create_test(
+            self.author,
+            games=300,
+            losses=80,
+            draws=100,
+            wins=120,
+            use_tri=True,
+            use_penta=False,
+            passed=True,
+            finished=True,
+        )
+        Test.objects.filter(id=tri.id).update(updated=NOW - timedelta(days=1))
+        (green,) = self.report().greens
+        self.assertEqual(green.id, tri.id)
+        self.assertAlmostEqual(green.elo.value, Elo((80, 100, 120))[1])
+        self.assertAlmostEqual(green.cumulative_elo, Elo((80, 100, 120))[1])
+
+    def test_greens_sent_are_capped_but_counted(self):
+        self.seed()
+        with mock.patch("OpenBench.progress.report.GREENS_SENT", 1):
+            report = self.report()
+        self.assertEqual([green.id for green in report.greens], [self.strong.id])
+        self.assertEqual(report.greens_omitted, 2)
+        self.assertEqual(report.summary.greens, 3)
+        self.assertEqual(report.elo_steps[-1].greens, 3)
+
+    def test_utc_days_match_truncdate_around_midnight(self):
+        test = self.sprt(NOW)
+        midnight = datetime(2026, 9, 20, tzinfo=UTC)
+        moments = [
+            midnight - timedelta(microseconds=1),
+            midnight,
+            midnight + timedelta(microseconds=1),
+            midnight + timedelta(hours=23, minutes=59, seconds=59),
+        ]
+        self.history(test, *((moment, index) for index, moment in enumerate(moments)))
+        snapshots = WorkloadSnapshot.objects.filter(test=test).order_by("created")
+        built_in = list(
+            snapshots.annotate(day=sources.utc_date("created")).values_list(
+                "day", flat=True
+            )
+        )
+        truncated = list(
+            snapshots.annotate(day=TruncDate("created", tzinfo=UTC)).values_list(
+                "day", flat=True
+            )
+        )
+        self.assertEqual(built_in, truncated)
+        self.assertEqual(built_in, [date(2026, 9, 19), *[date(2026, 9, 20)] * 3])
+        if connection.vendor == "sqlite":
+            self.assertNotIsInstance(sources.utc_date("created"), TruncDate)
+
     def test_query_count_does_not_grow_with_the_data(self):
         self.seed()
         with self.assertNumQueries(6):
@@ -371,6 +443,8 @@ class ProgressViewTests(TestCase):
         )
         Test.objects.filter(id=self.test.id).update(updated=now - timedelta(days=2))
 
+        cache.clear()
+
     def login(self):
         self.client.post("/login/", {"username": "reader", "password": PASSWORD})
 
@@ -408,6 +482,23 @@ class ProgressViewTests(TestCase):
             self.client.get("/progress/?engine=&window=all").status_code, 200
         )
 
+        blank = self.client.get("/progress/%20/?window=1y")
+        self.assertEqual(blank.status_code, 302)
+        self.assertEqual(blank["Location"], "/progress/?window=1y")
+
+        slashed = self.client.get("/progress/?engine=A/B")
+        self.assertEqual(slashed.status_code, 200)
+        self.assertEqual(slashed.context["page"].engine, "A/B")
+        self.assertContains(slashed, 'href="/progress/?engine=A%2FB&amp;window=30d"')
+
+    def test_reports_are_cached_briefly(self):
+        self.login()
+        self.client.get("/progress/")
+        Test.objects.filter(id=self.test.id).update(deleted=True)
+        self.assertEqual(len(self.client.get("/progress/").context["page"].greens), 1)
+        cache.clear()
+        self.assertEqual(self.client.get("/progress/").context["page"].greens, [])
+
     def test_unknown_window_falls_back_to_the_default(self):
         self.login()
         response = self.client.get("/progress/?window=decade")
@@ -422,6 +513,7 @@ class ProgressViewTests(TestCase):
         self.assertEqual(self.page_queries(), first)
 
     def page_queries(self) -> int:
+        cache.clear()
         with CaptureQueriesContext(connection) as queries:
             self.assertEqual(self.client.get("/progress/").status_code, 200)
         return len(queries)
@@ -468,7 +560,9 @@ class ProgressViewTests(TestCase):
                 "start",
                 "end",
                 "summary",
+                "elo_steps",
                 "greens",
+                "greens_omitted",
                 "weekly_outcomes",
                 "daily_games",
                 "top_contributors",
@@ -493,6 +587,17 @@ class ProgressViewTests(TestCase):
             },
         )
         self.assertEqual(set(green["elo"]), {"lower", "value", "upper"})
+        self.assertEqual(payload["greens_omitted"], 0)
+        self.assertEqual(
+            payload["elo_steps"],
+            [
+                {
+                    "finished_at": green["finished_at"],
+                    "cumulative_elo": green["cumulative_elo"],
+                    "greens": 1,
+                }
+            ],
+        )
         self.assertEqual(
             set(payload["summary"]["sprt"]), {"passed", "failed", "stopped"}
         )

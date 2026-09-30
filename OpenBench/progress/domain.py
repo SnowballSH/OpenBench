@@ -6,6 +6,8 @@ from OpenBench.insights.domain import Outcomes
 from OpenBench.insights.strength import EloInterval
 
 TOP_LIMIT = 10
+GREENS_SENT = 500
+ELO_STEPS_LIMIT = 500
 ENGINE_NAME_LIMIT = 64
 
 
@@ -68,6 +70,13 @@ class GreenTest:
     elo_bounds: tuple[float, float]
     elo: EloInterval | None
     cumulative_elo: float
+
+
+@dataclass(frozen=True, slots=True)
+class EloStep:
+    finished_at: datetime
+    cumulative_elo: float
+    greens: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -154,7 +163,9 @@ class ProgressReport:
     start: date
     end: date
     summary: Summary
+    elo_steps: list[EloStep]
     greens: list[GreenTest]
+    greens_omitted: int
     weekly_outcomes: list[WeeklyOutcomes]
     daily_games: list[DailyGames]
     top_contributors: list[Contributor]

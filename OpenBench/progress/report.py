@@ -3,7 +3,7 @@ from datetime import datetime
 from django.utils import timezone
 
 from OpenBench.progress import analysis, sources
-from OpenBench.progress.domain import ProgressReport, Window
+from OpenBench.progress.domain import GREENS_SENT, ProgressReport, Window
 
 
 def progress_report(
@@ -40,7 +40,9 @@ def progress_report(
         summary=analysis.summarize(
             greens, outcomes.values(), daily, tests_by_author, games_by_user
         ),
-        greens=greens,
+        elo_steps=analysis.elo_steps(greens),
+        greens=greens[-GREENS_SENT:],
+        greens_omitted=max(0, len(greens) - GREENS_SENT),
         weekly_outcomes=analysis.weekly_series(outcomes, start, scope.today),
         daily_games=daily,
         top_contributors=analysis.top_contributors(games_by_user),

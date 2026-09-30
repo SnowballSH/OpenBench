@@ -1,12 +1,12 @@
-import math
 from collections import defaultdict
 from collections.abc import Iterable, Mapping
 from datetime import UTC, date, datetime, time, timedelta
 from itertools import groupby
 
-from OpenBench.insights.strength import EloInterval, elo_interval
+from OpenBench.insights.strength import elo_interval
 from OpenBench.progress.domain import (
     DEFAULT_WINDOW,
+    ELO_STEPS_LIMIT,
     ENGINE_NAME_LIMIT,
     NO_OUTCOMES,
     TOP_LIMIT,
@@ -14,6 +14,7 @@ from OpenBench.progress.domain import (
     Contributor,
     DailyGames,
     DayMaximum,
+    EloStep,
     GreenRow,
     GreenTest,
     OutcomeCounts,
@@ -57,18 +58,12 @@ def week_start(day: date) -> date:
     return day - timedelta(days=day.weekday())
 
 
-def finite_value(interval: EloInterval | None) -> float | None:
-    if interval is None or not math.isfinite(interval.value):
-        return None
-    return interval.value
-
-
 def green_tests(rows: Iterable[GreenRow]) -> list[GreenTest]:
     greens: list[GreenTest] = []
     total = 0.0
     for row in sorted(rows, key=lambda row: (row.finished_at, row.id)):
         interval = elo_interval(row.outcomes.primary())
-        total += finite_value(interval) or 0.0
+        total += interval.value if interval else 0.0
         greens.append(
             GreenTest(
                 id=row.id,
@@ -81,6 +76,19 @@ def green_tests(rows: Iterable[GreenRow]) -> list[GreenTest]:
             )
         )
     return greens
+
+
+def elo_steps(greens: list[GreenTest], limit: int = ELO_STEPS_LIMIT) -> list[EloStep]:
+    count = len(greens)
+    kept = (
+        range(count)
+        if count <= limit
+        else sorted({round(i * (count - 1) / (limit - 1)) for i in range(limit)})
+    )
+    return [
+        EloStep(greens[index].finished_at, greens[index].cumulative_elo, index + 1)
+        for index in kept
+    ]
 
 
 def games_by_day(
@@ -157,7 +165,7 @@ def summarize(
     return Summary(
         elo_gained=greens[-1].cumulative_elo if greens else 0.0,
         greens=len(greens),
-        greens_without_elo=sum(finite_value(green.elo) is None for green in greens),
+        greens_without_elo=sum(green.elo is None for green in greens),
         sprt=sprt,
         sprt_pass_rate=sprt.pass_rate,
         games=games,
@@ -165,5 +173,5 @@ def summarize(
         days=len(daily),
         tests_created=sum(tests_by_author.values()),
         authors=len(tests_by_author),
-        contributors=sum(games > 0 for games in games_by_user.values()),
+        contributors=len(games_by_user),
     )

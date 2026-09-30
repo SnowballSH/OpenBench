@@ -4,7 +4,7 @@ from datetime import date
 from urllib.parse import quote, urlencode
 
 from OpenBench.insights.strength import EloInterval
-from OpenBench.progress.analysis import finite_value, utc_day
+from OpenBench.progress.analysis import utc_day
 from OpenBench.progress.domain import (
     Author,
     Contributor,
@@ -109,15 +109,24 @@ def percent(fraction: float | None, digits: int = 0) -> str:
 
 
 def elo_text(interval: EloInterval | None) -> str:
-    if finite_value(interval) is None or interval is None:
+    if interval is None:
         return DASH
     half = max(interval.upper - interval.value, interval.value - interval.lower)
     return f"{signed(interval.value)} ± {fixed(half)}"
 
 
+def path_safe(engine: str) -> bool:
+    return "/" not in engine
+
+
 def progress_url(engine: str | None, window: Window) -> str:
-    path = "/progress/" if engine is None else f"/progress/{quote(engine, safe='')}/"
-    return f"{path}?{urlencode({'window': window.value})}"
+    if engine is None:
+        return f"/progress/?{urlencode({'window': window.value})}"
+    if path_safe(engine):
+        return (
+            f"/progress/{quote(engine, safe='')}/?{urlencode({'window': window.value})}"
+        )
+    return f"/progress/?{urlencode({'engine': engine, 'window': window.value})}"
 
 
 def plural(value: int, noun: str) -> str:
@@ -254,7 +263,7 @@ def progress_page(report: ProgressReport, configured: Iterable[str]) -> Progress
         ],
         engines=engine_choices(configured, report.engine),
         greens=green_lines(report.greens),
-        greens_hidden=max(0, len(report.greens) - GREENS_LISTED),
+        greens_hidden=max(0, report.summary.greens - GREENS_LISTED),
         weekly=outcome_lines(report.weekly_outcomes),
         daily=day_lines(report.daily_games),
         contributors=contributor_lines(report.top_contributors),

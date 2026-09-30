@@ -443,7 +443,12 @@ time; `/progress/<engine>/` limits it to Workloads whose `dev_engine` is that
 engine. The window is the `window` query parameter: `30d`, `90d` (the default),
 `1y` or `all`. The page goes through `render()`, so it follows
 `require_login_to_view` like every other page; an unknown `window` falls back
-to the default, and `/progress/?engine=X` redirects to `/progress/X/`.
+to the default, and `/progress/?engine=X` redirects to `/progress/X/`. An
+engine name containing `/` cannot travel in the path, so its links keep the
+query form (`/progress/?engine=A%2FB`) and it is not redirected; a blank engine
+in the path (`/progress/%20/`) redirects to `/progress/`. Reports are cached
+for 60 seconds per engine and window (the default local-memory cache, so per
+process), which bounds the cost of repeated loads and of the API.
 
 Code lives in `OpenBench/progress/`:
 
@@ -486,9 +491,9 @@ saving the Test and recording its snapshot), then filters on the finish time.
 - **Cumulative Elo** is `Σ elo_i` over the greens in finish order, where
   `elo_i` is the point estimate of `OpenBench.stats.Elo` on the test's
   pentanomial counts (trinomial when `use_tri`), the same number the test page
-  shows. Tests with fewer than two pairs (or trinomial games), or with an
-  infinite estimate, add nothing and are counted in the
-  "without an estimate" part of the tile. This sum is an estimate and
+  shows. Tests with fewer than two pairs (or trinomial games) have no
+  estimate, add nothing and are counted in the "without an estimate" part of
+  the tile. This sum is an estimate and
   overstates progress: an SPRT stops when its LLR crosses the upper bound, so
   the estimate of a passed test is biased upwards (selection bias), and each
   test measures a patch against its own base, so the terms are not measured
@@ -531,7 +536,12 @@ each an aggregate or a bounded row set: the greens (one row per green, with a
 correlated newest-snapshot subquery served by the `(test, created)` index), the
 weekly outcome counts (grouped in SQL), the daily snapshot maxima (grouped by
 Workload and day in SQL), the per-Workload baseline before the window (grouped
-in SQL), games grouped by owner, and Workloads grouped by author. No Result or
+in SQL), games grouped by owner, and Workloads grouped by author. The daily
+grouping uses SQLite's built-in `date(created)` rather than `TruncDate`, whose
+SQLite implementation calls a Python function per row (about four times slower
+on a 1.7M-snapshot history); with `USE_TZ` and `TIME_ZONE = 'UTC'` the stored
+text is UTC, so both give the same day (a test checks this around midnight).
+Other databases use `TruncDate(..., tzinfo=UTC)`. No Result or
 snapshot row is loaded individually. The page adds the enabled engine names
 and the queries `render()` always makes. `test_progress.py` asserts the counts
 at two data sizes.
@@ -542,8 +552,10 @@ Authenticated with `api_authenticate`, like the other `api/` endpoints: a
 logged-in browser session, or `username` and `password` in a POST body (the
 query parameters stay in the URL). Returns status 401 with `{ "error": "..." }`
 when authentication fails, and status 400 with `{ "error": "..." }` for a
-`window` other than `30d`, `90d`, `1y` or `all` (omitted means `90d`). An empty
-or missing `engine` means every engine; names are cut to 64 characters. Days are
+`window` other than `30d`, `90d`, `1y` or `all`. The value is matched ignoring
+case and surrounding whitespace, and an empty or omitted `window` means `90d`.
+An empty or missing `engine` means every engine; names are trimmed and cut to
+64 characters. Days are
 `YYYY-MM-DD` (UTC) and timestamps ISO-8601 with a UTC offset.
 
 ```jsonc
@@ -567,7 +579,12 @@ or missing `engine` means every engine; names are cut to 64 characters. Days are
       "authors": 3,
       "contributors": 2
     },
-    "greens": [                       // oldest first
+    "elo_steps": [                    // the cumulative line, oldest first
+      { "finished_at": "2026-07-01T09:12:44+00:00",
+        "cumulative_elo": 5.2,
+        "greens": 1 }                 // how many greens the sum covers
+    ],
+    "greens": [                       // the newest 500 greens, oldest first
       { "id": 42, "name": "lmp-table",
         "finished_at": "2026-07-01T09:12:44+00:00",
         "games": 24300,
@@ -575,6 +592,7 @@ or missing `engine` means every engine; names are cut to 64 characters. Days are
         "elo": { "lower": 1.9, "value": 5.2, "upper": 8.5 },   // or null
         "cumulative_elo": 5.2 }       // running sum including this test
     ],
+    "greens_omitted": 0,              // older greens left out of "greens"
     "weekly_outcomes": [              // every week from start's Monday, zeros included
       { "week_start": "2026-06-29", "passed": 1, "failed": 0, "stopped": 0 }
     ],
@@ -591,7 +609,12 @@ or missing `engine` means every engine; names are cut to 64 characters. Days are
 }
 ```
 
-`share` is `null` when the window's total is zero. The page embeds this same
+`share` is `null` when the window's total is zero. Long windows on a busy
+server can hold thousands of greens, so `greens` carries only the newest 500
+(every one of them is still in the summary and the sum) and `elo_steps` is
+thinned to at most 500 points: with more greens than that, it keeps evenly
+spaced greens by rank, always the first and the last, each with its exact
+running sum, so the line keeps its shape at a coarser step. The page embeds this same
 object (without the `progress` wrapper) as a `json_script` data island.
 
 ### The page
@@ -604,10 +627,11 @@ visitors without scripts). The template has no inline script other than the
 data island, no inline event handler and no `style` attribute, so it works
 under a strict Content-Security-Policy.
 
-- **Cumulative Elo from greens**: a stepped line over time (linear axis in
-  milliseconds with ticks on UTC day multiples), one marker per green, a zero
-  line, and a caption stating that the sum is an estimate that overstates.
-  The tooltip names the test, its Elo interval, the running sum, games and date.
+- **Cumulative Elo from greens**: a stepped line over time from `elo_steps`
+  (linear axis in milliseconds with ticks on UTC day multiples), one marker per
+  step, a zero line, and a caption stating that the sum is an estimate that
+  overstates. The tooltip names the test, its Elo interval, games and date when
+  the step's green is among those sent, and always the running sum.
 - **SPRT outcomes per week**: stacked columns, `--pass` for passed, `--fail`
   for failed and `--neutral-edge` for stopped (result colours, as on the test
   lists), with a legend, a 2 px surface gap between segments and the pass rate

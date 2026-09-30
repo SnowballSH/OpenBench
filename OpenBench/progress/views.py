@@ -1,3 +1,6 @@
+import hashlib
+
+from django.core.cache import cache
 from django.http import HttpRequest, HttpResponse
 from django.views.decorators.csrf import csrf_exempt
 
@@ -6,17 +9,13 @@ from OpenBench.config import OPENBENCH_CONFIG
 from OpenBench.insights.serialize import to_json
 from OpenBench.models import EngineConfig
 from OpenBench.progress.analysis import parse_engine, parse_window
-from OpenBench.progress.domain import DEFAULT_WINDOW, Window
-from OpenBench.progress.present import progress_page, progress_url
+from OpenBench.progress.domain import DEFAULT_WINDOW, ProgressReport, Window
+from OpenBench.progress.present import path_safe, progress_page, progress_url
 from OpenBench.progress.report import progress_report
 
 TEMPLATE = "progress.html"
+REPORT_CACHE_SECONDS = 60
 WINDOW_ERROR = f"window must be one of {', '.join(window.value for window in Window)}"
-
-
-def query_text(request: HttpRequest, key: str) -> str | None:
-    value = request.GET.get(key)
-    return value if isinstance(value, str) else None
 
 
 def viewer_refused(request: HttpRequest) -> bool:
@@ -25,16 +24,29 @@ def viewer_refused(request: HttpRequest) -> bool:
     )
 
 
+def cached_report(window: Window, engine: str | None) -> ProgressReport:
+    digest = hashlib.sha256((engine or "").encode()).hexdigest()
+    key = f"progress:{window.value}:{digest}"
+    return cache.get_or_set(
+        key, lambda: progress_report(window, engine), REPORT_CACHE_SECONDS
+    )
+
+
 def progress(request: HttpRequest, engine: str | None = None) -> HttpResponse:
     if viewer_refused(request):
         return OpenBench.views.render(request, TEMPLATE)
 
-    window = parse_window(query_text(request, "window")) or DEFAULT_WINDOW
+    window = parse_window(request.GET.get("window")) or DEFAULT_WINDOW
+    queried = parse_engine(request.GET.get("engine"))
+    chosen = parse_engine(engine) if engine is not None else queried
 
-    if engine is None and (chosen := parse_engine(query_text(request, "engine"))):
+    if engine is not None and chosen is None:
+        return OpenBench.views.redirect(request, progress_url(None, window))
+
+    if engine is None and chosen is not None and path_safe(chosen):
         return OpenBench.views.redirect(request, progress_url(chosen, window))
 
-    report = progress_report(window, parse_engine(engine))
+    report = cached_report(window, chosen)
     configured = EngineConfig.objects.filter(enabled=True).values_list(
         "name", flat=True
     )
@@ -52,8 +64,8 @@ def api_progress(request: HttpRequest) -> HttpResponse:
             {"error": "API requires authentication for this server"}, status=401
         )
 
-    if (window := parse_window(query_text(request, "window"))) is None:
+    if (window := parse_window(request.GET.get("window"))) is None:
         return OpenBench.views.api_response({"error": WINDOW_ERROR}, status=400)
 
-    report = progress_report(window, parse_engine(query_text(request, "engine")))
+    report = cached_report(window, parse_engine(request.GET.get("engine")))
     return OpenBench.views.api_response({"progress": to_json(report)})

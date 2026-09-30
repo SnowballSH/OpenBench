@@ -144,24 +144,25 @@
     }
 
     function elo_chart(report, palette, quiet) {
-        const greens = report.greens;
-        if (!greens.length) return { empty: 'No greens finished in this window.' };
+        const steps = report.elo_steps;
+        if (!steps.length) return { empty: 'No greens finished in this window.' };
 
+        const green_of = step => report.greens[step.greens - 1 - report.greens_omitted] ?? null;
         const start = day_ms(report.start);
-        const end = Math.max(Date.parse(report.generated_at), Date.parse(greens.at(-1).finished_at));
+        const last = steps.at(-1);
+        const end = Math.max(Date.parse(report.generated_at), Date.parse(last.finished_at));
         const points = [
             { x: start, y: 0 },
-            ...greens.map(green => ({ x: Date.parse(green.finished_at), y: green.cumulative_elo, green })),
-            { x: end, y: greens.at(-1).cumulative_elo },
+            ...steps.map(step => ({ x: Date.parse(step.finished_at), y: step.cumulative_elo, step, green: green_of(step) })),
+            { x: end, y: last.cumulative_elo },
         ];
         const values = points.map(point => point.y);
         const low = Math.min(0, ...values);
         const high = Math.max(0, ...values);
         const pad = 0.08 * (high - low || 1);
-        const last = greens.at(-1);
 
         return {
-            label: `Cumulative Elo estimate ${format_signed(last.cumulative_elo)} from ${greens.length} greens since ${day_format.format(start)}.`,
+            label: `Cumulative Elo estimate ${format_signed(last.cumulative_elo)} from ${last.greens} greens since ${day_format.format(start)}.`,
             config: {
                 type: 'line',
                 data: {
@@ -174,9 +175,9 @@
                         borderWidth: 2,
                         borderJoinStyle: 'round',
                         borderCapStyle: 'round',
-                        pointRadius: context => (context.raw && context.raw.green ? 4 : 0),
-                        pointHoverRadius: context => (context.raw && context.raw.green ? 6 : 0),
-                        pointHitRadius: context => (context.raw && context.raw.green ? 12 : 0),
+                        pointRadius: context => (context.raw && context.raw.step ? 4 : 0),
+                        pointHoverRadius: context => (context.raw && context.raw.step ? 6 : 0),
+                        pointHitRadius: context => (context.raw && context.raw.step ? 12 : 0),
                         pointBorderWidth: 2,
                         pointBorderColor: palette.surface,
                         pointHoverBorderColor: palette.surface,
@@ -198,16 +199,21 @@
                         ticks: { callback: value => format_signed(value, Math.abs(high - low) < 10 ? 1 : 0), maxTicksLimit: MAX_TICKS },
                     }),
                     lines: [{ value: 0, color: palette.axis }],
-                    tooltip_filter: item => Boolean(item.raw && item.raw.green),
+                    tooltip_filter: item => Boolean(item.raw && item.raw.step),
                     tooltip: {
-                        title: items => (items[0] && items[0].raw.green ? items[0].raw.green.name : ''),
+                        title: items => {
+                            const raw = items[0] && items[0].raw;
+                            if (!raw) return '';
+                            return raw.green ? raw.green.name : `${format_count(raw.step.greens)} greens`;
+                        },
                         label: item => (item.raw.green ? `Elo ${format_interval(item.raw.green.elo)}` : ''),
                         footer: items => {
-                            const green = items[0] && items[0].raw.green;
-                            if (!green) return '';
+                            const raw = items[0] && items[0].raw;
+                            if (!raw) return '';
+                            const when = long_day_format.format(Date.parse(raw.step.finished_at));
                             return [
-                                `Running sum ${format_signed(green.cumulative_elo)}`,
-                                `${format_count(green.games)} games · ${long_day_format.format(Date.parse(green.finished_at))}`,
+                                `Running sum ${format_signed(raw.step.cumulative_elo)}`,
+                                raw.green ? `${format_count(raw.green.games)} games · ${when}` : when,
                             ];
                         },
                     },
