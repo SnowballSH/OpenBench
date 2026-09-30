@@ -28,6 +28,7 @@ from OpenBench.tests.test_create_workload import (
 from OpenBench.workloads.clone import (
     FORM_FIELDS,
     CloneError,
+    bench_hints,
     clone_fields,
     load_clone_source,
     workload_type_of,
@@ -190,6 +191,15 @@ class CloneFieldsTests(TestCase):
         self.assertEqual(clone_fields(test)['dev_bench'], '7654321')
         self.assertEqual(clone_fields(test)['base_bench'], '')
 
+    def test_branch_benches_are_offered_as_hints_but_pinned_ones_are_filled(self):
+        test = seeded_test(self.author)
+        self.assertEqual(bench_hints(test), {'dev_bench': '1', 'base_bench': '1'})
+        test.dev = Engine.objects.create(name='A' * 40, source=REPO, sha='a' * 40, bench=7654321)
+        self.assertEqual(bench_hints(test), {'base_bench': '1'})
+
+    def test_a_tune_hints_only_its_dev_bench(self):
+        self.assertEqual(set(bench_hints(create_tune(self.author))), {'dev_bench'})
+
     def test_test_info_is_kept_only_for_a_pinned_commit(self):
         test = seeded_test(self.author, info='Old commit message')
         self.assertEqual(clone_fields(test)['info'], '')
@@ -333,6 +343,15 @@ class ClonePageTests(TestCase):
         self.assertIn(f'/test/{self.test.id}/', content)
         self.assertEqual(form_controls(response)['clone_of'], str(self.test.id))
         self.assertFalse(self.warning(response))
+
+    def test_the_create_page_carries_the_bench_hints(self):
+        response = self.client.get(f'/test/new/?clone={self.test.id}')
+        match = re.search(
+            r'<script id="?json-bench-hints"? type="?application/json"?>(.*?)</script>',
+            response.content.decode(),
+            re.DOTALL,
+        )
+        self.assertEqual(json.loads(present(match).group(1)), bench_hints(self.test))
 
     def test_a_plain_create_page_has_no_payload(self):
         response = self.client.get('/test/new/')

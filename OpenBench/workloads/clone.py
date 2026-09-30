@@ -81,6 +81,7 @@ class CloneSource:
     name: str
     url: str
     fields: FormFields
+    bench_hints: FormFields
 
 
 def workload_type_of(workload: Test) -> WorkloadType:
@@ -103,6 +104,13 @@ def is_pinned(engine: Engine) -> bool:
 
 def pinned_bench(engine: Engine) -> str:
     return str(engine.bench) if is_pinned(engine) else ''
+
+
+def bench_hints(workload: Test) -> FormFields:
+    sides: tuple[tuple[Side, Engine], ...] = (('dev', workload.dev),)
+    if workload_type_of(workload) != 'TUNE':
+        sides += (('base', workload.base),)
+    return {f'{side}_bench': str(engine.bench) for side, engine in sides if not is_pinned(engine)}
 
 
 def test_info(workload: Test) -> FormFields:
@@ -274,4 +282,6 @@ def load_clone_source(raw_id: str, workload_type: WorkloadType) -> CloneSource:
         raise CloneError(f'Nothing was cloned: workload #{workload.id} is incomplete') from error
 
     url = f'/{workload.workload_type_str()}/{workload.id}/'
-    return CloneSource(id=workload.id, name=workload.dev.name, url=url, fields=fields)
+    return CloneSource(
+        id=workload.id, name=workload.dev.name, url=url, fields=fields, bench_hints=bench_hints(workload)
+    )
