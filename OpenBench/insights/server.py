@@ -6,11 +6,10 @@ from datetime import datetime, timedelta
 from django.db.models import Max, Min
 from django.utils import timezone
 
-import OpenBench.utils
-
 from OpenBench.insights.domain import WorkloadMode
-from OpenBench.models import Profile, Test, WorkloadSnapshot
+from OpenBench.models import Machine, Profile, Test, WorkloadSnapshot
 
+ACTIVE_MACHINE   = timedelta(minutes=2)
 GAMES_WINDOW     = timedelta(hours=24)
 FINISHED_WINDOW  = timedelta(days=7)
 TOP_CONTRIBUTORS = 10
@@ -104,13 +103,14 @@ def summarize_finished(workloads: Iterable[FinishedWorkload], window: timedelta)
         sprt_pass_rate = passed / (passed + failed) if passed + failed else None,
     )
 
-def load_fleet() -> FleetStatus:
-    return fleet_status(OpenBench.utils.getRecentMachines().values_list('info', 'mnps'))
+def load_fleet(now: datetime) -> FleetStatus:
+    return fleet_status(Machine.objects.filter(updated__gte=now - ACTIVE_MACHINE).values_list('info', 'mnps'))
 
 def load_workload_counts() -> WorkloadCounts:
+    unfinished = Test.objects.filter(finished=False, deleted=False)
     return WorkloadCounts(
-        pending = OpenBench.utils.get_pending_tests().count(),
-        active  = OpenBench.utils.get_active_tests().count(),
+        pending = unfinished.filter(approved=False).count(),
+        active  = unfinished.filter(approved=True).count(),
     )
 
 def load_games_since(since: datetime) -> int:
@@ -136,7 +136,7 @@ def server_insights(now: datetime | None = None) -> ServerInsights:
     now = now or timezone.now()
     return ServerInsights(
         generated_at     = now,
-        fleet            = load_fleet(),
+        fleet            = load_fleet(now),
         workloads        = load_workload_counts(),
         games_last_24h   = load_games_since(now - GAMES_WINDOW),
         finished_last_7d = summarize_finished(load_finished_since(now - FINISHED_WINDOW), FINISHED_WINDOW),
