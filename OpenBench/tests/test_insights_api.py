@@ -74,7 +74,7 @@ class InsightsApiTests(TestCase):
 
         self.assertIsInstance(insights['timing']['elapsed_seconds'], float)
         self.assertIsInstance(insights['timing']['overall']['games_per_hour'], float)
-        self.assertEqual(set(insights['eta']), { 'kind', 'remaining_games', 'remaining_seconds', 'completes_at' })
+        self.assertEqual(set(insights['eta']), { 'kind', 'remaining_games', 'remaining_seconds', 'completes_at', 'reason' })
         self.assertEqual(set(insights['strength']), { 'elo', 'normalized_elo', 'los', 'draw_ratio', 'penta_fractions' })
         self.assertEqual(set(insights['strength']['elo']), { 'lower', 'value', 'upper' })
 

@@ -152,6 +152,22 @@ whose games are between perturbed copies of the same engine.
 games per hour, falling back to the overall rate. It is `null` when neither
 exists or the rate is zero, and so is `completes_at` (now + `remaining_seconds`).
 
+`eta.reason` says why the numbers are incomplete, and is `null` when they are
+not (`finished`, or a count and a time were both computed; `completes_at` alone
+can still be `null` when it would overflow the calendar):
+
+| `reason` | `kind` | Meaning |
+|---|---|---|
+| `too_few_games` | `unavailable` | SPRT with fewer than 200 games |
+| `outside_bounds` | `unavailable` | the LLR is not strictly between the SPRT bounds |
+| `empty_outcome` | `unavailable` | trinomial SPRT with an empty W, D or L bucket |
+| `no_variance` | `unavailable` | the LLR increment variance is below 1e-12 |
+| `no_target` | `unavailable` | not SPRT, and no target number of games |
+| `no_rate` | `target`, `sprt_estimate` | games are known but there is no non-zero rate to turn them into time |
+
+`sprt_unavailable_reason` classifies the SPRT cases with the same tests and
+thresholds as `forecast_sprt`; the tests assert both agree.
+
 #### The SPRT estimate
 
 This is an estimate that assumes the Workload keeps producing results like the
@@ -269,7 +285,8 @@ queries: status 200 with `{ "error": "..." }`.
       "kind": "sprt_estimate",        // finished | target | sprt_estimate | unavailable
       "remaining_games": 31412,       // or null
       "remaining_seconds": 593589.2,  // or null
-      "completes_at": "..."           // or null
+      "completes_at": "...",          // or null
+      "reason": null                  // or a reason from the table above
     },
     "strength": {                     // null for SPSA
       "elo": Elo, "normalized_elo": Elo,
@@ -338,9 +355,12 @@ number of aggregate queries.
   stat block say what the workload is and where it stands; the insights explain
   how it got there; the raw tables stay last. The script fetches
   `/api/workload/<id>/insights/` once on load, then every 60 s while the
-  Workload is `active`, skipping ticks while the tab is hidden and refreshing
-  as soon as it is visible again. A failed fetch shows an inline banner and
-  keeps the last good render.
+  Workload is `pending` or `active` (so a pending one picks up its approval),
+  skipping ticks while the tab is hidden and refreshing as soon as it is
+  visible again. A failed fetch shows an inline banner, keeps the last good
+  render and retries with the delay doubling up to 8 minutes; after three
+  consecutive client errors (a 4xx, or an `error` payload such as an unknown
+  id) it stops. `eta.reason` picks the wording under an unavailable time left.
   - Progress tiles: elapsed, games (with the fraction of `target_games` when
     there is one), games per hour (recent window and overall), and time left.
     For SPRT the time left is labelled an estimate and prefixed with `≈`;
