@@ -382,6 +382,23 @@ class CrossSiteActionTests(TestCase):
         self.client.get('/networks/Avalanche/DELETE/r1/', headers={ 'sec-fetch-site' : 'cross-site' })
         self.assertTrue(Network.objects.filter(name='r1').exists())
 
+class SecurityHeaderTests(TestCase):
+
+    def test_login_page_headers(self):
+        response = self.client.get('/login/')
+        self.assertEqual(response['X-Frame-Options'], 'DENY')
+        self.assertEqual(response['Referrer-Policy'], 'same-origin')
+        self.assertEqual(response['Cross-Origin-Opener-Policy'], 'same-origin')
+        self.assertEqual(response['X-Content-Type-Options'], 'nosniff')
+        self.assertNotIn('Strict-Transport-Security', response)
+
+    def test_cookies_are_http_only(self):
+        clear_throttle(self)
+        self.client.post('/login/', { 'username' : 'nobody', 'password' : 'x' })
+        self.assertTrue(self.client.cookies['sessionid']['httponly'])
+        self.client.get('/login/')
+        self.assertTrue(self.client.cookies['csrftoken']['httponly'])
+
 class ApiNetworkDownloadTests(TestCase):
 
     def setUp(self):

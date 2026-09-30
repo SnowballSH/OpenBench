@@ -47,6 +47,18 @@ if OPENBENCH_BEHIND_TLS_PROXY:
     SESSION_COOKIE_SECURE   = True
     CSRF_COOKIE_SECURE      = True
 
+# HSTS is set by the TLS proxy. No CSP yet, since the Templates use inline scripts
+SECURE_REFERRER_POLICY            = 'same-origin'
+SECURE_CROSS_ORIGIN_OPENER_POLICY = 'same-origin'
+SECURE_CONTENT_TYPE_NOSNIFF       = True
+X_FRAME_OPTIONS                   = 'DENY'
+
+SESSION_COOKIE_AGE      = 7 * 24 * 60 * 60
+SESSION_COOKIE_HTTPONLY = True
+SESSION_COOKIE_SAMESITE = 'Lax'
+CSRF_COOKIE_HTTPONLY    = True
+CSRF_COOKIE_SAMESITE    = 'Lax'
+
 # Failed-login counters (OpenBench/security/throttle.py) live here. The cache is
 # per process, so each gunicorn worker keeps its own counters. See docs/SECURITY.md
 CACHES = {
