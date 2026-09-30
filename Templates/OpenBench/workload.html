@@ -49,11 +49,13 @@
                 <tr><td class="td-label">Base Time</td><td class="mono">{{workload.base_time_control}}</td></tr>
             {% endif %}
 
-            {% if workload|book_download_link %}
-                <tr><td class="td-label">Opening Book</td><td><a href="{{workload|book_download_link}}">{{workload.book_name}}</a></td></tr>
-            {% else %}
-                <tr><td class="td-label">Opening Book</td><td><a>{{workload.book_name}}</a></td></tr>
-            {% endif %}
+            {% with book_link=workload|book_download_link %}
+                {% if book_link %}
+                    <tr><td class="td-label">Opening Book</td><td><a href="{{book_link}}">{{workload.book_name}}</a></td></tr>
+                {% else %}
+                    <tr><td class="td-label">Opening Book</td><td>{{workload.book_name}}</td></tr>
+                {% endif %}
+            {% endwith %}
 
             <tr><td class="td-label">Upload PGNs</td><td>{{workload.upload_pgns}}</td></tr>
             <tr><td class="td-label">Syzygy WDL</td><td>{{workload.syzygy_wdl}}</td></tr>
@@ -229,14 +231,14 @@
                 <thead>
                     <tr class="table-header">
                         <th>Name</th>
-                        <th>Curr</th>
-                        <th>Start</th>
-                        <th>Min</th>
-                        <th>Max</th>
-                        <th>C</th>
-                        <th>C_end</th>
-                        <th>R</th>
-                        <th>R_end</th>
+                        <th class="numeric">Curr</th>
+                        <th class="numeric">Start</th>
+                        <th class="numeric">Min</th>
+                        <th class="numeric">Max</th>
+                        <th class="numeric">C</th>
+                        <th class="numeric">C_end</th>
+                        <th class="numeric">R</th>
+                        <th class="numeric">R_end</th>
                     </tr>
                 </thead>
                 <tbody id="spsa-digest-button-container">

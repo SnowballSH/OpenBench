@@ -200,9 +200,10 @@ async function fetch_spsa_digest(workload_id) {
         const values = lines[i].split(',')
         const tr = document.createElement('tr')
 
-        values.forEach(value => {
+        values.forEach((value, column) => {
             const td = document.createElement('td')
             td.textContent = value
+            if (column > 0) td.className = 'numeric'
             tr.appendChild(td)
         })
 
