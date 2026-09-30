@@ -27,13 +27,12 @@
 
 import datetime
 
-from collections import defaultdict
-
 from django.db.models import BooleanField, ExpressionWrapper, F, Q
 from django.utils import timezone
 
 import OpenBench.views
 import OpenBench.stats
+from OpenBench.insights.grouping import sum_by_key
 from OpenBench.models import *
 
 def view_workload(request, workload, workload_type):
@@ -112,39 +111,22 @@ def fetch_result_summaries(workload):
         'base_time_scaled',
     )
 
-    by_user = defaultdict(lambda: [0, 0, 0, 0, 0])
-    by_cpu  = defaultdict(lambda: [0, 0, 0, 0, 0])
-    by_isa  = defaultdict(lambda: [0, 0, 0, 0, 0])
+    rows = list(qs)
 
-    nps_user = defaultdict(lambda: [0, 0, 0, 0, 0, 0])
-    nps_cpu  = defaultdict(lambda: [0, 0, 0, 0, 0, 0])
-    nps_isa  = defaultdict(lambda: [0, 0, 0, 0, 0, 0])
+    def penta(row):
+        return (row['LL'], row['LD'], row['DD'], row['DW'], row['WW'])
 
-    def accumulate(bucket, key, values):
-        total = bucket[key if key else 'Unknown']
-        for i in range(len(values)):
-            total[i] += values[i]
-
-    for row in qs:
-        user  = row['machine__user__username']
-        info  = row['machine__info'] or {}
-        cpu   = info.get('cpu_name')
-        isa   = info.get('isa_name')
-
-        penta = (row['LL'], row['LD'], row['DD'], row['DW'], row['WW'])
-
-        accumulate(by_user, user, penta);
-        accumulate(by_cpu,  cpu,  penta);
-        accumulate(by_isa,  isa,  penta);
-
-        nodes = (
+    def nodes(row):
+        return (
             row['dev_nodes'], row['dev_time'], row['dev_time_scaled'],
             row['base_nodes'], row['base_time'], row['base_time_scaled']
         )
 
-        accumulate(nps_user, user, nodes)
-        accumulate(nps_cpu,  cpu,  nodes)
-        accumulate(nps_isa,  isa,  nodes)
+    groupings = {
+        'user'     : lambda row: row['machine__user__username'],
+        'cpu_name' : lambda row: (row['machine__info'] or {}).get('cpu_name'),
+        'isa_name' : lambda row: (row['machine__info'] or {}).get('isa_name'),
+    }
 
     # Turn a { key: penta } bucket into ready-to-display rows: the penta as a
     # single "(a, b, c, d, e)" string, a point-estimate Elo with its symmetric
@@ -174,7 +156,6 @@ def fetch_result_summaries(workload):
         return sorted(rows, key=lambda row: row['pairs'], reverse=True)
 
     return {
-        'user'     : summarize(by_user, nps_user),
-        'cpu_name' : summarize(by_cpu,  nps_cpu),
-        'isa_name' : summarize(by_isa,  nps_isa),
+        name : summarize(sum_by_key(rows, key_of, penta, 'Unknown'), sum_by_key(rows, key_of, nodes, 'Unknown'))
+        for name, key_of in groupings.items()
     }
