@@ -24,6 +24,7 @@ import re
 
 import OpenBench.config
 import OpenBench.models
+import OpenBench.page_queries
 import OpenBench.spsa_utils
 import OpenBench.stats
 import OpenBench.utils
@@ -337,6 +338,7 @@ register.filter('test_is_time_odds' , test_is_time_odds )
 register.filter('test_is_fischer'   , test_is_fischer   )
 
 register.filter('workload_progress', workload_progress)
+register.filter('listing_timing', OpenBench.page_queries.listing_row_timing)
 
 
 @register.filter

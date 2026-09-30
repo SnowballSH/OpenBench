@@ -1,0 +1,4 @@
+<div class="row-timing">
+    {% if timing.text %}<span class="row-timing-{{timing.kind}}"{% if timing.note %} title="{{timing.note}}"{% endif %}>{% if timing.kind == "unavailable" %}<span class="visually-hidden">Time left unavailable: </span>{% endif %}{% if timing.estimate %}<span aria-hidden="true">&asymp; </span><span class="visually-hidden">estimated </span>{% endif %}{{timing.text}}</span>{% endif %}
+    {% if timing.rate %}{% if timing.text %}<span aria-hidden="true"> &middot; </span>{% endif %}<span title="Games per hour, {{timing.rate_window}}">{{timing.rate}}<span class="visually-hidden"> ({{timing.rate_window}})</span></span>{% endif %}
+</div>
