@@ -1,0 +1,14 @@
+{% extends "OpenBench/base.html" %}
+
+{% block title %}Forbidden{% endblock %}
+
+{% block content %}
+
+    <div class="error-message" role="alert">
+        <pre>CSRF verification failed. Request aborted.{% if reason %}
+{{ reason }}{% endif %}</pre>
+    </div>
+
+    <p class="muted">Reload the page you came from and try again. Browsers that block cookies for this site cannot submit its forms.</p>
+
+{% endblock %}

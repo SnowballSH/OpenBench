@@ -109,9 +109,12 @@ and `SameSite=Lax`, and sessions last 7 days.
 
 `OpenBench.security.csp.ContentSecurityPolicyMiddleware` sets an enforcing
 `Content-Security-Policy` on every response Django produces: pages, JSON,
-redirects, downloads and static files. A response that already carries the
-header keeps its own. Django 5.2 has no built-in CSP, so the policies are plain
-settings in `OpenSite/settings.py`:
+redirects and downloads. In production static files carry it too, because
+WhiteNoise serves them from middleware that sits inside this one. Under
+`OPENBENCH_DEBUG` with `runserver`, `django.contrib.staticfiles` serves them
+before any middleware runs, so they arrive without the header there. A response
+that already carries the header keeps its own. Django 5.2 has no built-in CSP,
+so the policies are plain settings in `OpenSite/settings.py`:
 
 - `OPENBENCH_CSP`, for everything outside `/admin/`:
 
@@ -153,6 +156,10 @@ hash. For the Templates and static scripts that means:
   `data-share` into the `--fraction` and `--share` custom properties the
   progress and share bars read, and scripts use `style.setProperty` or
   `hidden`.
+- Django's default CSRF failure page carries an inline `<style>`, so
+  `CSRF_FAILURE_VIEW` points at `OpenBench.security.csrf.csrf_failure`. It
+  renders `csrf_failure.html` in the site layout with status 403 and Django's
+  reason text.
 - A new third-party resource needs a new source in `OPENBENCH_CSP`. Prefer
   vendoring it under `static/vendor/`, as Chart.js is.
 

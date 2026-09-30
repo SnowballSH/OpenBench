@@ -77,6 +77,7 @@ SESSION_COOKIE_HTTPONLY = True
 SESSION_COOKIE_SAMESITE = 'Lax'
 CSRF_COOKIE_HTTPONLY    = True
 CSRF_COOKIE_SAMESITE    = 'Lax'
+CSRF_FAILURE_VIEW       = 'OpenBench.security.csrf.csrf_failure'
 
 # Failed-login counters (OpenBench/security/throttle.py) live here. The cache is
 # per process, so each gunicorn worker keeps its own counters. See docs/SECURITY.md
