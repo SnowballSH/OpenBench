@@ -29,6 +29,7 @@ import OpenBench.views
 
 from OpenBench.config import OPENBENCH_CONFIG
 from OpenBench.models import *
+from OpenBench.workloads.verify_workload import parse_integer
 
 def modify_workload(request, id, action=None):
 
@@ -98,21 +99,20 @@ def restore_workload(request, profile, workload):
 
 def tweak_workload(request, profile, workload):
 
-    try: # Priority can be any integer value
-        workload.priority = int(request.POST['priority'])
-    except: pass
+    # Priority can be any integer value
+    if (priority := parse_integer(request.POST.get('priority'))) is not None:
+        workload.priority = priority
 
-    try: # Throughput must be at least 1
-        workload.throughput = max(1, int(request.POST['throughput']))
-    except: pass
+    # Throughput must be at least 1
+    if (throughput := parse_integer(request.POST.get('throughput'))) is not None:
+        workload.throughput = max(1, throughput)
 
-    try: # Must be at least one. Cannot be changed for Tuning workloads
+    # Must be at least one. Cannot be changed for Tuning workloads
+    if (workload_size := parse_integer(request.POST.get('workload_size'))) is not None:
         if workload.test_mode != 'SPSA':
-            workload.workload_size = max(1, int(request.POST['workload_size']))
-    except: pass
+            workload.workload_size = max(1, workload_size)
 
-    try:
+    if 'info' in request.POST:
         workload.info = request.POST['info']
-    except: pass
 
     return 'Workload was Modified!'

@@ -111,6 +111,11 @@ class TweakWorkloadTests(TestCase):
         self.tweak(priority='high', throughput='2.5', workload_size='')
         self.assertEqual((self.test.priority, self.test.throughput, self.test.workload_size), (0, 1000, 32))
 
+    def test_out_of_range_values_are_ignored(self):
+        huge = str(10 ** 30)
+        self.tweak(priority=huge, throughput=huge, workload_size=huge)
+        self.assertEqual((self.test.priority, self.test.throughput, self.test.workload_size), (0, 1000, 32))
+
     def test_missing_fields_are_left_alone(self):
         self.tweak()
         self.assertEqual((self.test.priority, self.test.throughput, self.test.workload_size), (0, 1000, 32))
