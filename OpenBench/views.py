@@ -98,7 +98,7 @@ def render(request, template, content={}, always_allow=False, error=None, warnin
         request.session['error_message'] = error
 
     if warning:
-        request.session['warning_message'] = error
+        request.session['warning_message'] = warning
 
     if status:
         request.session['status_message'] = status
@@ -236,7 +236,7 @@ def profile_config(request):
         return redirect(request, '/login/')
 
     if not (profile := Profile.objects.filter(user=request.user).first()):
-        return redirect(request, 'index')
+        return redirect(request, '/index/')
 
     if request.method == 'GET':
         return render(request, 'profile.html')

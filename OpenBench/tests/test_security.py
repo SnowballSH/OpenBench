@@ -329,6 +329,36 @@ class ClientAddressTests(TestCase):
         self.assertEqual(throttle.client_ip(self.request()), '10.0.2.100')
         self.assertEqual(throttle.client_ip(self.request('')), '10.0.2.100')
 
+class GeneralConfigTests(TestCase):
+
+    def test_shipped_config_is_valid(self):
+        verify_general_config(copy.deepcopy(OPENBENCH_CONFIG))
+
+    def test_wrong_types_are_rejected(self):
+        for key, value in [('client_version', '50'), ('client_repo_url', 1), ('require_login_to_view', 'true')]:
+            with self.subTest(key=key), self.assertRaises(AssertionError):
+                verify_general_config({ **OPENBENCH_CONFIG, key : value })
+
+    def test_missing_keys_are_rejected(self):
+        config = { **OPENBENCH_CONFIG }
+        del config['require_manual_registration']
+        with self.assertRaises(AssertionError):
+            verify_general_config(config)
+
+class ViewHelperTests(TestCase):
+
+    def test_render_keeps_the_warning_text(self):
+        request = RequestFactory().get('/login/')
+        SessionMiddleware(lambda request: None).process_request(request)
+        request.user = mock.Mock(is_authenticated=False)
+
+        content = OpenBench.views.render(request, 'login.html', always_allow=True, warning='Heads up').content.decode()
+        self.assertIn('Heads up', content)
+
+    def test_profile_config_without_profile_redirects_to_the_index(self):
+        self.client.force_login(OpenBench.views.User.objects.create_user('orphan', '', PASSWORD))
+        self.assertRedirects(self.client.get('/profileConfig/'), '/index/', fetch_redirect_response=False)
+
 class CrossSiteActionTests(TestCase):
 
     def setUp(self):
