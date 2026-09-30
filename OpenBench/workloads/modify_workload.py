@@ -27,6 +27,7 @@
 
 import OpenBench.views
 
+from OpenBench.config import OPENBENCH_CONFIG
 from OpenBench.models import *
 
 def modify_workload(request, id, action=None):
@@ -58,6 +59,10 @@ def modify_workload(request, id, action=None):
     if action == 'APPROVE' and not profile.approver:
         return OpenBench.views.redirect(request, '/index/', error='You cannot approve this Workload')
 
+    # Cross-approval requires a second approver, unless a superuser is acting
+    if action == 'APPROVE' and self_approval_forbidden(request, workload):
+        return OpenBench.views.redirect(request, '/index/', error='You cannot approve your own Workload')
+
     # Make the change; Record the change; Save the change
     message = actions[action](request, profile, workload)
     LogEvent.objects.create(author=request.user.username, summary=action, log_file='', test_id=id)
@@ -65,6 +70,11 @@ def modify_workload(request, id, action=None):
 
     # Send back to the index, notifying them of the success
     return OpenBench.views.redirect(request, '/index/', status=message)
+
+def self_approval_forbidden(request, workload) -> bool:
+    return OPENBENCH_CONFIG['use_cross_approval'] \
+       and workload.author == request.user.username \
+       and not request.user.is_superuser
 
 def approve_workload(request, profile, workload):
     workload.approved = True;
