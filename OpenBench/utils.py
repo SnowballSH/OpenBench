@@ -269,12 +269,12 @@ def network_disambiguate(engine, identifier):
 
     candidates = Network.objects.filter(engine=engine)
 
-    # Identifier actually refers to the Network name
-    if (network := candidates.filter(name=identifier).first()):
+    # A SHA is unique per engine, while a name may collide with another Network's SHA
+    if (network := candidates.filter(sha256=identifier).first()):
         return network
 
-    # Identifier actually refers to the Network SHA
-    if (network := candidates.filter(sha256=identifier).first()):
+    # Identifier actually refers to the Network name
+    if (network := candidates.filter(name=identifier).first()):
         return network
 
     # No Network exists with engine this Name or Sha

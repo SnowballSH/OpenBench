@@ -1133,10 +1133,7 @@ def api_network_download(request, engine, identifier):
     if not api_authenticate(request, require_enabled=True):
         return api_response({ 'error' : 'API requires authentication for this endpoint' }, status=401)
 
-    if (network := Network.objects.filter(engine=engine, sha256=identifier).first()):
-        return OpenBench.utils.network_download(request, engine, network)
-
-    if (network := Network.objects.filter(engine=engine, name=identifier).first()):
+    if (network := OpenBench.utils.network_disambiguate(engine, identifier)):
         return OpenBench.utils.network_download(request, engine, network)
 
     if not EngineConfig.objects.filter(name=engine).exists():

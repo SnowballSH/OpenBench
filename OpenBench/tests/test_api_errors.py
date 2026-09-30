@@ -175,3 +175,29 @@ class NotFoundStatusTests(ApiTestCase):
             409,
             {"error": "PGNs cannot be downloaded while the Workload is active"},
         )
+
+
+class NetworkIdentifierTests(ApiTestCase):
+    def setUp(self):
+        super().setUp()
+        self.by_sha = self.add_network("ABCDEF01", "first")
+        self.by_name = self.add_network("12345678", "ABCDEF01")
+
+    def test_download_prefers_the_sha(self):
+        response = self.post("/api/networks/Avalanche/ABCDEF01/", self.reader)
+        self.assertEqual(
+            response["Content-Disposition"], "attachment; filename=ABCDEF01"
+        )
+
+    def test_delete_prefers_the_sha_like_download(self):
+        response = self.post("/api/networks/Avalanche/ABCDEF01/delete/", self.approver)
+        self.assertAnswer(response, 200, {"success": "Deleted first for Avalanche"})
+        self.assertEqual(
+            list(Network.objects.values_list("name", flat=True)), ["ABCDEF01"]
+        )
+
+    def test_names_still_resolve(self):
+        response = self.post("/api/networks/Avalanche/first/", self.reader)
+        self.assertEqual(
+            response["Content-Disposition"], "attachment; filename=ABCDEF01"
+        )
