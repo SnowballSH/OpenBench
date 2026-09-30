@@ -4,7 +4,7 @@ from django.test import TestCase
 
 from OpenBench.models import SPSAParameter, SPSARun
 from OpenBench.spsa_utils import spsa_optimal_values, spsa_original_input, spsa_param_digest, spsa_workload_assignment_dict
-from OpenBench.tests.fixtures import create_engine_config, create_test, create_user, ensure_book
+from OpenBench.tests.fixtures import create_engine_config, create_test, create_user, credentials, ensure_book
 
 class SPSAUtilsTests(TestCase):
 
@@ -76,3 +76,18 @@ class SPSAUtilsTests(TestCase):
         self.tune('SINGLE', [('Knight', False, 300, 200, 400, 10, 0.002), ('Scale', True, 1.5, 1.0, 2.0, 0.1, 0.002)])
         self.assertEqual(spsa_original_input(self.test), 'Knight, int, 300.0, 200.0, 400.0, 10.0, 0.002\nScale, float, 1.5, 1.0, 2.0, 0.1, 0.002')
         self.assertEqual(spsa_optimal_values(self.test), 'Knight, 300\nScale, 1.5')
+
+class SPSAApiTests(TestCase):
+
+    def setUp(self):
+        create_engine_config()
+        ensure_book()
+        author = create_user('author')
+        self.client.post('/login/', credentials(author))
+        self.sprt = create_test(author)
+
+    def test_non_spsa_workloads_are_refused(self):
+        for query in ('inputs', 'outputs', 'digest', 'perturbation'):
+            response = self.client.get('/api/spsa/%d/%s/' % (self.sprt.id, query))
+            self.assertEqual(response.status_code, 200, query)
+            self.assertEqual(response.json(), { 'error' : 'Requested Workload is not an SPSA tune' }, query)

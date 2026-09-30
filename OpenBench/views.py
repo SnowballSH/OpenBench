@@ -1225,6 +1225,9 @@ def api_spsa(request, workload_id, query):
     try: workload = Test.objects.get(pk=workload_id)
     except: return api_response({ 'error' : 'Requested Workload Id does not exist' })
 
+    if workload.test_mode != 'SPSA':
+        return api_response({ 'error' : 'Requested Workload is not an SPSA tune' })
+
     if query == 'inputs':
         return HttpResponse(OpenBench.spsa_utils.spsa_original_input(workload), content_type='text/plain')
 
