@@ -44,6 +44,10 @@ class PGNWatcher(threading.Thread):
         # Bulk add individual .bz2 PGNs to the archive. We bulk add in order to avoid
         # scanning the entire archive on every individual write, which is very slow.
 
+        # A row whose file is missing stays pending, without blocking every other test
+        if not (pgns := [pgn for pgn in pgns if storage.exists(pgn.filename())]):
+            return
+
         tar_path = storage.path('PGNs/%d.pgn.tar' % (test_id))
         os.makedirs(os.path.dirname(tar_path), exist_ok=True)
 
