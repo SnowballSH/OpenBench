@@ -482,6 +482,18 @@ class CrossSiteActionTests(TestCase):
         self.client.post('/networks/Avalanche/DELETE/r1/', headers={'sec-fetch-site': 'cross-site'})
         self.assertTrue(Network.objects.filter(name='r1').exists())
 
+    def test_cross_site_scripts_login_is_refused(self):
+        self.client.logout()
+        payload = {**credentials(self.approver), 'action': 'UNKNOWN'}
+        for site in ('cross-site', 'same-site'):
+            response = self.client.post('/scripts/', payload, headers={'sec-fetch-site': site})
+            self.assertEqual(response.status_code, 403, site)
+            self.assertNotIn('_auth_user_id', self.client.session, site)
+
+        response = self.client.post('/scripts/', payload)
+        self.assertRedirects(response, '/index/', fetch_redirect_response=False)
+        self.assertIn('_auth_user_id', self.client.session)
+
 
 class SecurityHeaderTests(TestCase):
     def test_login_page_headers(self):

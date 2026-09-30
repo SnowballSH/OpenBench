@@ -707,6 +707,10 @@ def manage_engines(request, name=None, action=None):
 @csrf_exempt
 def scripts(request):
 
+    # Exempt from CSRF, so a foreign page must not log a browser into its own account
+    if is_cross_site(request):
+        return HttpResponse('Cross-site requests are refused', status=403, content_type='text/plain')
+
     # Exempt from CSRF, so the request must carry its own credentials
     try: user = authenticate(request, requireEnabled=True)
     except throttle.LoginThrottled:

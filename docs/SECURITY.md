@@ -102,7 +102,11 @@ refuses anonymous viewers as before.
   such a script must send the token, or drop the session cookie and rely on
   its credentials alone.
 - `/scripts/` is exempt from CSRF, so it acts only as the user named by the
-  `username` and `password` in its POST body, which must be enabled.
+  `username` and `password` in its POST body, which must be enabled. It logs
+  the caller in, so it refuses a request whose `Sec-Fetch-Site` is
+  `cross-site` or `same-site` with a plain 403: a foreign page cannot log a
+  visitor's browser into the page author's account. Scripts send no such
+  header.
 - Only Approvers may delete Networks through the API, as on the website.
 
 ## Workers
