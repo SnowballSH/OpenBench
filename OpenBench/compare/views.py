@@ -1,4 +1,6 @@
-from django.http import Http404, HttpRequest, HttpResponse
+from dataclasses import replace
+
+from django.http import HttpRequest, HttpResponse
 
 from OpenBench import upstream
 from OpenBench.compare.analysis import CompareQuery, parse_query
@@ -11,21 +13,21 @@ TEMPLATE = 'compare.html'
 MISSING_ERROR = 'Workload {} does not exist'
 
 
-def load_page(a: int, b: int) -> ComparePage:
-    tests = Test.objects.select_related('dev', 'base', 'spsa_run').in_bulk([a, b])
-    for workload_id in (a, b):
-        if workload_id not in tests:
-            raise Http404(MISSING_ERROR.format(workload_id))
+def load_tests(a: int, b: int) -> dict[int, Test]:
+    return Test.objects.select_related('dev', 'base', 'spsa_run').in_bulk([a, b])
+
+
+def build_page(a: Test, b: Test) -> ComparePage:
     return compare_page(
-        side('a', tests[a], insights_without_contributions(tests[a])),
-        side('b', tests[b], insights_without_contributions(tests[b])),
+        side('a', a, insights_without_contributions(a)),
+        side('b', b, insights_without_contributions(b)),
     )
 
 
-def render_form(request: HttpRequest, query: CompareQuery) -> HttpResponse:
+def render_form(request: HttpRequest, query: CompareQuery, status: int = 400) -> HttpResponse:
     response = upstream.render(request, TEMPLATE, {'query': query})
     if query.errors and response.status_code == 200:
-        response.status_code = 400
+        response.status_code = status
     return response
 
 
@@ -37,5 +39,9 @@ def compare(request: HttpRequest) -> HttpResponse:
     if (pair := query.pair) is None:
         return render_form(request, query)
 
-    page = load_page(*pair)
+    tests = load_tests(*pair)
+    if missing := tuple(MISSING_ERROR.format(workload_id) for workload_id in pair if workload_id not in tests):
+        return render_form(request, replace(query, errors=missing), status=404)
+
+    page = build_page(tests[pair[0]], tests[pair[1]])
     return upstream.render(request, TEMPLATE, {'query': query, 'page': page, 'payload': chart_payload(page)})
