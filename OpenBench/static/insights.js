@@ -824,7 +824,12 @@
             pending: `${format_count(workloads.pending)} pending`,
             games: format_count(server.games_last_24h),
             finished: format_count(finished.total),
-            outcomes: `${format_count(finished.passed)} passed · ${format_count(finished.failed)} failed · ${format_count(finished.stopped)} stopped`,
+            outcomes: [
+                `${format_count(finished.passed)} passed`,
+                `${format_count(finished.failed)} failed`,
+                ...(finished.completed ? [`${format_count(finished.completed)} completed`] : []),
+                `${format_count(finished.stopped)} stopped`,
+            ].join(' · '),
             pass_rate: format_percent(finished.sprt_pass_rate, 0),
             decided: decided ? `${format_count(finished.sprt_passed)} of ${format_count(decided)} decided SPRTs` : 'no decided SPRTs',
         };

@@ -26,13 +26,17 @@ def machine_name(info: dict[str, Any]) -> str | None:
 def uses_penta(test: Test) -> bool:
     return not test.use_tri
 
-def workload_status(test: Test) -> WorkloadStatus:
+def reached_target(games: int, target: int | None) -> bool:
+    return target is not None and target > 0 and games >= target
+
+def workload_status(test: Test, target: int | None) -> WorkloadStatus:
     flags = (
-        (test.deleted,      WorkloadStatus.DELETED),
-        (test.passed,       WorkloadStatus.PASSED),
-        (test.failed,       WorkloadStatus.FAILED),
-        (test.finished,     WorkloadStatus.STOPPED),
-        (not test.approved, WorkloadStatus.PENDING),
+        (test.deleted,                                         WorkloadStatus.DELETED),
+        (test.passed,                                          WorkloadStatus.PASSED),
+        (test.failed,                                          WorkloadStatus.FAILED),
+        (test.finished and reached_target(test.games, target), WorkloadStatus.COMPLETED),
+        (test.finished,                                        WorkloadStatus.STOPPED),
+        (not test.approved,                                    WorkloadStatus.PENDING),
     )
     return next((status for flag, status in flags if flag), WorkloadStatus.ACTIVE)
 
@@ -49,20 +53,21 @@ def target_games(test: Test, mode: WorkloadMode) -> int | None:
 
 def workload_facts(test: Test) -> WorkloadFacts:
 
-    mode = WorkloadMode(test.test_mode)
-    sprt = SprtBounds(test.elolower, test.eloupper, test.lowerllr, test.upperllr) if mode == WorkloadMode.SPRT else None
+    mode   = WorkloadMode(test.test_mode)
+    sprt   = SprtBounds(test.elolower, test.eloupper, test.lowerllr, test.upperllr) if mode == WorkloadMode.SPRT else None
+    target = target_games(test, mode)
 
     return WorkloadFacts(
         id           = test.id,
         mode         = mode,
-        status       = workload_status(test),
+        status       = workload_status(test, target),
         created_at   = test.creation,
         updated_at   = test.updated,
         finished     = test.finished,
         outcomes     = outcomes_of(test, uses_penta(test)),
         llr          = test.currentllr,
         sprt         = sprt,
-        target_games = target_games(test, mode),
+        target_games = target,
     )
 
 def snapshot_points(test: Test) -> list[ProgressPoint]:

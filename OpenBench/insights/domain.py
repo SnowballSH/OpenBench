@@ -12,12 +12,13 @@ class WorkloadMode(StrEnum):
     DATAGEN = 'DATAGEN'
 
 class WorkloadStatus(StrEnum):
-    PENDING = 'pending'
-    ACTIVE  = 'active'
-    PASSED  = 'passed'
-    FAILED  = 'failed'
-    STOPPED = 'stopped'
-    DELETED = 'deleted'
+    PENDING   = 'pending'
+    ACTIVE    = 'active'
+    PASSED    = 'passed'
+    FAILED    = 'failed'
+    COMPLETED = 'completed'
+    STOPPED   = 'stopped'
+    DELETED   = 'deleted'
 
 @dataclass(frozen=True, slots=True)
 class Outcomes:
