@@ -18,7 +18,7 @@
 #                                                                             #
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 
-import django.urls, OpenBench.views, OpenBench.insights.views
+import django.urls, OpenBench.views, OpenBench.insights.views, OpenBench.storage.views
 
 urlpatterns = [
 
@@ -64,6 +64,8 @@ urlpatterns = [
     django.urls.path(r'manage/engines/<str:name>/', OpenBench.views.manage_engines),
     django.urls.path(r'manage/engines/<str:name>/<str:action>/', OpenBench.views.manage_engines),
 
+    django.urls.path(r'manage/storage/', OpenBench.storage.views.manage_storage),
+
     # Links for interacting with OpenBench via scripting
     django.urls.path(r'scripts/', OpenBench.views.scripts),
 
@@ -94,6 +96,7 @@ urlpatterns = [
     django.urls.path(r'api/spsa/<int:workload_id>/<str:query>/', OpenBench.views.api_spsa),
     django.urls.path(r'api/workload/<int:workload_id>/<str:query>/', OpenBench.views.api_workload),
     django.urls.path(r'api/insights/server/', OpenBench.insights.views.api_server_insights),
+    django.urls.path(r'api/storage/', OpenBench.storage.views.api_storage),
 
     # Liveness and database readiness, for the reverse proxy and deployers
     django.urls.path(r'health/', OpenBench.views.health),

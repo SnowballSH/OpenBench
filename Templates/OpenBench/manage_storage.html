@@ -1,0 +1,110 @@
+{% extends "OpenBench/manage.html" %}
+
+{% block manage %}
+
+    {% if storage.low_disk %}
+        <div class="warning-message" role="status">
+            <pre>Disk space is low ({{storage.low_disk_rule}}). Delete retired networks from the Networks page, or see docs/DEPLOYMENT.md.</pre>
+        </div>
+    {% endif %}
+
+    <section class="insights-group" aria-label="Storage summary">
+        <h4 class="insights-group-title">Data directory</h4>
+        <div class="stat-tiles">
+            {% for tile in storage.tiles %}
+                <div class="stat-tile{% if tile.tone %} stat-tile-{{tile.tone}}{% endif %}">
+                    <span class="stat-label">{{tile.label}}</span>
+                    <span class="stat-value">{{tile.value}}</span>
+                    <span class="stat-meta">{{tile.meta}}</span>
+                    {% if tile.fraction %}
+                        <span class="insight-meter insight-meter-fill" style="--fraction: {{tile.fraction}}" role="img" aria-label="{{tile.meta}}"></span>
+                    {% endif %}
+                </div>
+            {% endfor %}
+        </div>
+        <p class="muted">
+            Scanned {{storage.generated_at|date:"Y-m-d H:i:s"}} UTC, cached for up to {{storage.cache_seconds}} seconds.
+            {% if storage.spool %}Upload spool: {{storage.spool}}.{% endif %}
+            {% if storage.skipped_symlinks %}{{storage.skipped_symlinks}} symbolic link{{storage.skipped_symlinks|pluralize}} in Media {{storage.skipped_symlinks|pluralize:"was,were"}} not followed.{% endif %}
+            {% if storage.unreadable_dirs %}{{storage.unreadable_dirs}} director{{storage.unreadable_dirs|pluralize:"y,ies"}} could not be read, so totals are low.{% endif %}
+            {% if storage.truncated %}The scan stopped at its entry limit, so totals are partial.{% endif %}
+        </p>
+    </section>
+
+    <section class="insights-group mt-4" aria-label="Media by category">
+        <h4 class="insights-group-title">Media by category</h4>
+        <div class="table-wrap w-100">
+        <table class="stripes w-100">
+            <tr class="table-header">
+                <th>Category</th>
+                <th class="numeric">Files</th>
+                <th class="numeric">Size</th>
+                <th>Share of Media</th>
+            </tr>
+            {% for row in storage.categories %}
+                <tr>
+                    <td>{{row.label}}</td>
+                    <td class="numeric">{{row.files}}</td>
+                    <td class="numeric">{{row.size}}</td>
+                    <td class="share-cell"><span class="share-bar" style="--share: {{row.share}}" aria-hidden="true"></span>{{row.percent}}</td>
+                </tr>
+            {% endfor %}
+        </table>
+        </div>
+    </section>
+
+    <section class="insights-group mt-4" aria-label="Networks by engine">
+        <h4 class="insights-group-title">Networks by engine</h4>
+        <div class="table-wrap w-100">
+        <table class="stripes hoverable w-100">
+            <tr class="table-header">
+                <th>Engine</th>
+                <th class="numeric">Networks</th>
+                <th class="numeric">Files</th>
+                <th class="numeric">Missing files</th>
+                <th class="numeric">Size</th>
+            </tr>
+            {% for row in storage.engines %}
+                <tr>
+                    <td>{% if row.url %}<a href="{{row.url}}">{{row.engine}}</a>{% else %}{{row.engine}} <span class="muted">(no Engine configured)</span>{% endif %}</td>
+                    <td class="numeric">{{row.networks}}</td>
+                    <td class="numeric">{{row.files}}</td>
+                    <td class="numeric">{{row.missing}}</td>
+                    <td class="numeric">{{row.size}}</td>
+                </tr>
+            {% empty %}
+                <tr><td colspan="5" class="muted">No networks have been uploaded.</td></tr>
+            {% endfor %}
+        </table>
+        </div>
+        <p class="muted">Networks are deleted from each engine's <a href="/networks/">Networks</a> page. A file shared by several engines is freed once no network uses it.</p>
+    </section>
+
+    {% if storage.largest %}
+        <section class="insights-group mt-4" aria-label="Largest items">
+            <h4 class="insights-group-title">Largest items</h4>
+            <div class="contribution-grid">
+                {% for table in storage.largest %}
+                    <div class="table-wrap contribution-table">
+                    <table class="stripes hoverable">
+                        <caption class="contribution-caption">{{table.label}}</caption>
+                        <tr class="table-header">
+                            <th>File</th>
+                            <th class="numeric">Size</th>
+                            <th>Owner</th>
+                        </tr>
+                        {% for row in table.rows %}
+                            <tr>
+                                <td class="mono">{{row.name}}</td>
+                                <td class="numeric">{{row.size}}</td>
+                                <td class="contribution-name">{% if row.url %}<a href="{{row.url}}">{{row.detail}}</a>{% else %}<span class="muted">{{row.detail}}</span>{% endif %}</td>
+                            </tr>
+                        {% endfor %}
+                    </table>
+                    </div>
+                {% endfor %}
+            </div>
+        </section>
+    {% endif %}
+
+{% endblock %}
