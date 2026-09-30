@@ -13,6 +13,11 @@ with `--upgrade`:
 uv pip compile requirements.in -o requirements.txt --python-version 3.14 --no-header
 ```
 
+Dependabot opens a weekly grouped pull request for the workflow actions, which
+are pinned by commit SHA. It does not manage Python dependencies, because it
+would edit `requirements.txt` without recompiling it; recompile with
+`--upgrade` instead.
+
 ## Local data
 
 [DEPLOYMENT.md](DEPLOYMENT.md#local-development) shows how to migrate, run
