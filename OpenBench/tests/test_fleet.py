@@ -22,13 +22,12 @@ from OpenBench.fleet.machines import (
 from OpenBench.fleet.status import (
     OfflineWindow,
     Presence,
-    int_of,
     presence,
     relative_age,
-    text_of,
 )
 from OpenBench.fleet.users import latest, load_user_rows
 from OpenBench.insights.speed import nodes_per_second
+from OpenBench.machine_info import int_of, text_of
 from OpenBench.models import Engine, Machine, Profile, Result, Test
 from OpenBench.stats import Elo
 from OpenBench.tests.fixtures import create_test, create_user, ensure_book, present, system_info

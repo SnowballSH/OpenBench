@@ -23,6 +23,7 @@ from OpenBench.progress.domain import (
 )
 from OpenBench.progress.present import elo_text, progress_url, summary_tiles
 from OpenBench.progress.report import progress_report
+from OpenBench.progress.views import report_cache_key
 from OpenBench.stats import Elo
 from OpenBench.tests.fixtures import (
     PASSWORD,
@@ -442,6 +443,7 @@ class ProgressViewTests(TestCase):
         self.assertEqual(response.context['page'].engine, 'Avalanche')
         self.assertEqual(response.context['page'].window, Window.YEAR)
         self.assertEqual(len(response.context['page'].greens), 1)
+        create_engine_config('Other')
         self.assertEqual(self.client.get('/progress/Other/').context['page'].greens, [])
 
         redirect = self.client.get('/progress/?engine=Avalanche&window=30d')
@@ -453,10 +455,23 @@ class ProgressViewTests(TestCase):
         self.assertEqual(blank.status_code, 302)
         self.assertEqual(blank['Location'], '/progress/?window=1y')
 
+        create_engine_config('A/B')
         slashed = self.client.get('/progress/?engine=A/B')
         self.assertEqual(slashed.status_code, 200)
         self.assertEqual(slashed.context['page'].engine, 'A/B')
         self.assertContains(slashed, 'href="/progress/?engine=A%2FB&amp;window=30d"')
+
+    def test_unknown_engines_are_refused_without_a_report(self):
+        self.login()
+        with mock.patch('OpenBench.progress.views.progress_report') as report:
+            for url in ('/progress/Missing/', '/progress/?engine=Mis/sing'):
+                self.assertEqual(self.client.get(url).status_code, 404, url)
+            response = self.client.get('/api/progress/?engine=Missing')
+            self.assertEqual(response.status_code, 404)
+            self.assertIn('error', response.json())
+            report.assert_not_called()
+        for engine in ('Missing', 'Mis/sing'):
+            self.assertIsNone(cache.get(report_cache_key(DEFAULT_WINDOW, engine)))
 
     def test_reports_are_cached_briefly(self):
         self.login()
@@ -501,6 +516,7 @@ class ProgressViewTests(TestCase):
         self.assertEqual(payload['engine'], 'Avalanche')
         self.assertEqual(len(payload['greens']), 1)
 
+        create_engine_config('Other')
         other = self.client.post('/api/progress/?engine=Other', credentials(self.reader))
         self.assertEqual(other.json()['progress']['greens'], [])
 

@@ -41,6 +41,7 @@ from OpenBench.fleet.machines import load_machines_page
 from OpenBench.fleet.status import OfflineWindow
 from OpenBench.fleet.users import load_user_rows
 
+from OpenBench import machine_info
 from OpenBench.config import OPENBENCH_CONFIG, OPENBENCH_STATIC_VERSION
 from OpenBench.security import throttle
 from OpenBench.security.csrf import fails_session_csrf
@@ -320,6 +321,8 @@ def greens(request, page=1):
     completed = OpenBench.utils.get_completed_tests().filter(passed=True)
     return render(request, 'index.html', OpenBench.page_queries.workload_list_data(completed, int(page), 'greens'))
 
+SEARCH_TERMS_LIMIT = 20
+
 def search(request, page=1):
 
     # Search uses GET so the parameters live in the URL and can be shared.
@@ -330,6 +333,34 @@ def search(request, page=1):
 
     if not (params := request.GET):
         return render(request, 'search.html', { 'books' : books })
+
+    # Echo the submitted values back so the form stays populated for tweaking
+
+    form = {
+        'keywords'      : params.get('keywords', ''),
+        'info'          : params.get('info-contains', ''),
+        'authors'       : params.get('authors', ''),
+        'dev_engine'    : params.get('dev-engine', ''),
+        'base_engine'   : params.get('base-engine', ''),
+        'dev_network'   : params.get('dev-network', ''),
+        'base_network'  : params.get('base-network', ''),
+        'workload_type' : params.get('workload-type', ''),
+        'book'          : params.get('opening-book', ''),
+        'tc_type'       : params.get('tc-type', ''),
+        'tc_value'      : params.get('tc-value-input', ''),
+        'threads'       : params.get('threads', ''),
+        'hide_greens'   : 'hide-greens'  in params,
+        'hide_yellows'  : 'hide-yellows' in params,
+        'hide_reds'     : 'hide-reds'    in params,
+        'hide_blues'    : 'hide-blues'   in params,
+        'hide_stopped'  : 'hide-stopped' in params,
+        'show_deleted'  : 'show-deleted' in params,
+    }
+
+    # Each keyword or author is one more OR'd match, and SQLite caps expression depth
+    if too_many := [name for name in ('keywords', 'authors') if len(params.get(name, '').split()) > SEARCH_TERMS_LIMIT]:
+        error = 'Search at most %d %s' % (SEARCH_TERMS_LIMIT, ' and '.join(too_many))
+        return render(request, 'search.html', { 'form' : form, 'books' : books }, error=error)
 
     tests  = Test.objects.all()
 
@@ -432,29 +463,6 @@ def search(request, page=1):
     tests = OpenBench.page_queries.listing_tests(tests.order_by('-id'))
     start, end, paging = OpenBench.utils.getPaging(tests, int(page), 'search')
     shown = list(tests[start:end])
-
-    # Echo the submitted values back so the form stays populated for tweaking
-
-    form = {
-        'keywords'      : params.get('keywords', ''),
-        'info'          : params.get('info-contains', ''),
-        'authors'       : params.get('authors', ''),
-        'dev_engine'    : params.get('dev-engine', ''),
-        'base_engine'   : params.get('base-engine', ''),
-        'dev_network'   : params.get('dev-network', ''),
-        'base_network'  : params.get('base-network', ''),
-        'workload_type' : params.get('workload-type', ''),
-        'book'          : params.get('opening-book', ''),
-        'tc_type'       : params.get('tc-type', ''),
-        'tc_value'      : params.get('tc-value-input', ''),
-        'threads'       : params.get('threads', ''),
-        'hide_greens'   : 'hide-greens'  in params,
-        'hide_yellows'  : 'hide-yellows' in params,
-        'hide_reds'     : 'hide-reds'    in params,
-        'hide_blues'    : 'hide-blues'   in params,
-        'hide_stopped'  : 'hide-stopped' in params,
-        'show_deleted'  : 'show-deleted' in params,
-    }
 
     error = 'No matching tests found' if not shown else None
     data  = { 'tests' : shown, 'form' : form, 'books' : books, 'paging' : { **paging, 'query' : '?' + params.urlencode() } }
@@ -706,6 +714,10 @@ def manage_engines(request, name=None, action=None):
 @csrf_exempt
 def scripts(request):
 
+    # Exempt from CSRF, so a foreign page must not log a browser into its own account
+    if is_cross_site(request):
+        return HttpResponse('Cross-site requests are refused', status=403, content_type='text/plain')
+
     # Exempt from CSRF, so the request must carry its own credentials
     try: user = authenticate(request, requireEnabled=True)
     except throttle.LoginThrottled:
@@ -809,11 +821,18 @@ def client_worker_info(request):
         return JsonResponse({ 'error' : 'Bad Credentials' })
 
     # Request update before creating a machine
-    info         = json.loads(request.POST['system_info'])
+    info         = machine_info.decode_system_info(request.POST.get('system_info'))
     expected_ver = OPENBENCH_CONFIG['client_version']
+
+    if info is None:
+        return JsonResponse({ 'error' : 'Malformed system_info' })
 
     if info.get('client_ver') != expected_ver:
         return JsonResponse({ 'error' : 'Bad Client Version: Expected %d' % (expected_ver)})
+
+    # The Client treats any error as a failed registration, and retries later
+    if malformed := machine_info.malformed_fields(info):
+        return JsonResponse({ 'error' : 'Malformed system_info: %s' % (', '.join(malformed)) })
 
     # Create a new Machine for this session
     machine = Machine(user=user, info=info)

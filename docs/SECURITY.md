@@ -38,16 +38,33 @@ the admin login, and a `user_login_failed` receiver counts the failures.
 - The client address is `REMOTE_ADDR`, or, when `OPENBENCH_BEHIND_TLS_PROXY` is
   set, the right-most `X-Forwarded-For` entry, which is the one the proxy
   appended. Never set that flag when clients can reach gunicorn directly.
-- Counters live in Django's per-process local-memory cache (up to 10,000
-  entries). Each gunicorn process counts on its own, so the effective limits
-  are up to `OPENBENCH_WORKERS` times higher. Restarting the container clears
-  every counter.
+- Counters live in their own per-process local-memory cache, the `throttle`
+  alias in `CACHES` (up to 10,000 entries), which nothing else writes to.
+  Filling the `default` cache never culls them; the progress reports cached
+  there are keyed only by configured engine names, never by an arbitrary
+  `engine` parameter. Each
+  gunicorn process counts on its own, so the effective limits are up to
+  `OPENBENCH_WORKERS` times higher. Restarting the container clears every
+  counter.
 - Each failed or refused check logs one line on the `OpenBench.views` logger,
   with the username and path quoted by `repr`, so a crafted value cannot forge
   log lines. The password is never logged.
 - `django.contrib.auth.backends.ModelBackend` still checks every password and
   stays in `AUTHENTICATION_BACKENDS`, so browser sessions from before this
   change stay logged in.
+
+## Login required to view
+
+While `require_login_to_view` is set (the default here),
+`OpenBench.security.login_required.LoginRequiredMiddleware` answers an
+anonymous `GET` or `HEAD` with a plain redirect to `/login/` before any view
+runs: no database query, and no flash message, so a cookieless request never
+creates a session row. The login page shows no "requires login" banner for
+these redirects. Paths that authenticate by themselves or must stay reachable
+are left to their views: `/login/`, `/register/`, `/logout/`, `/health/`,
+`/static/`, `/admin/` (Django's own login), `/scripts/`, `/api/` and every
+`/client*/` endpoint. Other methods also reach the view, and `render()` still
+refuses anonymous viewers as before.
 
 ## Sessions and state-changing requests
 
@@ -85,7 +102,11 @@ the admin login, and a `user_login_failed` receiver counts the failures.
   such a script must send the token, or drop the session cookie and rely on
   its credentials alone.
 - `/scripts/` is exempt from CSRF, so it acts only as the user named by the
-  `username` and `password` in its POST body, which must be enabled.
+  `username` and `password` in its POST body, which must be enabled. It logs
+  the caller in, so it refuses a request whose `Sec-Fetch-Site` is
+  `cross-site` or `same-site` with a plain 403: a foreign page cannot log a
+  visitor's browser into the page author's account. Scripts send no such
+  header.
 - Only Approvers may delete Networks through the API, as on the website.
 
 ## Workers
@@ -97,6 +118,34 @@ given, owns the Result). Results with negative counts are refused.
 `/clientSubmitResults/` answers such a report with `{ "stop" : true }`; the
 others answer `{ "error" : ... }`, which makes the Client restart its session.
 A genuine Client never triggers either.
+
+`/clientWorkerInfo/` checks the registered `system_info` before it creates a
+Machine (`OpenBench/machine_info.py`). After the Client version check, which
+still comes first so an old Client learns to update, it requires the fields
+the Server reads, with the exact JSON types the Client sends: integer
+`concurrency`, `ram_total_mb`, `sockets` and `syzygy_max`; integer or null
+`physical_cores` and `logical_cores` (psutil reports null when it cannot count
+cores, for example in some containers); boolean `noisy`; `cpu_flags` a list of strings; `os_name` a
+string; `compilers` and `tokens` objects. `cpu_name`, `isa_name`, `os_ver` and
+`machine_name` must be strings, and `focus` and `only` lists of strings, when
+present. Anything else is answered `{"error": "Malformed system_info: <fields>"}`
+(or `{"error": "Malformed system_info"}` when it is not a JSON object), which
+the Client treats like any failed registration. Pages and APIs that read
+Machine info (the fleet, `/api/insights/server/`, a workload's insights and
+summary) also coerce each field as they read it, so a Machine stored before
+this check cannot break them.
+
+## Input bounds
+
+- `/search/` takes at most 20 space-separated `keywords` and 20 `authors`.
+  Each becomes one more OR'd match, and SQLite refuses an expression tree
+  deeper than 1,000, so more terms answer the search form, still filled in,
+  with the error "Search at most 20 keywords" (or authors) instead of a 500.
+- Page numbers in `/index/`, `/greens/`, `/search/`, `/events/`, `/errors/`
+  and `/user/<name>/` have at most 10 digits, and ids in `/machines/<id>/`,
+  `/test/<id>/`, `/tune/<id>/` and `/datagen/<id>/` at most 18; longer numbers
+  are a 404, so they never reach `int()`'s 4,300-digit limit or overflow
+  SQLite's 64-bit integers.
 
 ## Response headers and cookies
 

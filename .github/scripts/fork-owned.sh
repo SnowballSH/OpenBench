@@ -4,6 +4,7 @@
 fork_owned=(
     OpenBench/fleet
     OpenBench/insights
+    OpenBench/machine_info.py
     OpenBench/progress
     OpenBench/security
     OpenBench/storage

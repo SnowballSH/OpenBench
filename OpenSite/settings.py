@@ -86,7 +86,14 @@ CACHES = {
         'BACKEND'  : 'django.core.cache.backends.locmem.LocMemCache',
         'LOCATION' : 'openbench',
         'OPTIONS'  : { 'MAX_ENTRIES' : 10000 },
-    }
+    },
+
+    # Only the failed-login counters live here, so filling the default cache never culls them
+    'throttle': {
+        'BACKEND'  : 'django.core.cache.backends.locmem.LocMemCache',
+        'LOCATION' : 'openbench-throttle',
+        'OPTIONS'  : { 'MAX_ENTRIES' : 10000 },
+    },
 }
 
 AUTHENTICATION_BACKENDS = [
@@ -138,6 +145,7 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'OpenBench.security.login_required.LoginRequiredMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'OpenBench.security.middleware.LoginThrottleMiddleware',

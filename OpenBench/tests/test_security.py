@@ -6,7 +6,7 @@ from unittest import mock
 
 from django.conf import settings
 from django.contrib.sessions.middleware import SessionMiddleware
-from django.core.cache import cache
+from django.core.cache import cache, caches
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.http import HttpResponse
 from django.test import RequestFactory, TestCase, override_settings
@@ -28,8 +28,9 @@ from OpenBench.upstream import openbench_config
 
 
 def clear_throttle(test_case):
-    cache.clear()
-    test_case.addCleanup(cache.clear)
+    for alias in ('default', throttle.CACHE_ALIAS):
+        caches[alias].clear()
+        test_case.addCleanup(caches[alias].clear)
 
 
 class EngineOptionsPopupTests(TestCase):
@@ -378,6 +379,12 @@ class ThrottleTests(TestCase):
             self.assertEqual(response.status_code, 429, url)
             self.assertEqual(response.json(), {'error': 'Too many failed logins'}, url)
 
+    def test_filling_the_shared_cache_keeps_the_counters(self):
+        self.fail_logins(throttle.ACCOUNT_LIMIT)
+        capacity = caches['default']._max_entries
+        cache.set_many({f'filler:{index}': index for index in range(capacity + 1)})
+        self.assertRedirects(self.login(), '/login/', fetch_redirect_response=False)
+
     def test_admin_login_is_throttled(self):
         self.user.is_staff = True
         self.user.save()
@@ -474,6 +481,18 @@ class CrossSiteActionTests(TestCase):
         Network.objects.create(sha256='ABCDEF01', name='r1', engine='Avalanche', author='admin')
         self.client.post('/networks/Avalanche/DELETE/r1/', headers={'sec-fetch-site': 'cross-site'})
         self.assertTrue(Network.objects.filter(name='r1').exists())
+
+    def test_cross_site_scripts_login_is_refused(self):
+        self.client.logout()
+        payload = {**credentials(self.approver), 'action': 'UNKNOWN'}
+        for site in ('cross-site', 'same-site'):
+            response = self.client.post('/scripts/', payload, headers={'sec-fetch-site': site})
+            self.assertEqual(response.status_code, 403, site)
+            self.assertNotIn('_auth_user_id', self.client.session, site)
+
+        response = self.client.post('/scripts/', payload)
+        self.assertRedirects(response, '/index/', fetch_redirect_response=False)
+        self.assertIn('_auth_user_id', self.client.session)
 
 
 class SecurityHeaderTests(TestCase):

@@ -11,6 +11,7 @@ from OpenBench.insights.domain import (
     spsa_target_games,
     tune_completed,
 )
+from OpenBench.machine_info import text_of
 from OpenBench.models import Result, SPSARun, Test, WorkloadSnapshot
 
 TRINOMIAL_FIELDS = ('losses', 'draws', 'wins')
@@ -113,7 +114,7 @@ def result_rows(test: Test) -> list[ResultRow]:
             machine_id=row['machine_id'],
             machine_name=machine_name(row['machine__info'] or {}),
             owner=row['machine__user__username'],
-            cpu_name=(row['machine__info'] or {}).get('cpu_name'),
+            cpu_name=text_of(row['machine__info'], 'cpu_name'),
             outcomes=outcomes_of_row(row, use_penta),
         )
         for row in rows

@@ -833,8 +833,9 @@ Elo gained from greens, weekly SPRT outcomes, games per day and top
 contributors over a window. `window` is `30d`, `90d` (default), `1y` or `all`,
 ignoring case and surrounding whitespace; `engine` filters by the workloads'
 dev engine. Authentication is the same as `api/insights/server/`: a failed
-login is 401, an unknown `window` is 400 `{"error": ...}`. Reports are cached
-for 60 seconds per window and engine. The JSON schema, formulas and caveats are
+login is 401, an unknown `window` is 400 `{"error": ...}`, and an `engine`
+with no Engine configuration is 404 `{"error": ...}`. Reports are cached
+for 60 seconds per window and configured engine. The JSON schema, formulas and caveats are
 in [INSIGHTS.md](INSIGHTS.md#engine-progress).
 
 ### `GET|POST /api/storage/`
@@ -971,6 +972,7 @@ logged in: the response sets `sessionid` and `csrftoken` cookies (see
 
 | Outcome | Answer |
 |---|---|
+| `Sec-Fetch-Site` is `cross-site` or `same-site` (a browser on another site) | 403, plain text, nobody is logged in |
 | `GET`, missing, wrong or not-enabled credentials | 302 to `/login/`, banner "Unable to authenticate user" |
 | Throttled | 302 to `/login/`, banner "Too many failed logins. Try again later" |
 | Any `action` other than the two below | 302 to `/index/`, banner "Unknown scripts action" |

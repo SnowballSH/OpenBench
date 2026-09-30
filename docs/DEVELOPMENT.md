@@ -121,7 +121,7 @@ This is a fork of [AndyGrant/OpenBench](https://github.com/AndyGrant/OpenBench),
 and upstream changes are merged in periodically.
 
 - **Fork-owned**: `OpenBench/fleet/`, `OpenBench/insights/`,
-  `OpenBench/progress/`, `OpenBench/security/`, `OpenBench/storage/`,
+  `OpenBench/machine_info.py`, `OpenBench/progress/`, `OpenBench/security/`, `OpenBench/storage/`,
   `OpenBench/page_queries.py`, `OpenBench/upstream.py`,
   `OpenBench/workloads/clone.py`,
   `OpenBench/management/commands/seed_demo.py` and `OpenBench/tests/`. These

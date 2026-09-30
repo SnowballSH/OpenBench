@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 from enum import StrEnum
-from typing import Any, Self
+from typing import Self
 
 from OpenBench.insights.server import ACTIVE_MACHINE
 
@@ -53,18 +53,3 @@ def relative_age(delta: timedelta) -> str:
             return f'{seconds // size}{unit} ago'
 
     return 'just now' if seconds < 10 else f'{seconds}s ago'
-
-
-def known_text(value: object) -> str | None:
-    return str(value) if value not in (None, '', 'None') else None
-
-
-def text_of(info: dict[str, Any], key: str) -> str | None:
-    return known_text(info.get(key))
-
-
-def int_of(info: dict[str, Any], key: str) -> int:
-    try:
-        return int(info.get(key) or 0)
-    except TypeError, ValueError:
-        return 0
