@@ -1,4 +1,5 @@
 from django.test import TestCase
+from django.urls import Resolver404, resolve
 
 from OpenBench.tests.fixtures import create_engine_config, create_test, create_user, ensure_book
 
@@ -45,3 +46,25 @@ class PageNumberLimitTests(TestCase):
     def test_ordinary_pages_still_resolve(self):
         for url in ('/index/1/', '/greens/9999999999/', '/events/2/', '/user/reader/3/'):
             self.assertEqual(self.client.get(url).status_code, 200, url)
+
+
+class IdConverterTests(TestCase):
+    def setUp(self):
+        self.client.force_login(create_user('reader'))
+
+    def test_oversized_ids_do_not_resolve(self):
+        for number in LONG_IDS:
+            for url in (
+                f'/event/{number}/',
+                f'/api/pgns/{number}/',
+                f'/api/spsa/{number}/inputs/',
+                f'/api/workload/{number}/info/',
+            ):
+                with self.subTest(url=url[:40]):
+                    with self.assertRaises(Resolver404):
+                        resolve(url)
+                    self.assertEqual(self.client.get(url).status_code, 404)
+
+    def test_ids_still_resolve_as_integers(self):
+        self.assertEqual(resolve('/event/12/').kwargs, {'pk': 12})
+        self.assertEqual(resolve(f'/api/workload/{"9" * 18}/info/').kwargs['workload_id'], int('9' * 18))

@@ -18,7 +18,7 @@
 #                                                                             #
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 
-import django.urls, OpenBench.views, OpenBench.insights.views, OpenBench.progress.views, OpenBench.storage.views
+import django.urls, OpenBench.converters, OpenBench.views, OpenBench.insights.views, OpenBench.progress.views, OpenBench.storage.views
 
 urlpatterns = [
 
@@ -30,7 +30,8 @@ urlpatterns = [
     django.urls.path(r'profileConfig/', OpenBench.views.profile_config),
 
     # Links for viewing test tables. Page numbers and ids are bounded, so int()
-    # and SQLite's 64-bit integers never see an oversized number
+    # and SQLite's 64-bit integers never see an oversized number; <id:...>
+    # applies the same bound to the other routes
     django.urls.re_path(r'^index(?:/(?P<page>\d{1,10}))?/$', OpenBench.views.index),
     django.urls.re_path(r'^user/(?P<username>[^/]+)(?:/(?P<page>\d{1,10}))?/$', OpenBench.views.user),
     django.urls.re_path(r'^greens(?:/(?P<page>\d{1,10}))?/$', OpenBench.views.greens),
@@ -43,7 +44,7 @@ urlpatterns = [
 
     # Links for viewing general information tables
     django.urls.path(r'users/', OpenBench.views.users),
-    django.urls.path(r'event/<int:pk>/', OpenBench.views.event),
+    django.urls.path(r'event/<id:pk>/', OpenBench.views.event),
     django.urls.re_path(r'^events(?:/(?P<page>\d{1,10}))?/$', OpenBench.views.events_actions),
     django.urls.re_path(r'^errors(?:/(?P<page>\d{1,10}))?/$', OpenBench.views.events_errors),
     django.urls.re_path(r'^machines(?:/(?P<pk>\d{1,18}))?/$', OpenBench.views.machines),
@@ -97,9 +98,9 @@ urlpatterns = [
     django.urls.path(r'api/networks/<str:engine>/<str:identifier>/', OpenBench.views.api_network_download),
     django.urls.path(r'api/networks/<str:engine>/<str:identifier>/delete/', OpenBench.views.api_network_delete),
     django.urls.path(r'api/buildinfo/', OpenBench.views.api_build_info),
-    django.urls.path(r'api/pgns/<int:pgn_id>/', OpenBench.views.api_pgns),
-    django.urls.path(r'api/spsa/<int:workload_id>/<str:query>/', OpenBench.views.api_spsa),
-    django.urls.path(r'api/workload/<int:workload_id>/<str:query>/', OpenBench.views.api_workload),
+    django.urls.path(r'api/pgns/<id:pgn_id>/', OpenBench.views.api_pgns),
+    django.urls.path(r'api/spsa/<id:workload_id>/<str:query>/', OpenBench.views.api_spsa),
+    django.urls.path(r'api/workload/<id:workload_id>/<str:query>/', OpenBench.views.api_workload),
     django.urls.path(r'api/insights/server/', OpenBench.insights.views.api_server_insights),
     django.urls.path(r'api/storage/', OpenBench.storage.views.api_storage),
     django.urls.path(r'api/progress/', OpenBench.progress.views.api_progress),

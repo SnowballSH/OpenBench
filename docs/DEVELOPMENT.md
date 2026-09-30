@@ -120,7 +120,7 @@ is where `page_queries.attach_event_workloads` attaches a workload to each
 This is a fork of [AndyGrant/OpenBench](https://github.com/AndyGrant/OpenBench),
 and upstream changes are merged in periodically.
 
-- **Fork-owned**: `OpenBench/fleet/`, `OpenBench/insights/`,
+- **Fork-owned**: `OpenBench/converters.py`, `OpenBench/fleet/`, `OpenBench/insights/`,
   `OpenBench/machine_info.py`, `OpenBench/progress/`, `OpenBench/security/`, `OpenBench/storage/`,
   `OpenBench/page_queries.py`, `OpenBench/upstream.py`,
   `OpenBench/workloads/clone.py`,
