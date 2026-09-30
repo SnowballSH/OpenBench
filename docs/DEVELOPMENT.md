@@ -26,7 +26,12 @@ version refuses to run. The script runs three checks:
 2. `ruff format --check --diff` over the same paths.
 3. `ruff check` with only the bug-catching rules (`F821`, `F811`, `F632`,
    `F704`, `F706`, `F823`) over the whole server: `OpenBench/`, `OpenSite/`
-   and `manage.py`.
+   and `manage.py`. Upstream modules that use `from OpenBench.models import *`
+   (`views.py`, `utils.py`, `model_utils.py` and four modules under
+   `workloads/`) are outside the undefined-name check: ruff cannot tell a
+   star-imported name from a missing one there, and the rule that would flag
+   such names (`F405`) fires on every existing model reference. Their tests
+   are the safety net for those files.
 
 Run it locally without installing ruff, or with ruff 0.16.9 installed:
 
