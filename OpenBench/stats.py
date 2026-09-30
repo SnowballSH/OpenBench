@@ -165,7 +165,7 @@ def MLE_tvalue(pdfhat, ref, s):
 
 def logistic_elo(x):
     x = min(max(x, 1e-3), 1-1e-3)
-    return -400 * math.log10(1 / x - 1)
+    return 400 * math.log10(x / (1 - x))
 
 
 if __name__ == '__main__':

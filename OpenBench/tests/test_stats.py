@@ -119,6 +119,10 @@ class EloTests(SimpleTestCase):
         self.assertAlmostEqual(Elo((0, 1, 1))[1], 400 * math.log10(3), places=9)
         self.assertAlmostEqual(Elo((1, 2, 3, 2, 1))[1], 0.0, places=9)
 
+    def test_even_results_are_not_negative_zero(self):
+        self.assertEqual('%.2f' % Elo((1, 2, 3, 2, 1))[1], '0.00')
+        self.assertEqual('%.2f' % Elo((5, 10, 5))[1], '0.00')
+
     def test_interval_uses_the_t_distribution(self):
         half  = 2.0930240544083087 * 0.5 / math.sqrt(20)
         upper = -400 * math.log10(1 / (0.5 + half) - 1)
