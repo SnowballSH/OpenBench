@@ -61,7 +61,7 @@ class NetworkTests(TestCase):
         network = Network.objects.get(name='r1-ctrl')
         response = self.client.get('/networks/Avalanche/download/r1-ctrl/')
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(b''.join(response.streaming_content), content)
+        self.assertEqual(response.getvalue(), content)
         self.assertEqual(response['Content-Disposition'], f'attachment; filename={network.sha256}')
 
     def test_duplicate_upload_is_rejected(self):

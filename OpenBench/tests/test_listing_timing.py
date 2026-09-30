@@ -3,11 +3,12 @@ import re
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 from django.test import SimpleTestCase, TestCase
 from django.utils import timezone
 
-from OpenBench.insights.domain import Outcomes, SprtBounds, WorkloadFacts, WorkloadMode, WorkloadStatus
+from OpenBench.insights.domain import Outcomes, Pentanomial, SprtBounds, WorkloadFacts, WorkloadMode, WorkloadStatus
 from OpenBench.insights.eta import EtaReason, timing_and_eta
 from OpenBench.insights.listing import (
     ESTIMATE_NOTE,
@@ -25,7 +26,7 @@ from OpenBench.insights.timing import RECENT_WINDOW, Mark, timeline_marks
 from OpenBench.insights.workload import workload_insights
 from OpenBench.models import Test, WorkloadSnapshot
 from OpenBench.page_queries import annotated_snapshots, listing_row_timing, listing_tests
-from OpenBench.tests.fixtures import create_engine_config, create_test, create_user, ensure_book
+from OpenBench.tests.fixtures import create_engine_config, create_test, create_user, ensure_book, present
 
 T0 = datetime(2026, 9, 1, tzinfo=UTC)
 BOUNDS = SprtBounds(elo0=0.0, elo1=3.0, lower_llr=-2.94, upper_llr=2.94)
@@ -37,15 +38,15 @@ def at(minutes: float) -> datetime:
     return T0 + timedelta(minutes=minutes)
 
 
-def outcomes(penta: Sequence[int] = PENTA) -> Outcomes:
+def outcomes(penta: Pentanomial = PENTA) -> Outcomes:
     wins = 2 * penta[4] + penta[3]
     losses = 2 * penta[0] + penta[1]
-    return Outcomes((losses, 2 * sum(penta) - wins - losses, wins), tuple(penta), True)
+    return Outcomes((losses, 2 * sum(penta) - wins - losses, wins), penta, True)
 
 
 def facts(
     mode: WorkloadMode = WorkloadMode.GAMES,
-    penta: Sequence[int] = PENTA,
+    penta: Pentanomial = PENTA,
     target: int | None = 20_000,
     llr: float = 0.5,
     updated: datetime = T0,
@@ -114,7 +115,7 @@ class FormatTests(SimpleTestCase):
 
     def test_reasons_use_the_workload_page_wording(self) -> None:
         source = INSIGHTS_JS.read_text()
-        block = re.search(r'const ETA_REASONS = \{(.*?)\};', source, re.S).group(1)
+        block = present(re.search(r'const ETA_REASONS = \{(.*?)\};', source, re.S)).group(1)
         wording = dict(re.findall(r"(\w+): '([^']*)'", block))
         self.assertEqual(wording, {reason.value: text for reason, text in ETA_REASON_TEXT.items()})
         self.assertEqual(set(ETA_REASON_TEXT), set(EtaReason))
@@ -150,21 +151,21 @@ class RowTimingTests(SimpleTestCase):
     )
 
     def test_target_workloads_show_time_left_and_rate(self) -> None:
-        row = running_row_timing(facts(penta=(0, 0, 1200, 0, 0), updated=at(120)), self.steady, at(120))
+        row = present(running_row_timing(facts(penta=(0, 0, 1200, 0, 0), updated=at(120)), self.steady, at(120)))
         self.assertEqual(row, RowTiming(RowTimingKind.LEFT, '14h 40m left', False, '1,200 games/h', 'last 1h'))
         self.assertIsNone(row.note)
 
     def test_sprt_time_left_is_an_estimate(self) -> None:
         workload = facts(WorkloadMode.SPRT, target=None, llr=0.5, updated=at(120))
-        row = running_row_timing(workload, self.steady, at(120))
+        row = present(running_row_timing(workload, self.steady, at(120)))
         self.assertEqual(row.kind, RowTimingKind.LEFT)
         self.assertTrue(row.estimate)
         self.assertEqual(row.note, ESTIMATE_NOTE)
-        self.assertRegex(row.text, r'^\d+[dhms]( \d+[hm])? left$')
+        self.assertRegex(present(row.text), r'^\d+[dhms]( \d+[hm])? left$')
 
     def test_sprt_reasons_replace_the_time(self) -> None:
         workload = facts(WorkloadMode.SPRT, penta=(10, 10, 10, 10, 10), target=None, llr=0.1, updated=at(120))
-        row = running_row_timing(workload, self.steady, at(120))
+        row = present(running_row_timing(workload, self.steady, at(120)))
         self.assertEqual(
             (row.kind, row.text, row.estimate), (RowTimingKind.UNAVAILABLE, 'needs 200 games first', False)
         )
@@ -173,17 +174,17 @@ class RowTimingTests(SimpleTestCase):
         stalled = SnapshotMarks(
             first=(at(0), 0), window_before=(at(60), 1200), window_after=None, latest=(at(60), 1200)
         )
-        row = running_row_timing(facts(penta=(0, 0, 600, 0, 0), updated=at(60)), stalled, at(180))
+        row = present(running_row_timing(facts(penta=(0, 0, 600, 0, 0), updated=at(60)), stalled, at(180)))
         self.assertEqual(row, RowTiming(RowTimingKind.UNAVAILABLE, 'no recent throughput'))
 
     def test_no_target_shows_only_the_rate(self) -> None:
         workload = facts(WorkloadMode.SPSA, penta=(0, 0, 1200, 0, 0), target=None, updated=at(120))
-        row = running_row_timing(workload, self.steady, at(120))
+        row = present(running_row_timing(workload, self.steady, at(120)))
         self.assertEqual((row.kind, row.text, row.rate), (RowTimingKind.RATE_ONLY, None, '1,200 games/h'))
 
     def test_a_young_workload_measures_its_whole_life(self) -> None:
         young = SnapshotMarks(first=(at(0), 0), window_before=None, window_after=(at(0), 0), latest=(at(4), 40))
-        row = running_row_timing(facts(penta=(0, 0, 50, 0, 0), updated=at(10)), young, at(10))
+        row = present(running_row_timing(facts(penta=(0, 0, 50, 0, 0), updated=at(10)), young, at(10)))
         self.assertEqual((row.rate, row.rate_window), ('600 games/h', 'last 10m'))
 
     def test_nothing_to_say(self) -> None:
@@ -203,7 +204,7 @@ class ListingTimingTests(TestCase):
         self.client.force_login(self.author)
         self.now = timezone.now()
 
-    def workload(self, snapshots: Sequence[Mark], created: datetime, **fields: object) -> Test:
+    def workload(self, snapshots: Sequence[Mark], created: datetime, **fields: Any) -> Test:
         test = create_test(self.author, **fields)
         WorkloadSnapshot.objects.bulk_create(
             WorkloadSnapshot(test=test, created=moment, games=games) for moment, games in snapshots
@@ -244,7 +245,8 @@ class ListingTimingTests(TestCase):
         marks = timeline_marks(listed.creation, (listed.updated, listed.games), annotated_snapshots(listed).marks())
         timing, eta = timing_and_eta(workload_facts(listed), marks, self.now)
         self.assertEqual((timing, eta), (insights.timing, insights.eta))
-        self.assertEqual(listing_row_timing(listed).text, f'{format_duration(insights.eta.remaining_seconds)} left')
+        remaining = present(insights.eta.remaining_seconds)
+        self.assertEqual(present(listing_row_timing(listed)).text, f'{format_duration(remaining)} left')
 
     def test_finished_rows_took_from_first_snapshot_to_last_report(self) -> None:
         test = self.workload(
@@ -254,17 +256,17 @@ class ListingTimingTests(TestCase):
             passed=True,
             games=800,
         )
-        self.assertEqual(listing_row_timing(self.listed(test)).text, 'took 5h 12m')
+        self.assertEqual(present(listing_row_timing(self.listed(test))).text, 'took 5h 12m')
 
     def test_stopped_rows_end_at_their_last_report(self) -> None:
         test = self.workload(
             [(self.minutes_ago(400), 0), (self.minutes_ago(88), 800)], self.minutes_ago(500), finished=True, games=800
         )
-        self.assertEqual(listing_row_timing(self.listed(test)).text, 'took 5h 12m')
+        self.assertEqual(present(listing_row_timing(self.listed(test))).text, 'took 5h 12m')
 
     def test_finished_rows_without_history_start_at_creation(self) -> None:
         test = self.workload([], self.minutes_ago(90), finished=True, games=100)
-        self.assertEqual(listing_row_timing(self.listed(test)).text, 'took 1h 30m')
+        self.assertEqual(present(listing_row_timing(self.listed(test))).text, 'took 1h 30m')
 
     def test_pending_rows_and_bare_tests_show_nothing(self) -> None:
         pending = self.workload(self.steady(10, 1), self.minutes_ago(10), approved=False)

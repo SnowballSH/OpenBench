@@ -16,7 +16,14 @@ from OpenBench.insights.recorder import (
     thinned_ids,
 )
 from OpenBench.models import Result, Test, WorkloadSnapshot
-from OpenBench.tests.fixtures import create_engine_config, create_test, create_user, ensure_book, register_payload
+from OpenBench.tests.fixtures import (
+    create_engine_config,
+    create_test,
+    create_user,
+    ensure_book,
+    present,
+    register_payload,
+)
 
 T0 = datetime(2026, 9, 1, tzinfo=UTC)
 
@@ -72,7 +79,7 @@ class RecorderTests(TestCase):
         self.assertIsNone(record_snapshot(self.test, 10, at(30)))
         self.assertIsNotNone(record_snapshot(self.test, 10, at(0) + SNAPSHOT_INTERVAL))
 
-        snapshot = WorkloadSnapshot.objects.order_by('created').first()
+        snapshot = present(WorkloadSnapshot.objects.order_by('created').first())
         self.assertEqual((snapshot.games, snapshot.LL, snapshot.DD, snapshot.WW, snapshot.llr), (10, 1, 3, 1, 0.25))
         self.assertEqual(WorkloadSnapshot.objects.count(), 2)
 

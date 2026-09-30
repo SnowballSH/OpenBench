@@ -1,6 +1,8 @@
 import math
+from collections.abc import Sequence
 
 import numpy as np
+import numpy.typing as npt
 from django.test import SimpleTestCase
 from scipy import optimize
 
@@ -20,32 +22,44 @@ R5 = (39, 8843, 26675, 9240, 44)
 DEGENERATE_PENTA = [(0, 0, 0, 0, 0), (100, 0, 0, 0, 0), (0, 0, 100, 0, 0), (0, 0, 0, 0, 100), (1, 0, 0, 0, 1)]
 
 
-def constrained_mle(pdfhat: np.ndarray, t: float) -> np.ndarray:
+type Distribution = npt.NDArray[np.float64]
+
+
+def constrained_mle(pdfhat: Distribution, t: float) -> Distribution:
 
     # The distribution on the five pair outcomes that maximises the likelihood
     # of pdfhat, subject to having t-value t, found by a generic optimiser
     points = np.linspace(0, 1, 5)
 
-    def t_value(q):
+    def t_value(q: Distribution) -> float:
         mean = q @ points
-        return (mean - 0.5) / math.sqrt(q @ (points - mean) ** 2)
+        return float((mean - 0.5) / math.sqrt(q @ (points - mean) ** 2))
+
+    def negative_log_likelihood(q: Distribution) -> float:
+        return float(-(pdfhat @ np.log(q)))
+
+    def total_minus_one(q: Distribution) -> float:
+        return float(q.sum() - 1)
+
+    def t_value_offset(q: Distribution) -> float:
+        return t_value(q) - t
 
     solution = optimize.minimize(
-        lambda q: -(pdfhat @ np.log(q)),
+        negative_log_likelihood,
         np.full(5, 0.2),
         method='SLSQP',
         bounds=[(1e-12, 1)] * 5,
-        constraints=[{'type': 'eq', 'fun': lambda q: q.sum() - 1}, {'type': 'eq', 'fun': lambda q: t_value(q) - t}],
+        constraints=[{'type': 'eq', 'fun': total_minus_one}, {'type': 'eq', 'fun': t_value_offset}],
         options={'ftol': 1e-15, 'maxiter': 1000},
     )
     return solution.x
 
 
-def reference_penta_llr(results, elo0: float, elo1: float) -> float:
+def reference_penta_llr(results: Sequence[int], elo0: float, elo1: float) -> float:
     counts = np.maximum(1e-3, np.array(results, dtype=float))
     pdfhat = counts / counts.sum()
     t0, t1 = (elo / (800 / math.log(10)) * math.sqrt(2) for elo in (elo0, elo1))
-    return counts.sum() * (pdfhat @ (np.log(constrained_mle(pdfhat, t1)) - np.log(constrained_mle(pdfhat, t0))))
+    return float(counts.sum() * (pdfhat @ (np.log(constrained_mle(pdfhat, t1)) - np.log(constrained_mle(pdfhat, t0)))))
 
 
 class PentanomialTests(SimpleTestCase):

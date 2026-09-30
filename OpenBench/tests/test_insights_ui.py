@@ -7,6 +7,7 @@ from OpenBench.tests.fixtures import (
     create_test,
     create_user,
     ensure_book,
+    present,
 )
 
 
@@ -17,14 +18,14 @@ class WorkloadProgressTests(TestCase):
         self.author = create_user('author')
 
     def test_sprt_is_the_llr_position_between_the_bounds(self):
-        progress = workload_progress(create_test(self.author, test_mode='SPRT', currentllr=1.47))
+        progress = present(workload_progress(create_test(self.author, test_mode='SPRT', currentllr=1.47)))
         self.assertEqual(progress.kind, 'llr')
         self.assertAlmostEqual(progress.fraction, 0.75)
         self.assertEqual(progress.label, 'LLR 1.47 between bounds -2.94 and 2.94')
 
     def test_sprt_position_is_clamped_to_the_bounds(self):
-        self.assertEqual(workload_progress(create_test(self.author, currentllr=3.1)).fraction, 1.0)
-        self.assertEqual(workload_progress(create_test(self.author, currentllr=-3.1)).fraction, 0.0)
+        self.assertEqual(present(workload_progress(create_test(self.author, currentllr=3.1))).fraction, 1.0)
+        self.assertEqual(present(workload_progress(create_test(self.author, currentllr=-3.1))).fraction, 0.0)
 
     def test_sprt_without_bounds_has_no_progress(self):
         self.assertIsNone(workload_progress(create_test(self.author, lowerllr=0.0, upperllr=0.0)))
@@ -35,7 +36,7 @@ class WorkloadProgressTests(TestCase):
             self.assertEqual(progress, RowProgress('games', 0.2, '800 of 4,000 games (20%)'))
 
     def test_games_fraction_is_capped(self):
-        progress = workload_progress(create_test(self.author, test_mode='GAMES', games=4100, max_games=4000))
+        progress = present(workload_progress(create_test(self.author, test_mode='GAMES', games=4100, max_games=4000)))
         self.assertEqual(progress.fraction, 1.0)
 
     def test_games_without_a_target_and_spsa_have_no_progress(self):

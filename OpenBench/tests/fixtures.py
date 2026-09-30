@@ -1,20 +1,28 @@
 import json
+from collections.abc import Iterable
+from typing import Any
 
 from django.contrib.auth.models import User
 
-from OpenBench.config import OPENBENCH_CONFIG
 from OpenBench.models import Book, Engine, EngineConfig, Profile, Test
+from OpenBench.upstream import openbench_config
 
 PASSWORD = 'correct-horse-battery-staple'
 
 
-def create_user(username, enabled=True, approver=False):
+def present[T](value: T | None) -> T:
+    if value is None:
+        raise AssertionError('expected a value, got None')
+    return value
+
+
+def create_user(username: str, enabled: bool = True, approver: bool = False) -> User:
     user = User.objects.create_user(username, '', PASSWORD)
     Profile.objects.create(user=user, enabled=enabled, approver=approver)
     return user
 
 
-def create_engine_config(name='Avalanche', cpuflags='AVX2'):
+def create_engine_config(name: str = 'Avalanche', cpuflags: str = 'AVX2') -> EngineConfig:
     return EngineConfig.objects.create(
         name=name,
         nps=1000000,
@@ -27,13 +35,13 @@ def create_engine_config(name='Avalanche', cpuflags='AVX2'):
     )
 
 
-def ensure_book():
+def ensure_book() -> Book:
     return Book.objects.get_or_create(
         name='UHO_Lichess_4852_v1.epd', defaults={'source': 'https://example.invalid/book.zip', 'sha': '0' * 64}
     )[0]
 
 
-def create_test(author, engine='Avalanche', threads=1, priority=0, **fields):
+def create_test(author: User, engine: str = 'Avalanche', threads: int = 1, priority: int = 0, **fields: Any) -> Test:
     dev = Engine.objects.create(name='dev', source='https://github.com/SnowballSH/Avalanche', sha='a' * 40, bench=1)
     base = Engine.objects.create(name='base', source='https://github.com/SnowballSH/Avalanche', sha='b' * 40, bench=1)
     options = f'Threads={threads} Hash=16'
@@ -65,8 +73,14 @@ def create_test(author, engine='Avalanche', threads=1, priority=0, **fields):
     )
 
 
-def system_info(concurrency=4, physical_cores=4, cpu_flags=('AVX2',), engines=('Avalanche',), **overrides):
-    info = {
+def system_info(
+    concurrency: int = 4,
+    physical_cores: int = 4,
+    cpu_flags: Iterable[str] = ('AVX2',),
+    engines: Iterable[str] = ('Avalanche',),
+    **overrides: Any,
+) -> dict[str, Any]:
+    info: dict[str, Any] = {
         'compilers': {name: ['zig', '0.16.0'] for name in engines},
         'tokens': {},
         'cpu_flags': list(cpu_flags),
@@ -78,15 +92,15 @@ def system_info(concurrency=4, physical_cores=4, cpu_flags=('AVX2',), engines=('
         'sockets': 1,
         'syzygy_max': 2,
         'noisy': False,
-        'client_ver': OPENBENCH_CONFIG['client_version'],
+        'client_ver': openbench_config()['client_version'],
     }
     info.update(overrides)
     return info
 
 
-def credentials(user):
+def credentials(user: User) -> dict[str, str]:
     return {'username': user.username, 'password': PASSWORD}
 
 
-def register_payload(user, **info):
+def register_payload(user: User, **info: Any) -> dict[str, str]:
     return {**credentials(user), 'system_info': json.dumps(system_info(**info))}

@@ -1,4 +1,5 @@
 import json
+from typing import Any
 
 from django.test import TestCase
 
@@ -54,7 +55,7 @@ class ApiActiveTests(TestCase):
 
     def test_agrees_with_assignment_across_machines(self):
         create_test(self.admin, threads=4)
-        machines = [
+        machines: list[dict[str, Any]] = [
             {'concurrency': 1, 'physical_cores': 1},
             {'concurrency': 4, 'physical_cores': 4},
             {'concurrency': 4, 'physical_cores': 4, 'cpu_flags': ()},

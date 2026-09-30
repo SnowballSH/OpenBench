@@ -31,6 +31,7 @@ from OpenBench.tests.fixtures import (
     create_user,
     credentials,
     ensure_book,
+    present,
     system_info,
 )
 
@@ -68,7 +69,7 @@ class WindowParsingTests(SimpleTestCase):
         self.assertIsNone(analysis.parse_engine(None))
         self.assertIsNone(analysis.parse_engine('   '))
         self.assertEqual(analysis.parse_engine(' Avalanche '), 'Avalanche')
-        self.assertEqual(len(analysis.parse_engine('x' * 500)), 64)
+        self.assertEqual(len(present(analysis.parse_engine('x' * 500))), 64)
 
     def test_scopes_start_at_utc_midnight(self):
         scope = analysis.make_scope(Window.DAYS_30, None, NOW)
@@ -90,7 +91,7 @@ class AnalysisTests(SimpleTestCase):
         expected = [Elo(PENTA)[1], Elo(PENTA)[1] + Elo(STRONG)[1]]
         for green, total in zip(greens, expected, strict=True):
             self.assertAlmostEqual(green.cumulative_elo, total)
-        self.assertAlmostEqual(greens[0].elo.lower, Elo(PENTA)[0])
+        self.assertAlmostEqual(present(greens[0].elo).lower, Elo(PENTA)[0])
 
     def test_greens_without_an_estimate_add_nothing(self):
         greens = analysis.green_tests([green_row(1, NOW, (0, 0, 1, 0, 0)), green_row(2, NOW, PENTA)])
@@ -150,7 +151,7 @@ class AnalysisTests(SimpleTestCase):
         top = analysis.top_contributors(games)
         self.assertEqual(len(top), 10)
         self.assertEqual(top[0].username, 'user-00')
-        self.assertAlmostEqual(top[0].share, 100 / sum(games.values()))
+        self.assertAlmostEqual(present(top[0].share), 100 / sum(games.values()))
 
         authors = analysis.top_authors({'b': 2, 'a': 2, 'c': 5})
         self.assertEqual([author.username for author in authors], ['c', 'a', 'b'])

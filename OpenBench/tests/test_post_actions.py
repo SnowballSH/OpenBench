@@ -2,6 +2,7 @@ import importlib.util
 import os
 import re
 import tempfile
+from typing import Any, ClassVar
 from unittest import mock
 
 from django.core.cache import cache
@@ -15,13 +16,14 @@ from OpenBench.tests.fixtures import (
     create_user,
     credentials,
     ensure_book,
+    present,
 )
 from OpenSite.settings import BASE_DIR
 
 CSRF_INPUT = re.compile(r'<input [^>]*name="csrfmiddlewaretoken" value="([^"]+)"')
 
 
-class CsrfClientMixin:
+class CsrfTestCase(TestCase):
     def csrf_client(self, user):
         client = self.client_class(enforce_csrf_checks=True)
         client.force_login(user)
@@ -30,11 +32,11 @@ class CsrfClientMixin:
     def form_token(self, client, page):
         content = client.get(page).content.decode()
         self.assertRegex(content, CSRF_INPUT)
-        return CSRF_INPUT.search(content).group(1)
+        return present(CSRF_INPUT.search(content)).group(1)
 
 
-class WorkloadActionTests(CsrfClientMixin, TestCase):
-    STATES = {
+class WorkloadActionTests(CsrfTestCase):
+    STATES: ClassVar[dict[str, tuple[dict[str, Any], str, bool]]] = {
         'APPROVE': ({'approved': False}, 'approved', True),
         'RESTART': ({'finished': True}, 'finished', False),
         'STOP': ({'finished': False}, 'finished', True),
@@ -116,7 +118,7 @@ class WorkloadActionTests(CsrfClientMixin, TestCase):
         self.assertIn('data-confirm="Delete this Workload?"', content)
 
 
-class NetworkActionTests(CsrfClientMixin, TestCase):
+class NetworkActionTests(CsrfTestCase):
     def setUp(self):
         cache.clear()
         self.addCleanup(cache.clear)
@@ -197,17 +199,17 @@ class NetworkActionTests(CsrfClientMixin, TestCase):
 
             self.client.force_login(self.approver)
             response = self.client.get('/networks/Avalanche/DOWNLOAD/BBBBBBBB/')
-            self.assertEqual(b''.join(response.streaming_content), b'weights')
+            self.assertEqual(response.getvalue(), b'weights')
 
             self.client.logout()
             response = self.client.post(
                 '/clientGetNetwork/Avalanche/new/',
                 credentials(create_user('lab-worker')),
             )
-            self.assertEqual(b''.join(response.streaming_content), b'weights')
+            self.assertEqual(response.getvalue(), b'weights')
 
 
-class ManageActionTests(CsrfClientMixin, TestCase):
+class ManageActionTests(CsrfTestCase):
     def setUp(self):
         self.manager = create_user('manager')
         Profile.objects.filter(user=self.manager).update(superuser=True)
@@ -276,7 +278,7 @@ class ManageGetRefusalTests(TestCase):
         self.assertEqual(EngineConfig.objects.get(id=self.engine.id).nps, 1000000)
 
 
-class NetworkUploadAndEditTests(CsrfClientMixin, TestCase):
+class NetworkUploadAndEditTests(CsrfTestCase):
     def setUp(self):
         cache.clear()
         self.addCleanup(cache.clear)
@@ -362,9 +364,9 @@ class UploadScriptBannerTests(TestCase):
         cache.clear()
         self.addCleanup(cache.clear)
         path = os.path.join(BASE_DIR, 'Scripts', 'upload_net.py')
-        spec = importlib.util.spec_from_file_location('upload_net', path)
+        spec = present(importlib.util.spec_from_file_location('upload_net', path))
         self.script = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(self.script)
+        present(spec.loader).exec_module(self.script)
 
     def test_banners_are_read_from_a_rendered_page(self):
         response = self.client.post(
@@ -376,7 +378,7 @@ class UploadScriptBannerTests(TestCase):
         self.assertEqual(banners.get('error-message'), 'Unable to authenticate user')
 
 
-class ApiNetworkDeleteSessionTests(CsrfClientMixin, TestCase):
+class ApiNetworkDeleteSessionTests(CsrfTestCase):
     def setUp(self):
         create_engine_config()
         self.approver = create_user('admin', approver=True)

@@ -18,6 +18,7 @@ from OpenBench.tests.fixtures import (
     create_test,
     create_user,
     ensure_book,
+    present,
 )
 from OpenBench.tests.test_create_workload import (
     github_commit,
@@ -130,7 +131,7 @@ def prefill_payload(response):
         response.content.decode(),
         re.DOTALL,
     )
-    return json.loads(match.group(1))
+    return json.loads(present(match).group(1))
 
 
 class CloneFieldsTests(TestCase):

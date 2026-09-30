@@ -8,10 +8,11 @@ from django.conf import settings
 from django.contrib.sessions.middleware import SessionMiddleware
 from django.core.cache import cache
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.http import HttpResponse
 from django.test import RequestFactory, TestCase, override_settings
 
 import OpenBench.views
-from OpenBench.config import OPENBENCH_CONFIG, verify_general_config
+from OpenBench.config import verify_general_config
 from OpenBench.models import PGN, LogEvent, Machine, Network, Result, Test
 from OpenBench.security import throttle
 from OpenBench.tests.fixtures import (
@@ -23,6 +24,7 @@ from OpenBench.tests.fixtures import (
     ensure_book,
     register_payload,
 )
+from OpenBench.upstream import openbench_config
 
 
 def clear_throttle(test_case):
@@ -96,7 +98,7 @@ class RegistrationTests(TestCase):
         self.assertFalse(OpenBench.views.User.objects.filter(username='intruder').exists())
 
     def test_open_registration_still_logs_the_new_user_in(self):
-        with mock.patch.dict(OPENBENCH_CONFIG, {'require_manual_registration': False}):
+        with mock.patch.dict(openbench_config(), {'require_manual_registration': False}):
             response = self.client.post(
                 '/register/',
                 {
@@ -423,15 +425,15 @@ class ClientAddressTests(TestCase):
 
 class GeneralConfigTests(TestCase):
     def test_shipped_config_is_valid(self):
-        verify_general_config(copy.deepcopy(OPENBENCH_CONFIG))
+        verify_general_config(copy.deepcopy(openbench_config()))
 
     def test_wrong_types_are_rejected(self):
         for key, value in [('client_version', '50'), ('client_repo_url', 1), ('require_login_to_view', 'true')]:
             with self.subTest(key=key), self.assertRaises(AssertionError):
-                verify_general_config({**OPENBENCH_CONFIG, key: value})
+                verify_general_config({**openbench_config(), key: value})
 
     def test_missing_keys_are_rejected(self):
-        config = {**OPENBENCH_CONFIG}
+        config = {**openbench_config()}
         del config['require_manual_registration']
         with self.assertRaises(AssertionError):
             verify_general_config(config)
@@ -440,7 +442,7 @@ class GeneralConfigTests(TestCase):
 class ViewHelperTests(TestCase):
     def test_render_keeps_the_warning_text(self):
         request = RequestFactory().get('/login/')
-        SessionMiddleware(lambda request: None).process_request(request)
+        SessionMiddleware(lambda request: HttpResponse()).process_request(request)
         request.user = mock.Mock(is_authenticated=False)
 
         content = OpenBench.views.render(request, 'login.html', always_allow=True, warning='Heads up').content.decode()

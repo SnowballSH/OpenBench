@@ -11,6 +11,7 @@ from OpenBench.tests.fixtures import (
     create_user,
     credentials,
     ensure_book,
+    present,
 )
 from OpenBench.tests.test_create_workload import (
     github_commit,
@@ -22,7 +23,7 @@ from OpenBench.tests.test_create_workload import (
 
 def session_error(client) -> str | None:
     session = client.session
-    error = session.pop('error_message', None)
+    error: str | None = session.pop('error_message', None)
     session.save()
     return error
 
@@ -133,7 +134,7 @@ class ScriptsUploadNetworkFormTests(TestCase):
             with self.subTest(field=field):
                 response = self.upload(self.approver, **{field: None})
                 self.assertRedirects(response, '/networks/', fetch_redirect_response=False)
-                self.assertIn(field, session_error(self.client))
+                self.assertIn(field, present(session_error(self.client)))
                 self.assertFalse(Network.objects.exists())
 
     def test_non_approver_is_told_why(self):
@@ -154,5 +155,5 @@ class WebsiteUploadWithoutFileTests(TestCase):
         self.client.force_login(create_user('approver', approver=True))
         response = self.client.post('/networks/Avalanche/UPLOAD/r1/')
         self.assertRedirects(response, '/networks/', fetch_redirect_response=False)
-        self.assertIn('netfile', session_error(self.client))
+        self.assertIn('netfile', present(session_error(self.client)))
         self.assertFalse(Network.objects.exists())
