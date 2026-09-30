@@ -6,17 +6,27 @@
 
     <head>
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <meta name="color-scheme" content="dark light">
+
+        <script>
+            try {
+                const theme = localStorage.getItem('openbench-theme');
+                if (theme === 'light' || theme === 'dark')
+                    document.documentElement.dataset.theme = theme;
+            } catch (err) {}
+        </script>
 
         <link rel="icon" type="image/svg+xml" href="{% static 'logo.svg' %}?{{ static_version }}">
-        <link rel="stylesheet" href="{% static 'style.css' %}?{{ static_version }}">
-        <link rel="stylesheet" href="{% static 'base.css' %}?{{ static_version }}">
-        <link rel="stylesheet" href="{% static 'form.css' %}?{{ static_version }}">
-        <link rel="stylesheet" href="{% static 'paging.css' %}?{{ static_version }}">
+
+        <link rel="preconnect" href="https://fonts.googleapis.com">
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
 
         <link href='https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.2.0/css/all.min.css' rel='stylesheet'>
 
-        <link rel="preconnect" href="https://fonts.gstatic.com">
-        <link href="https://fonts.googleapis.com/css2?family=Courier+Prime&display=swap" rel="stylesheet">
+        <link rel="stylesheet" href="{% static 'style.css' %}?{{ static_version }}">
+
+        <script src="{% static 'site.js' %}?{{ static_version }}" defer></script>
 
         <title>{% block title %}OpenBench{% endblock %}</title>
 
@@ -184,30 +194,38 @@
         </div>
 
         <div id="content-parent">
-            <div id="content" class="pb-5">
-                <div id="content-header">
-                    <button id="sidebar-toggle" onclick="toggle_sidebar()">
-                        <i class="fa-solid fa-bars fa-fw"></i>
-                    </button>
-                    <h2>
-                        <a class="site-title" href="/">OpenBench&nbsp;Testing&nbsp;Framework</a>
-                    </h2>
-                </div>
+            <div id="content-header">
+                <button id="sidebar-toggle" class="icon-button" type="button" aria-label="Toggle navigation" aria-controls="sidebar" onclick="toggle_sidebar()">
+                    <i class="fa-solid fa-bars fa-fw" aria-hidden="true"></i>
+                </button>
+                <h2>
+                    <a class="site-title" href="/">
+                        <img class="site-logo" src="{% static 'logo.svg' %}?{{ static_version }}" alt="">
+                        <span>OpenBench <span class="site-title-sub">Testing Framework</span></span>
+                    </a>
+                </h2>
+                <button id="theme-toggle" class="icon-button" type="button" aria-label="Switch theme">
+                    <i class="fa-solid fa-sun theme-icon-light" aria-hidden="true"></i>
+                    <i class="fa-solid fa-moon theme-icon-dark" aria-hidden="true"></i>
+                </button>
+            </div>
+
+            <div id="content" class="pb-5 {% block content_class %}{% endblock %}">
 
                 {% if request.session.error_message %}
-                    <div class="error-message">
+                    <div class="error-message" role="alert">
                         <pre>{{request.session.error_message}}</pre>
                     </div>
                 {% endif %}
 
                 {% if request.session.warning_message %}
-                    <div class="warning-message">
+                    <div class="warning-message" role="status">
                         <pre>{{request.session.warning_message}}</pre>
                     </div>
                 {% endif %}
 
                 {% if request.session.status_message %}
-                    <div class="status-message">
+                    <div class="status-message" role="status">
                         <pre>{{request.session.status_message}}</pre>
                     </div>
                 {% endif %}

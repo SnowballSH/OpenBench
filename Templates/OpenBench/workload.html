@@ -21,30 +21,30 @@
 
     <div class="workload-container">
 
-    <div id="config" style="display: block; overflow-x: auto;">
-        <table class="test-config left-align wrappable" style="table-layout: auto; width: 100%;">
+    <div id="config" class="table-wrap">
+        <table class="test-config wrappable">
 
             <tr><td class="td-label">Author</td><td>{{workload.author|capfirst}}</td></tr>
             <tr><td class="td-label">Creation</td><td class="timestamp">{{workload.creation|date:'U'}}</td></tr>
 
             <!-- All of the Dev Engine ( or Sole Engine ) information -->
             <tr><td class="td-label">{{dev_text}} Source</td><td><a href="{{workload.dev_repo}}">{{workload.dev_repo}}</a></td></tr>
-            <tr><td class="td-label">{{dev_text}} Sha</td><td>{{workload.dev.sha}}</td></tr>
+            <tr><td class="td-label">{{dev_text}} Sha</td><td class="mono">{{workload.dev.sha}}</td></tr>
             <tr><td class="td-label">{{dev_text}} Branch</td><td class="branch_name">{{workload.dev.name|prettyName}}</td></tr>
-            <tr><td class="td-label">{{dev_text}} Bench</td><td>{{workload.dev.bench}}</td></tr>
-            <tr><td class="td-label">{{dev_text}} Network</td><td><a href="{{workload|network_download_link:'dev'}}">{{workload.dev_netname}}</td></tr>
-            <tr><td class="td-label">{{dev_text}} Options</td><td class="engine-options">{{workload.dev_options}}</td></tr>
-            <tr><td class="td-label">{{dev_text}} Time</td><td>{{workload.dev_time_control}}</td></tr>
+            <tr><td class="td-label">{{dev_text}} Bench</td><td class="mono">{{workload.dev.bench}}</td></tr>
+            <tr><td class="td-label">{{dev_text}} Network</td><td><a href="{{workload|network_download_link:'dev'}}">{{workload.dev_netname}}</a></td></tr>
+            <tr><td class="td-label">{{dev_text}} Options</td><td class="engine-options mono">{{workload.dev_options}}</td></tr>
+            <tr><td class="td-label">{{dev_text}} Time</td><td class="mono">{{workload.dev_time_control}}</td></tr>
 
             <!-- All of the Base Engine information, which only exists for TESTs -->
             {% if type == "TEST" or type == "DATAGEN" %}
                 <tr><td class="td-label">Base Source</td><td><a href="{{workload.base_repo}}">{{workload.base_repo}}</a></td></tr>
-                <tr><td class="td-label">Base Sha</td><td>{{workload.base.sha}}</td></tr>
+                <tr><td class="td-label">Base Sha</td><td class="mono">{{workload.base.sha}}</td></tr>
                 <tr><td class="td-label">Base Branch</td><td class="branch_name">{{workload.base.name|prettyName}}</td></tr>
-                <tr><td class="td-label">Base Bench</td><td>{{workload.base.bench}}</td></tr>
-                <tr><td class="td-label">Base Network</td><td><a href="{{workload|network_download_link:'base'}}">{{workload.base_netname}}</td></tr>
-                <tr><td class="td-label">Base Options</td><td class="engine-options">{{workload.base_options}}</td></tr>
-                <tr><td class="td-label">Base Time</td><td>{{workload.base_time_control}}</td></tr>
+                <tr><td class="td-label">Base Bench</td><td class="mono">{{workload.base.bench}}</td></tr>
+                <tr><td class="td-label">Base Network</td><td><a href="{{workload|network_download_link:'base'}}">{{workload.base_netname}}</a></td></tr>
+                <tr><td class="td-label">Base Options</td><td class="engine-options mono">{{workload.base_options}}</td></tr>
+                <tr><td class="td-label">Base Time</td><td class="mono">{{workload.base_time_control}}</td></tr>
             {% endif %}
 
             {% if workload|book_download_link %}
@@ -75,7 +75,7 @@
         </table>
     </div>
 
-    <div id="actions" class="ml-3">
+    <div id="actions">
 
         <!-- Dev vs Base [Git Diff Link] -->
         <h4><a href="{{workload|gitDiffLink}}">{{workload|git_diff_text}}</a></h4>
@@ -155,11 +155,11 @@
 
         <!-- Elo, (SPRT/LRR if SPRT, otherwise CONF), Games -->
         {% if type == "TEST" %}
-            <pre class="long-statblock" id="long-statblock">{{workload|longStatBlock|linebreaksbr}}</pre>
+            <pre class="long-statblock long-statblock-{{workload|testResultColour}}" id="long-statblock">{{workload|longStatBlock|linebreaksbr}}</pre>
         {% elif type == "TUNE" %}
-            <pre class="long-statblock" id="long-statblock">{{workload|shortStatBlock|linebreaksbr}}</pre>
+            <pre class="long-statblock long-statblock-{{workload|testResultColour}}" id="long-statblock">{{workload|shortStatBlock|linebreaksbr}}</pre>
         {% elif type == "DATAGEN" %}
-            <pre class="long-statblock" id="long-statblock">{{workload|longStatBlock|linebreaksbr}}</pre>
+            <pre class="long-statblock long-statblock-{{workload|testResultColour}}" id="long-statblock">{{workload|longStatBlock|linebreaksbr}}</pre>
         {% endif %}
 
         <!-- Forum to modify the Priority, Throughput, or (Tests only) Workload Size -->
@@ -203,7 +203,7 @@
 
     <!-- SPSA Paramater Summary, for Tunes -->
     {% if type == "TUNE" %}
-        <div id="parameters" class="w-100 mt-3" style="float:left;">
+        <div id="parameters" class="table-wrap">
             <table class="stripes wrappable">
                 <thead>
                     <tr class="table-header">
@@ -220,7 +220,7 @@
                 </thead>
                 <tbody id="spsa-digest-button-container">
                     <tr>
-                        <td colspan="9" style="padding: 0;">
+                        <td colspan="9">
                             <button class="w-100 anchorbutton btn-blue" type="submit" onclick="fetch_spsa_digest({{workload.id}})">Show SPSA Digest</button>
                         </td>
                     </tr>
@@ -233,27 +233,29 @@
     {% endif %}
 
     <!-- Aggregate pentanomial summary; fetched automatically on page load -->
-    <div id="summary-container" class="w-100 mt-3" style="float:left;"></div>
+    <div id="summary-container" class="table-wrap"></div>
 
-    <div id="results" class="w-100 mt-3" style="float:left;">
+    <div id="results">
+        <div class="table-wrap">
         <table class="stripes wrappable">
             <tr class="table-header">
                 <th>#</th>
                 <th>User</th>
-                <th style="width: 45px">Games</th>
+                <th class="numeric">Games</th>
                 <th>Penta</th>
-                <th style="width: 45px">Pairs</th>
-                <th style="width: 45px">Time</th>
-                <th style="width: 45px">Crash</th>
+                <th class="numeric">Pairs</th>
+                <th class="numeric">Time</th>
+                <th class="numeric">Crash</th>
             </tr>
 
             <tbody id="results-container">
                 <!-- Dynamically created -->
             </tbody>
         </table>
+        </div>
 
         <!-- Individual per-machine results are only ever fetched on demand -->
-        <button class="w-100 mt-1 anchorbutton btn-blue" type="submit" onclick="fetch_results({{workload.id}})">Fetch Individual Results</button>
+        <button class="w-100 anchorbutton btn-blue" type="submit" onclick="fetch_results({{workload.id}})">Fetch Individual Results</button>
     </div>
 
     </div>

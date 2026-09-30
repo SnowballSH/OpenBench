@@ -4,12 +4,13 @@
 
 {% block content %}
 
+    <div class="table-wrap">
     <table class="hoverable">
 
         <tr class="table-header">
             <th>Username</th>
-            <th>Games</th>
-            <th>Tests</th>
+            <th class="numeric">Games</th>
+            <th class="numeric">Tests</th>
             <th>Engine</th>
             <th>Created</th>
         </tr>
@@ -18,14 +19,15 @@
             {% if profile.games or profile.tests or profile.approver %}
                 <tr>
                     <td><a href="/user/{{profile.user.username}}">{{profile.user.username|capfirst}}</a></td>
-                    <td style="text-align: right">{{profile.games|insertCommas}}</td>
-                    <td style="text-align: right">{{profile.tests|insertCommas}}</td>
+                    <td class="numeric">{{profile.games|insertCommas}}</td>
+                    <td class="numeric">{{profile.tests|insertCommas}}</td>
                     <td>{{profile.engine}}</td>
-                    <td class="timestamp">{{profile.user.date_joined|date:'U'}}</td>
+                    <td class="timestamp muted">{{profile.user.date_joined|date:'U'}}</td>
                 </tr>
             {% endif %}
         {% endfor %}
 
     </table>
+    </div>
 
 {% endblock %}
