@@ -65,11 +65,10 @@ class AnonymousSessionTests(TestCase):
         self.assertFalse(Session.objects.exists())
         self.assertNotIn('sessionid', self.client.cookies)
 
-    def test_closed_registration_explains_itself_without_a_session(self):
+    def test_closed_registration_redirects_without_a_session(self):
         with mock.patch.dict(OPENBENCH_CONFIG, {'require_manual_registration': True}):
             response = self.client.get('/register/')
-        self.assertContains(response, 'Registration can only be done via an Administrator')
-        self.assertContains(response, 'action="/login/"')
+        self.assertRedirects(response, '/login/', fetch_redirect_response=False)
         self.assert_no_session()
 
     def test_scripts_get_redirects_without_a_session(self):

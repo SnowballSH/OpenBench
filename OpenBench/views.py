@@ -166,9 +166,9 @@ THROTTLED_MESSAGE = 'Too many failed logins. Try again later'
 
 def register(request):
 
-    # A GET renders the refusal, so the banner needs no session row
+    # A bare redirect for GETs, so an anonymous visit stores no session row
     if OPENBENCH_CONFIG['require_manual_registration'] and request.method == 'GET':
-        return render(request, 'login.html', always_allow=True, error=ERROR_MESSAGES['manual_registration'])
+        return redirect(request, '/login/')
 
     if OPENBENCH_CONFIG['require_manual_registration']:
         return redirect(request, '/login/', error=ERROR_MESSAGES['manual_registration'])

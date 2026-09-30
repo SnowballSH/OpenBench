@@ -71,9 +71,9 @@ refuses anonymous viewers as before.
 - Logout is `POST /logout/` with a CSRF token; the sidebar link submits that
   form. `GET /logout/` only redirects to the index and leaves the session alone.
 - `/register/` refuses both GET and POST while `require_manual_registration` is
-  set. A GET renders the login page with the refusal in its banner rather than
-  redirecting, so an anonymous visitor gets no session row; a POST redirects
-  to `/login/` with the same banner.
+  set. A GET is a bare redirect to `/login/`, with no banner, so an anonymous
+  visitor gets no session row; a POST redirects with the refusal in the
+  banner.
 - Every change made from the website is a CSRF-protected `POST`. That covers
   the Workload actions (`/test/<id>/APPROVE/`, `RESTART`, `STOP`, `DELETE`,
   `RESTORE` and `MODIFY`, and the same under `/tune/` and `/datagen/`), the
