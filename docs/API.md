@@ -17,7 +17,7 @@ The examples below were captured from a local server filled by
 - [Configuration](#configuration): `api/config/`, `api/config/<engine>/`, `api/buildinfo/`
 - [Networks](#networks): list, download, delete
 - [Workloads](#workloads): `api/workload/<id>/<query>/`, `api/spsa/<id>/<query>/`, `api/pgns/<id>/`
-- [Server](#server): `api/insights/server/`, `api/progress/`, `api/storage/`, `api/active/`
+- [Server](#server): `api/insights/server/`, `api/progress/`, `api/jump/`, `api/storage/`, `api/active/`
 - [`/scripts/`](#scripts): upload a network, create a test
 - [`/health/`](#health)
 - [Client worker endpoints](#client-worker-endpoints)
@@ -166,6 +166,7 @@ The read endpoints and `POST api/active/` change nothing and do not check CSRF.
 | GET, POST | `/api/pgns/<id>/` | view | The workload's PGN archive |
 | GET, POST | `/api/insights/server/` | view | Fleet and workload counters |
 | GET, POST | `/api/progress/?engine=&window=` | view | Engine progress over a time window |
+| GET, POST | `/api/jump/?q=` | view | Quick-jump suggestions |
 | GET, POST | `/api/storage/` | manager | Disk usage of the data directory |
 | POST | `/api/active/` | user | Workloads a described machine could be assigned |
 | POST | `/scripts/` | user / Approver | Upload a network or create a test (HTML) |
@@ -861,6 +862,34 @@ login is 401, an unknown `window` is 400 `{"error": ...}`, and an `engine`
 with no Engine configuration is 404 `{"error": ...}`. Reports are cached
 for 60 seconds per window and configured engine. The JSON schema, formulas and caveats are
 in [INSIGHTS.md](INSIGHTS.md#engine-progress).
+
+### `GET|POST /api/jump/?q=`
+
+Suggestions for the header's [quick jump](UI.md#quick-jump): at most eight
+places `q` could mean, best first. Direct hits lead (the workload with that
+id, a user or engine with exactly that name, a machine), then the newest
+workloads whose info, branch names or commit shas match every term of `q`,
+and last a link to the full search. `q` is read from the query string and
+capped at 100 characters; an empty or longer `q` gives an empty list. Every
+`url` is a path on this server. Authentication is the same as
+`api/insights/server/`.
+
+```json
+{
+    "suggestions": [
+        {
+            "label": "#6 Pawn static-eval correction history (corrhist-pawn), LTC confirmation of #5",
+            "detail": "76f2da3c vs 8c308d43 \u00b7 40.0+0.40",
+            "url": "/test/6/"
+        },
+        {
+            "label": "Search for \u201ccorrhist\u201d",
+            "detail": "Search",
+            "url": "/search/?q=corrhist"
+        }
+    ]
+}
+```
 
 ### `GET|POST /api/storage/`
 
