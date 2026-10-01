@@ -26,6 +26,8 @@ import django.contrib.auth
 
 import OpenBench.config
 import OpenBench.model_utils
+import OpenBench.navigation.catalogue
+import OpenBench.navigation.query
 import OpenBench.page_queries
 import OpenBench.spsa_utils
 import OpenBench.utils
@@ -344,6 +346,7 @@ def search(request, page=1):
     # Echo the submitted values back so the form stays populated for tweaking
 
     form = {
+        'q'             : params.get('q', ''),
         'keywords'      : params.get('keywords', ''),
         'info'          : params.get('info-contains', ''),
         'authors'       : params.get('authors', ''),
@@ -369,7 +372,16 @@ def search(request, page=1):
         error = 'Search at most %d %s' % (SEARCH_TERMS_LIMIT, ' and '.join(too_many))
         return render(request, 'search.html', { 'form' : form, 'books' : books }, error=error)
 
+    if len(form['q']) > OpenBench.navigation.query.MAX_QUERY_LENGTH:
+        error = 'Search at most %d characters of text' % (OpenBench.navigation.query.MAX_QUERY_LENGTH)
+        return render(request, 'search.html', { 'form' : form, 'books' : books }, error=error)
+
     tests  = Test.objects.all()
+
+    # Text matches the info, either branch name, or the start of either commit sha
+
+    if form['q'].strip():
+        tests = tests.filter(OpenBench.navigation.catalogue.text_filter(form['q']))
 
     # Optional field-based filters, defaulting to no restriction
 

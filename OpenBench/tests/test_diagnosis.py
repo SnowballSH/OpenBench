@@ -57,7 +57,8 @@ class ClientProtocolCase(TestCase):
         return {
             workload.id
             for workload in judge.fleet.active
-            if not judge.obstacles(workload, machine) and judge.standing(workload, machine).kind == StandingKind.NEXT
+            if not judge.obstacles(workload, machine)
+            and present(judge.standing(workload, machine)).kind == StandingKind.NEXT
         }
 
 

@@ -11,6 +11,8 @@ there first.
 | `/index/` (page 1), `/user/<name>/` | 9, plus 6 when an active row has no rate, plus 1 when a stopped workload is listed |
 | `/index/<n>/`, `/greens/` | 6, plus 1 when a stopped workload is listed |
 | `/search/` | 7 |
+| `/go/?q=` (the header's quick jump; the header itself adds none) | 3 to 6 |
+| `/api/jump/?q=` | at most 7 |
 | `/events/`, `/errors/` | 7 |
 | `/networks/` | 5 |
 | `/test/<id>/` | 10, 11 for a stopped workload, 16 for an active one |

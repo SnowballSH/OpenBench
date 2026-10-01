@@ -357,7 +357,7 @@ register.filter('listing_timing', OpenBench.page_queries.listing_row_timing)
 register.filter('row_reason', OpenBench.diagnosis.listing.row_reason)
 register.filter('listing_moment', OpenBench.listing_rows.listing_moment)
 register.filter('workload_label', workload_label)
-register.filter('short_name', OpenBench.listing_rows.short_name)
+register.filter('short_name', OpenBench.workload_names.short_name)
 
 
 @register.filter
