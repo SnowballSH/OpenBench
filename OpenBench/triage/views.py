@@ -90,11 +90,11 @@ def raw_log(found: LogEvent | None) -> FileResponse | None:
 
 
 @require_safe
-def event_raw(request: HttpRequest, pk: str) -> HttpResponse | FileResponse:
+def event_raw(request: HttpRequest, pk: int) -> HttpResponse | FileResponse:
     if viewer_refused(request):
         return upstream.redirect(request, '/login/', error=upstream.error_message('requires_login'))
 
-    return raw_log(error_event(int(pk))) or upstream.redirect(request, '/errors/', error=NO_LOG)
+    return raw_log(error_event(pk)) or upstream.redirect(request, '/errors/', error=NO_LOG)
 
 
 @csrf_exempt

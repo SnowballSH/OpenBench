@@ -4,6 +4,7 @@ from enum import StrEnum
 
 from OpenBench.models import Test
 from OpenBench.triage.kinds import Signature
+from OpenBench.triage.query import events_query
 
 
 class Standing(StrEnum):
@@ -88,10 +89,6 @@ class GroupRow:
     def log_event_id(self) -> int | None:
         return self.group.latest_log_event_id
 
-
-@dataclass(frozen=True, slots=True)
-class GroupPage:
-    rows: tuple[GroupRow, ...]
-    total: int
-    truncated: bool
-    as_of: datetime
+    @property
+    def events_querystring(self) -> str:
+        return events_query(self.group.test_id, self.group.summaries).querystring

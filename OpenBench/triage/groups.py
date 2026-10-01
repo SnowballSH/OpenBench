@@ -3,7 +3,7 @@ from collections.abc import Iterable, Sequence
 from dataclasses import replace
 from datetime import datetime
 from functools import lru_cache
-from typing import Any
+from typing import TypedDict
 
 from django.db.models import CharField, Count, Max, Min, Q, QuerySet, Value
 from django.db.models.fields.json import KT
@@ -30,8 +30,19 @@ from OpenBench.triage.query import ErrorQuery
 RAW_GROUP_LIMIT = 500
 MACHINE_SAMPLE = 900
 BINARY_SHA_LENGTH = 8
-# logs.log_name, in SQL: the only file name an event's log is ever read from
 STORED_LOG_NAME = Concat(Value('event'), Cast('id', CharField()), Value('.log'))
+
+
+class SummaryRow(TypedDict):
+    test_id: int
+    summary: str
+    count: int
+    registrations: int
+    first_seen: datetime
+    last_seen: datetime
+    latest_event_id: int
+    latest_log_event_id: int | None
+
 
 type GroupKey = tuple[int, tuple[str, str, str]]
 type MachineFacts = tuple[str, str | None, str | None]
@@ -49,10 +60,12 @@ def error_events(query: ErrorQuery) -> QuerySet[LogEvent]:
         events = events.filter(test_id=query.workload)
     if kinds := query.kinds:
         events = events.filter(kind_condition(kinds))
+    if query.summaries:
+        events = events.filter(summary__in=query.summaries)
     return events
 
 
-def summary_rows(events: QuerySet[LogEvent]) -> list[dict[str, Any]]:
+def summary_rows(events: QuerySet[LogEvent]) -> list[SummaryRow]:
     grouped = events.values('test_id', 'summary').annotate(
         count=Count('id'),
         registrations=Count('machine_id', distinct=True),
@@ -61,10 +74,10 @@ def summary_rows(events: QuerySet[LogEvent]) -> list[dict[str, Any]]:
         latest_event_id=Max('id'),
         latest_log_event_id=Max('id', filter=Q(log_file=STORED_LOG_NAME)),
     )
-    return [dict(row) for row in grouped.order_by('-last_seen', '-latest_event_id')[: RAW_GROUP_LIMIT + 1]]
+    return [SummaryRow(**row) for row in grouped.order_by('-last_seen', '-latest_event_id')[: RAW_GROUP_LIMIT + 1]]
 
 
-def group_of(row: dict[str, Any]) -> ErrorGroup:
+def group_of(row: SummaryRow) -> ErrorGroup:
     found = cached_signature(row['summary'])
     return ErrorGroup(
         test_id=row['test_id'],
@@ -98,7 +111,7 @@ def merged(a: ErrorGroup, b: ErrorGroup) -> ErrorGroup:
     )
 
 
-def merge_groups(rows: Iterable[dict[str, Any]]) -> list[ErrorGroup]:
+def merge_groups(rows: Iterable[SummaryRow]) -> list[ErrorGroup]:
 
     groups: dict[GroupKey, ErrorGroup] = {}
     for row in rows:
@@ -131,7 +144,6 @@ def verdict(group: ErrorGroup, test: Test | None, latest_result: datetime | None
     if now - group.last_seen <= RECENT_WINDOW:
         return Verdict(Standing.HAPPENING, 'seen in the last 10 minutes')
 
-    # The workload diagnosis reads an error the same way: a result reported after it has answered it
     if latest_result is not None and latest_result > group.last_seen:
         return Verdict(Standing.RESOLVED, 'results arrived since')
 
@@ -140,7 +152,6 @@ def verdict(group: ErrorGroup, test: Test | None, latest_result: datetime | None
 
 def expected_bench(subject: str, test: Test) -> int | None:
 
-    # The Client names a binary <engine>-<first eight of the sha, upper case>[-<network>]
     for engine_name, engine in ((test.dev_engine, test.dev), (test.base_engine, test.base)):
         if subject.startswith(f'{engine_name}-{engine.sha.upper()[:BINARY_SHA_LENGTH]}'):
             return int(engine.bench)
@@ -176,12 +187,17 @@ def load_machine_facts(ids: set[int]) -> dict[int, MachineFacts]:
     return {machine_id: (host, name, cpu) for machine_id, host, name, cpu in machines}
 
 
-def affected(registrations: int, machine_ids: set[int], facts: dict[int, MachineFacts], sampled: bool) -> Affected:
+def distinct_registrations(group: ErrorGroup, machine_ids: set[int], sampled: bool) -> int:
+    counted_once = len(group.summaries) == 1 or sampled
+    return group.registrations if counted_once else len(machine_ids)
+
+
+def affected(group: ErrorGroup, machine_ids: set[int], facts: dict[int, MachineFacts], sampled: bool) -> Affected:
 
     known = {facts[machine_id] for machine_id in machine_ids if machine_id in facts}
     pools = Counter((pool_label(name, cpu), cpu or UNKNOWN) for _, name, cpu in known)
     return Affected(
-        registrations=registrations,
+        registrations=distinct_registrations(group, machine_ids, sampled),
         hosts=len(known),
         pools=tuple(PoolCount(label, cpu, hosts) for (label, cpu), hosts in pools.most_common()),
         pruned=sum(machine_id not in facts for machine_id in machine_ids),
@@ -205,9 +221,7 @@ def with_affected(rows: Sequence[GroupRow], events: QuerySet[LogEvent]) -> tuple
     return tuple(
         replace(
             row,
-            affected=affected(
-                row.group.registrations, reporters[row.group.test_id, row.group.signature.key], facts, sampled
-            ),
+            affected=affected(row.group, reporters[row.group.test_id, row.group.signature.key], facts, sampled),
         )
         for row in rows
     )

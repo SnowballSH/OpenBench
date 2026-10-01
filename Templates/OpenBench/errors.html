@@ -33,6 +33,10 @@
         <p class="muted">Showing workload #{{query.workload}} only. <a href="/errors/{{query.without_workload.querystring}}">Show every workload</a></p>
     {% endif %}
 
+    {% if query.summaries %}
+        <p class="muted">Showing {{query.summaries|length}} chosen summar{{query.summaries|length|pluralize:"y,ies"}} only. <a href="/errors/{{query.without_summaries.querystring}}">Show every summary</a></p>
+    {% endif %}
+
     {% if query.is_list %}
 
         {% if events %}
@@ -56,7 +60,7 @@
                     <td>{{row.event.author|capfirst}}</td>
                     <td>{% include "OpenBench/Blocks/event_workload.html" with workload=row.workload test_id=row.event.test_id primary=row.has_log|yesno:",1" %}</td>
                     <td><span class="badge">{{row.signature.kind.label}}</span></td>
-                    <td class="triage-summary">{{row.event.summary}}</td>
+                    <td class="triage-summary">{{row.event.summary|truncatechars:160}}</td>
                     <td>{% if row.has_log %}<a class="row-link" href="/event/{{row.event.id}}/">View<span class="visually-hidden"> log of error {{row.event.id}}</span></a>{% else %}<a href="/event/{{row.event.id}}/">Details<span class="visually-hidden"> of error {{row.event.id}}</span></a>{% endif %}</td>
                 </tr>
             {% endfor %}
@@ -96,7 +100,7 @@
                         {% if row.bench %}<div class="row-meta mono">{% include "OpenBench/Blocks/bench_mismatch.html" with bench=row.bench %}</div>{% endif %}
                     </td>
                     <td class="triage-workload">{% include "OpenBench/Blocks/event_workload.html" with workload=row.workload test_id=row.group.test_id primary=row.log_event_id|yesno:",1" %}</td>
-                    <td class="numeric"><a href="/errors/?workload={{row.group.test_id}}&amp;kind={{row.group.signature.kind.value}}&amp;view=list" title="List these events">&times;{{row.group.count|insertCommas}}<span class="visually-hidden"> events, listed</span></a></td>
+                    <td class="numeric"><a href="/errors/{{row.events_querystring}}" title="List these events">&times;{{row.group.count|insertCommas}}<span class="visually-hidden"> events, listed</span></a></td>
                     <td class="triage-hosts">
                         {% with affected=row.affected %}
                             {{affected.hosts|insertCommas}} host{{affected.hosts|pluralize}}{% if affected.sampled %}<span title="Counted over the newest 900 reporting registrations">+</span>{% endif %}

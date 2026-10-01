@@ -15,6 +15,10 @@ GENFENS_STALL = 'Stalled during genfens'
 CRASHES = ('Disconnect', 'Stalled')
 ILLEGAL_MOVE = 'Illegal Move'
 TIME_LOSSES = ('Time Loss', 'Timeloss')
+NO_SUMMARY = '(no summary)'
+DISPLAY_LENGTH = 128
+ELLIPSIS = '…'
+PATH_SEPARATOR = re.compile(r'[\\/]')
 
 BRACKETED = re.compile(r'\[(?P<subject>[^\]]*)\] (?P<rest>.*)', re.DOTALL)
 BUILD = re.compile(r'\[(?P<engine>[^\]]*)\] (?P<branch>.*) build failed', re.DOTALL)
@@ -61,38 +65,53 @@ class Signature:
         return self.kind.value, self.title, self.subject
 
 
+def clipped(text: str) -> str:
+    text = text.strip()
+    return text if len(text) <= DISPLAY_LENGTH else text[: DISPLAY_LENGTH - 1] + ELLIPSIS
+
+
+def titled(kind: ErrorKind, title: str, subject: str = '', bench: int | None = None) -> Signature:
+    return Signature(kind, clipped(title) or NO_SUMMARY, clipped(subject), bench)
+
+
+def binary_name(subject: str) -> str:
+    return PATH_SEPARATOR.split(subject)[-1]
+
+
 def bracketed_signature(subject: str, rest: str) -> Signature:
 
+    binary = binary_name(subject)
+
     if wrong := WRONG_BENCH_VALUE.fullmatch(rest):
-        return Signature(ErrorKind.BENCH, WRONG_BENCH, subject, int(wrong['bench']))
+        return titled(ErrorKind.BENCH, WRONG_BENCH, binary, int(wrong['bench']))
 
     if rest in BENCH_FAILURES:
-        return Signature(ErrorKind.BENCH, rest, subject)
+        return titled(ErrorKind.BENCH, rest, binary)
 
     if rest == GENFENS_STALL:
-        return Signature(ErrorKind.GENFENS, rest, subject)
+        return titled(ErrorKind.GENFENS, rest, binary)
 
-    return Signature(ErrorKind.OTHER, rest, subject)
+    return titled(ErrorKind.OTHER, rest, subject)
 
 
 def signature(summary: str) -> Signature:
 
     if build := BUILD.fullmatch(summary):
-        return Signature(ErrorKind.BUILD, f'{build["engine"]}{BUILD_SUFFIX}', short_name(build['branch']))
+        return titled(ErrorKind.BUILD, f'{build["engine"]}{BUILD_SUFFIX}', short_name(build['branch']))
 
     if match := BRACKETED.fullmatch(summary):
         return bracketed_signature(match['subject'], match['rest'])
 
     if summary in CRASHES:
-        return Signature(ErrorKind.CRASH, summary)
+        return titled(ErrorKind.CRASH, summary)
 
     if summary == ILLEGAL_MOVE:
-        return Signature(ErrorKind.ILLEGAL, summary)
+        return titled(ErrorKind.ILLEGAL, summary)
 
     if summary.lower() in {name.lower() for name in TIME_LOSSES}:
-        return Signature(ErrorKind.TIME_LOSS, TIME_LOSSES[0])
+        return titled(ErrorKind.TIME_LOSS, TIME_LOSSES[0])
 
-    return Signature(ErrorKind.OTHER, summary)
+    return titled(ErrorKind.OTHER, summary)
 
 
 def any_of(conditions: list[Q]) -> Q:
@@ -103,7 +122,6 @@ def bracketed(rest: str) -> Q:
     return Q(summary__regex=rf'\A\[[^\]]*\] {rest}\Z')
 
 
-# The same rules as signature(), for the database; test_triage.py holds the two together
 KIND_CONDITIONS: dict[ErrorKind, Q] = {
     ErrorKind.BUILD: bracketed(rf'(.|\n)*{BUILD_SUFFIX}'),
     ErrorKind.BENCH: any_of(

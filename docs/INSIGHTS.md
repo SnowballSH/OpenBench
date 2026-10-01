@@ -623,8 +623,8 @@ starts reporting them is filed correctly. `kind=game` selects `crash`,
 `timeloss` and `illegal` together.
 
 The same rules exist once more as database conditions (`KIND_CONDITIONS`), so
-the kind filter runs in SQL; a test feeds both the same summaries, hostile
-ones included, and requires the same answer.
+the kind filter runs in SQL; `test_triage.py` feeds both the same summaries,
+hostile ones included, and requires the same answer.
 
 ### Groups
 
@@ -637,10 +637,30 @@ registered" rather than dropped. Hosts are counted over the newest 900
 reporting registrations of the workloads on the page; when that cap is hit
 the count carries a `+`.
 
+Registrations are distinct Machine rows. A group made of one summary takes
+the count from SQL. A group that merges several summaries (wrong benches with
+different numbers) counts the distinct reporters it was given, so a Machine
+that reported two numbers is one registration; only when the 900 cap was hit
+does it fall back to the sum over its summaries, an upper bound, and
+`sampled` says so.
+
+The subject of a bench or genfens failure is the binary without its
+directory: the Client sends `Engines/<binary>` in some messages and
+`<binary>` in others, with either path separator, and both are one group.
+A summary with no text left after normalising is titled "(no summary)".
+
+The count on a group row links to exactly that group's events: the flat list
+filtered by `workload` and one `summary=` parameter per raw summary in the
+group (at most 50; a group with more distinct summaries lists its newest 50).
+The event page's "N with this summary" link is the same filter with the one
+summary. `summary` matches the stored text exactly and works on the grouped
+layout and the API as well.
+
 A wrong bench shows the number the worker computed beside the workload's
 expected bench and the difference. The expected value is the bench of
-whichever engine (dev or base) the reported binary name
-`<engine>-<first eight of the sha>` belongs to.
+whichever engine (dev or base) the reported binary name belongs to: the
+Client names a binary `<engine>-<first eight of the sha, upper case>`, with
+`-<network>` after it when there is one.
 
 Grouping covers the 500 most recently seen (workload, summary) pairs; the
 page says so when there are more, and the flat list reaches the rest.
@@ -676,7 +696,10 @@ CPU, OS and compilers (when its row still exists), then the log.
   first three lines and the exception it ends in, any line that says
   `illegal move`, and a PGN `[Termination "..."]` header. At most 30 lines of
   at most 240 characters; each links to its line in the log when that line
-  is rendered.
+  is rendered. Only the first 4,096 characters of a line are examined, the
+  exception that ends a traceback is looked for within 200 lines of its
+  header, and the scan stops once 30 lines are found, so the first 30 in the
+  log are the ones shown.
 - **The log** shows its first and last 120 lines. The next 5,000 lines in
   between sit in a closed `<details>`, which costs the browser nothing until
   it is opened; anything beyond that is left out with a count and a pointer

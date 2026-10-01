@@ -10,6 +10,7 @@ from OpenBench.triage.domain import BenchMismatch
 from OpenBench.triage.groups import bench_mismatch, load_workloads
 from OpenBench.triage.kinds import Signature, signature
 from OpenBench.triage.logs import KeyLine, LogExcerpt, excerpt, has_log, key_lines, log_lines, log_path, read_log
+from OpenBench.triage.query import events_query
 
 MAX_COMPILERS = 8
 COMPILER_TEXT_LENGTH = 64
@@ -44,6 +45,7 @@ class EventDetail:
     workload: Workload | None
     reporter: Reporter
     occurrences: int
+    occurrences_querystring: str
     bench: BenchMismatch | None
     ago: str
     expects_log: bool
@@ -116,6 +118,7 @@ def event_detail(event: LogEvent, now: datetime) -> EventDetail:
         workload=workload,
         reporter=reporter(event),
         occurrences=LogEvent.objects.filter(test_id=event.test_id, summary=event.summary, machine_id__gt=0).count(),
+        occurrences_querystring=events_query(event.test_id, (event.summary,)).querystring,
         bench=bench_mismatch(found, () if found.bench is None else (found.bench,), workload),
         ago=relative_age(now - event.created),
         expects_log=has_log(event),

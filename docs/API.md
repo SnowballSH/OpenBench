@@ -985,6 +985,7 @@ rules are in [INSIGHTS.md](INSIGHTS.md#worker-errors).
 | `workload` | Only this workload id |
 | `kind` | `build`, `bench`, `crash`, `timeloss`, `illegal`, `genfens`, `other`, or `game` for crash, time loss and illegal move together. An unknown value is ignored |
 | `unresolved` | `1`, `true`, `on` or `yes` leaves out the groups whose status is `resolved` |
+| `summary` | Only events whose stored summary is exactly this text. Repeatable, at most 50 values |
 | `limit` | Groups returned, 1 to 100; 25 by default |
 
 Each parameter is read from the query string, or from the POST body beside
@@ -1082,10 +1083,14 @@ the credentials; the query string wins.
 - `title` and `subject` are the normalised summary: `subject` is the branch
   (first eight digits of a commit) for a build failure, the binary for a
   bench or genfens failure, and empty for a game error.
+- `title` and `subject` are cut to 128 characters, ending in `…` when cut; a
+  summary with no text is titled `(no summary)`.
 - `affected.registrations` counts distinct Machine rows that reported it,
   `hosts` the distinct hosts among those still registered, `pruned` the ones
   whose row is gone. `sampled` is true when the counts were taken over the
-  newest 900 reporters of the returned workloads rather than all of them.
+  newest 900 reporters of the returned workloads rather than all of them;
+  `registrations` of a group that merges several summaries is then an upper
+  bound.
 - `bench` is null except for a wrong bench: every number reported, the
   workload's expected bench for that binary (null when the binary matches
   neither engine or the workload is gone) and newest reported minus expected.

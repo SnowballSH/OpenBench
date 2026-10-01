@@ -104,12 +104,16 @@ existing index:
 | The same for one workload (`?workload=`) | `SEARCH USING INDEX logevent_test_machine (test_id=? AND machine_id>?)` | under 1 ms |
 | Flat list page (`ORDER BY id DESC LIMIT 25`) | reverse `SCAN` of the table that stops after 25 matches | under 1 ms |
 | Flat list count | `SEARCH USING COVERING INDEX logevent_machine (machine_id>?)` | under 1 ms |
+| Flat list count with a `kind` filter | the kind is a regular expression over `summary`, so every error event is read and matched | 130 to 255 ms, by kind |
 | Reporting registrations of the page's workloads | `SEARCH USING INDEX logevent_test_machine (test_id=? AND machine_id>?)` | under 1 ms |
 | Workload page count, an event's occurrences | `SEARCH USING (COVERING) INDEX logevent_test_machine` | under 1 ms |
 
+A `kind` filter costs the same full read on the grouped page. Adding
+`workload=` narrows either to that workload's rows first.
+
 The unfiltered grouping reads every error event, so it grows with the table:
-about 2 ms per thousand events. That is the one query here that is not
-bounded by a page; if the table reaches millions of rows, bound it to a time
+about 2 ms per thousand events. It and the kind-filtered count are the
+queries here that are not bounded by a page; if the table reaches millions of rows, bound it to a time
 window rather than adding an index, since no index avoids the aggregation.
 
 ### `Machine.host_key`

@@ -22,10 +22,10 @@
 
     <div class="table-wrap" data-region-label="Error details">
         <table class="test-config wrappable">
-            <tr><th scope="row" class="td-label">Summary</th><td class="mono">{{detail.event.summary}}</td></tr>
+            <tr><th scope="row" class="td-label">Summary</th><td class="mono">{{detail.event.summary|truncatechars:512}}</td></tr>
             <tr><th scope="row" class="td-label">When</th><td><time datetime="{{detail.event.created|date:'c'}}" title="{{detail.event.created|date:'c'}}">{{detail.ago}}</time> <span class="timestamp muted">{{detail.event.created|date:'U'}}</span></td></tr>
             <tr><th scope="row" class="td-label">Workload</th><td>{% include "OpenBench/Blocks/event_workload.html" with workload=detail.workload test_id=detail.event.test_id primary="" %}</td></tr>
-            <tr><th scope="row" class="td-label">Occurrences</th><td><a href="/errors/?workload={{detail.event.test_id}}&amp;kind={{detail.signature.kind.value}}&amp;view=list">{{detail.occurrences|insertCommas}} with this summary on the workload</a></td></tr>
+            <tr><th scope="row" class="td-label">Occurrences</th><td><a href="/errors/{{detail.occurrences_querystring}}">{{detail.occurrences|insertCommas}} with this summary on the workload</a></td></tr>
             {% if detail.bench %}
                 <tr><th scope="row" class="td-label">Bench</th><td class="mono">{% include "OpenBench/Blocks/bench_mismatch.html" with bench=detail.bench %}</td></tr>
             {% endif %}

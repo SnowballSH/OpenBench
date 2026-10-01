@@ -56,7 +56,8 @@ urlpatterns = [
     # Links for viewing general information tables
     django.urls.path(r'users/', OpenBench.views.users),
     django.urls.path(r'event/<id:pk>/', OpenBench.triage.views.event),
-    django.urls.re_path(r'^event/(?P<pk>[0-9]{1,18})/raw/?$', OpenBench.triage.views.event_raw),
+    django.urls.path(r'event/<id:pk>/raw', OpenBench.triage.views.event_raw),
+    django.urls.path(r'event/<id:pk>/raw/', OpenBench.triage.views.event_raw),
     django.urls.re_path(r'^events(?:/(?P<page>[0-9]{1,10}))?/$', OpenBench.triage.views.events),
     django.urls.re_path(r'^errors(?:/(?P<page>[0-9]{1,10}))?/$', OpenBench.triage.views.errors),
     django.urls.re_path(r'^machines(?:/(?P<pk>[0-9]{1,18}))?/$', OpenBench.views.machines),

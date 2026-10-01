@@ -2,11 +2,13 @@ import dataclasses
 import json
 import os
 import tempfile
+import time
 import uuid
 from datetime import timedelta
 from pathlib import Path
 from typing import Any, ClassVar
 from unittest import mock
+from urllib.parse import urlencode
 
 from django.conf import settings
 from django.contrib.auth.models import User
@@ -391,7 +393,8 @@ class EventPageTests(TriageCase):
         self.assertIn(f'[Avalanche] {DEV_SHA} build failed', html)
         self.assertIn('>5m ago</time>', html)
         self.assertIn(f'<span class="row-id">#{test.id}</span> Scale LMR by &lt;history&gt;</a>', html)
-        self.assertIn(f'href="/errors/?workload={test.id}&amp;kind=build&amp;view=list">2 with this summary', html)
+        listed = urlencode({'workload': test.id, 'summary': event.summary, 'view': 'list'}).replace('&', '&amp;')
+        self.assertIn(f'href="/errors/?{listed}">2 with this summary', html)
         self.assertIn(f'<a href="/machines/{machine.id}/">machine {machine.id}</a>', html)
         self.assertIn('<td>batch-*</td>', html)
         self.assertIn(f'{BATCH_CPU}, 4 threads', html)
@@ -759,3 +762,133 @@ class TriageQueryBudgetTests(TestCase):
 
 class LargerTriageQueryBudgetTests(TriageQueryBudgetTests):
     size = dataclasses.replace(SMALL, tests=160, machines=400, events=300)
+
+
+HOSTILE_SIZE = 2 * 1024 * 1024
+HOSTILE_SECONDS = 2.0
+
+
+class HostileLogTests(SimpleTestCase):
+    def assert_fast(self, text: str) -> None:
+        started = time.monotonic()
+        lines = log_lines(text)
+        key_lines(lines, excerpt(lines).shown_numbers)
+        self.assertLess(time.monotonic() - started, HOSTILE_SECONDS)
+
+    def test_a_line_of_make_error_prefixes(self) -> None:
+        self.assert_fast('*** [' * (HOSTILE_SIZE // 5))
+
+    def test_many_long_lines_of_make_error_prefixes(self) -> None:
+        self.assert_fast(('*** [' * 800 + '\n') * (HOSTILE_SIZE // 4001))
+
+    def test_indented_traceback_headers_to_the_end(self) -> None:
+        line = '  Traceback (most recent call last):\n'
+        self.assert_fast(line * (HOSTILE_SIZE // len(line)))
+
+    def test_traceback_headers_between_indented_lines(self) -> None:
+        block = 'Traceback (most recent call last):\n' + '  frame\n' * 3
+        self.assert_fast('x\n' + block * 20 + '  frame\n' * (HOSTILE_SIZE // 8))
+
+    def test_unterminated_terminal_sequences(self) -> None:
+        self.assert_fast('\x1b[' * (HOSTILE_SIZE // 4) + '\n' + '\x1b]0;' * (HOSTILE_SIZE // 8))
+
+    def test_a_real_make_error_is_still_a_key_line(self) -> None:
+        found = key_lines(log_lines('ok\nmake: *** [Makefile:14: all] Error 1\n'), frozenset())
+        self.assertEqual([(line.number, line.label) for line in found], [(2, 'error')])
+
+    def test_a_traceback_ends_at_a_nearby_exception_only(self) -> None:
+        text = 'Traceback (most recent call last):\n' + '  frame\n' * 300 + 'ValueError: far away\n'
+        self.assertEqual([line.number for line in key_lines(log_lines(text), frozenset())], [1, 2, 3, 4])
+
+
+class SanitiserTests(SimpleTestCase):
+    def test_lines_are_numbered_as_the_raw_file_numbers_them(self) -> None:
+        lines = log_lines('a\rb\x0cc\x1cd\x85e\u2028f\u2029g\r\nh\n')
+        self.assertEqual([line.number for line in lines], [1, 2])
+        self.assertEqual(lines[0].text, 'a\ufffdb\ufffdc\ufffdd\ufffde\ufffdf\ufffdg')
+        self.assertEqual(lines[1].text, 'h')
+        self.assertEqual(log_lines(''), [])
+        self.assertEqual([line.text for line in log_lines('\n\nx')], ['', '', 'x'])
+
+    def test_terminal_sequences_and_invisible_controls(self) -> None:
+        self.assertEqual(displayable('\x1b]0;title\x07shown'), 'shown')
+        self.assertEqual(displayable('\x1b]8;;https://evil.example/\x1b\\link\x1b]8;;\x1b\\'), 'link')
+        self.assertEqual(displayable('\x1b]0;never closed'), '')
+        self.assertEqual(displayable('a\x9bb\x80c\x9fd'), 'a\ufffdb\ufffdc\ufffdd')
+        self.assertEqual(displayable('a\u200eb\u200fc\u061cd\u2066e'), 'a\ufffdb\ufffdc\ufffdd\ufffde')
+        self.assertEqual(displayable('tab\tand é and 中'), 'tab\tand é and 中')
+
+
+class SummaryShapeTests(TriageCase):
+    def test_an_empty_summary_gets_a_placeholder(self) -> None:
+        for summary in ('', '   ', '[A] ', '[A]  '):
+            with self.subTest(summary=summary):
+                self.assertEqual(signature(summary).title, '(no summary)')
+
+        event = self.error(self.pinned(), '', log='x')
+        self.assertIn('>(no summary)<span class="visually-hidden">', self.client.get('/errors/').content.decode())
+        self.assertContains(self.client.get(f'/event/{event.id}/'), '<h1>(no summary)</h1>')
+
+    def test_a_very_long_summary_is_cut_for_display(self) -> None:
+        long = 'x' * 5000
+        found = signature(f'[{long}] {long}')
+        self.assertEqual((len(found.title), len(found.subject), found.title[-1]), (128, 128, '…'))
+
+        event = self.error(self.pinned(), long)
+        for url in ('/errors/', '/errors/?view=list', f'/event/{event.id}/'):
+            with self.subTest(url=url):
+                self.assertNotIn('x' * 600, self.client.get(url).content.decode().replace(f'summary={long}', ''))
+        (group,) = json.loads(self.client.get('/api/errors/').content)['groups']
+        self.assertEqual(len(group['title']), 128)
+
+    def test_a_binary_is_named_without_its_directory(self) -> None:
+        self.assertEqual(signature('[Engines/A-1] Stalled during genfens').subject, 'A-1')
+        self.assertEqual(signature('[Engines\\A-1] Bench Exceeded Max Duration').subject, 'A-1')
+        self.assertEqual(signature('[A-1] Bench Exceeded Max Duration').subject, 'A-1')
+        test = self.pinned()
+        self.error(test, '[Engines/A-1] Bench Exceeded Max Duration')
+        self.error(test, '[A-1] Bench Exceeded Max Duration')
+        self.assertEqual([row.group.count for row in self.rows()], [2])
+
+
+class GroupEventsLinkTests(TriageCase):
+    def listed(self, querystring: str) -> list[str]:
+        html = self.client.get(f'/errors/{querystring}').content.decode()
+        return [cell.split('</td>', 1)[0] for cell in html.split('<td class="triage-summary">')[1:]]
+
+    def test_the_count_links_to_exactly_the_groups_events(self) -> None:
+        test, other = self.pinned(), self.pinned()
+        for _ in range(14):
+            self.error(test, 'Stalled')
+        self.error(test, 'Disconnect')
+        self.error(test, 'Disconnect')
+        self.error(other, 'Stalled')
+        self.error(test, wrong_bench_summary(test, 11))
+        self.error(test, wrong_bench_summary(test, 12))
+
+        rows = {(row.group.test_id, row.group.signature.title): row for row in self.rows()}
+        html = self.client.get('/errors/').content.decode()
+
+        for key, count in (((test.id, 'Stalled'), 14), ((test.id, 'Disconnect'), 2), ((test.id, 'Wrong Bench'), 2)):
+            with self.subTest(key=key):
+                row = rows[key]
+                self.assertEqual(row.group.count, count)
+                self.assertIn(f'href="/errors/{row.events_querystring.replace("&", "&amp;")}"', html)
+                self.assertEqual(len(self.listed(row.events_querystring)), count)
+
+        self.assertEqual(set(self.listed(rows[test.id, 'Stalled'].events_querystring)), {'Stalled'})
+
+    def test_the_summary_filter_is_shown_and_can_be_dropped(self) -> None:
+        test = self.pinned()
+        self.error(test, 'Stalled')
+        html = self.client.get(f'/errors/?workload={test.id}&summary=Stalled&view=list').content.decode()
+        self.assertIn('Showing 1 chosen summary only.', html)
+        self.assertIn(f'href="/errors/?workload={test.id}&amp;view=list">Show every summary</a>', html)
+
+    def test_a_machine_reporting_two_numbers_is_one_registration(self) -> None:
+        test = self.pinned()
+        machine = self.batch_machine()
+        self.error(test, wrong_bench_summary(test, 11), machine=machine)
+        self.error(test, wrong_bench_summary(test, 12), machine=machine)
+        (row,) = self.rows()
+        self.assertEqual((row.group.count, row.affected.registrations, row.affected.hosts), (2, 1, 1))

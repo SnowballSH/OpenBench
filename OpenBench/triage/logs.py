@@ -14,16 +14,20 @@ MAX_KEY_LINES = 30
 KEY_LINE_LENGTH = 240
 TRACEBACK_CONTEXT_LINES = 3
 
-ANSI_SEQUENCE = re.compile(r'\x1b\[[0-9;?]*[ -/]*[@-~]')
-# Control characters, and the bidirectional overrides that can reorder what a reader sees
-UNSAFE_CHARACTERS = re.compile(r'[\x00-\x08\x0b-\x1f\x7f‪-‮⁦-⁩]')
+KEY_SCAN_LENGTH = 4096
+TRACEBACK_LOOKAHEAD_LINES = 200
+
+CSI_SEQUENCE = r'\x1b\[[0-9;?]*[ -/]*[@-~]'
+OSC_SEQUENCE = r'\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)?'
+TERMINAL_SEQUENCE = re.compile(f'{CSI_SEQUENCE}|{OSC_SEQUENCE}')
+UNSAFE_CHARACTERS = re.compile(r'[\x00-\x08\x0a-\x1f\x7f-\x9f؜‎‏ -‮⁦-⁩]')
 REPLACEMENT = '�'
 
 COMPILER_ERROR = re.compile(
-    r'\berror\b[:\[]|\bfatal error\b|undefined reference|symbol\(s\) not found|\*\*\* \[.*\] Error [0-9]+'
+    r'\berror\b[:\[]|\bfatal error\b|undefined reference|symbol\(s\) not found|\*\*\* \[[^\[\]]*\] Error [0-9]'
 )
 TRACEBACK = 'Traceback (most recent call last):'
-ILLEGAL_MOVE = re.compile(r'illegal move', re.IGNORECASE)
+ILLEGAL_MOVE_TEXT = re.compile(r'illegal move', re.IGNORECASE)
 TERMINATION = re.compile(r'\[Termination "')
 
 
@@ -75,7 +79,6 @@ def has_log(event: LogEvent) -> bool:
 
 def log_path(event: LogEvent) -> Path | None:
 
-    # The name is rebuilt from the id, so nothing stored on the row can point outside the media directory
     if not has_log(event):
         return None
 
@@ -92,11 +95,18 @@ def read_log(path: Path, limit: int | None = None) -> LogText:
 
 
 def displayable(line: str) -> str:
-    return UNSAFE_CHARACTERS.sub(REPLACEMENT, ANSI_SEQUENCE.sub('', line))
+    return UNSAFE_CHARACTERS.sub(REPLACEMENT, TERMINAL_SEQUENCE.sub('', line))
+
+
+def raw_lines(text: str) -> list[str]:
+    lines = text.split('\n')
+    if lines[-1] == '':
+        lines.pop()
+    return [line.removesuffix('\r') for line in lines]
 
 
 def log_lines(text: str) -> list[LogLine]:
-    return [LogLine(number, displayable(line)) for number, line in enumerate(text.splitlines(), start=1)]
+    return [LogLine(number, displayable(line)) for number, line in enumerate(raw_lines(text), start=1)]
 
 
 def excerpt(lines: list[LogLine]) -> LogExcerpt:
@@ -117,29 +127,36 @@ def excerpt(lines: list[LogLine]) -> LogExcerpt:
 
 def traceback_lines(lines: list[LogLine], start: int) -> list[LogLine]:
 
-    following = lines[start + 1 :]
+    following = lines[start + 1 : start + 1 + TRACEBACK_LOOKAHEAD_LINES]
     context = following[:TRACEBACK_CONTEXT_LINES]
     raised = next((line for line in following if line.text and not line.text[0].isspace()), None)
     return [lines[start], *context, *([raised] if raised and raised not in context else [])]
+
+
+def line_label(text: str) -> str | None:
+
+    scanned = text[:KEY_SCAN_LENGTH]
+    if COMPILER_ERROR.search(scanned):
+        return 'error'
+    if ILLEGAL_MOVE_TEXT.search(scanned):
+        return 'illegal move'
+    if TERMINATION.search(scanned):
+        return 'termination'
+    return None
 
 
 def labelled_lines(lines: list[LogLine]) -> dict[int, tuple[LogLine, str]]:
 
     found: dict[int, tuple[LogLine, str]] = {}
 
-    def keep(line: LogLine, label: str) -> None:
-        found.setdefault(line.number, (line, label))
-
     for index, line in enumerate(lines):
-        if line.text.strip() == TRACEBACK:
+        if len(found) >= MAX_KEY_LINES:
+            break
+        if line.text[:KEY_SCAN_LENGTH].strip() == TRACEBACK:
             for part in traceback_lines(lines, index):
-                keep(part, 'traceback')
-        elif COMPILER_ERROR.search(line.text):
-            keep(line, 'error')
-        elif ILLEGAL_MOVE.search(line.text):
-            keep(line, 'illegal move')
-        elif TERMINATION.search(line.text):
-            keep(line, 'termination')
+                found.setdefault(part.number, (part, 'traceback'))
+        elif label := line_label(line.text):
+            found.setdefault(line.number, (line, label))
 
     return found
 

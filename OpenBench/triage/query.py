@@ -11,6 +11,7 @@ MAX_ID_DIGITS = 18
 TRUE_VALUES = frozenset({'1', 'true', 'on', 'yes'})
 DEFAULT_LIMIT = 25
 MAX_LIMIT = 100
+MAX_SUMMARIES = 50
 
 
 class View(StrEnum):
@@ -53,6 +54,7 @@ class ErrorQuery:
     kind: str = ''
     unresolved: bool = False
     view: View = View.GROUPS
+    summaries: tuple[str, ...] = ()
 
     @classmethod
     def parse(cls, params: QueryDict) -> Self:
@@ -62,15 +64,12 @@ class ErrorQuery:
             kind=kind if parse_kinds(kind) else '',
             unresolved=params.get('unresolved', '').lower() in TRUE_VALUES,
             view=View.LIST if params.get('view') == View.LIST else View.GROUPS,
+            summaries=tuple(params.getlist('summary')[:MAX_SUMMARIES]),
         )
 
     @property
     def kinds(self) -> frozenset[ErrorKind] | None:
         return parse_kinds(self.kind)
-
-    @property
-    def filtered(self) -> bool:
-        return self.workload is not None or bool(self.kind) or self.unresolved
 
     def with_kind(self, kind: str) -> Self:
         return replace(self, kind=kind)
@@ -85,6 +84,10 @@ class ErrorQuery:
     @property
     def without_workload(self) -> Self:
         return replace(self, workload=None)
+
+    @property
+    def without_summaries(self) -> Self:
+        return replace(self, summaries=())
 
     @property
     def as_groups(self) -> Self:
@@ -106,11 +109,16 @@ class ErrorQuery:
 
     @property
     def querystring(self) -> str:
-        pairs = {
+        pairs: dict[str, str | tuple[str, ...]] = {
             'workload': '' if self.workload is None else str(self.workload),
             'kind': self.kind,
             'unresolved': '1' if self.unresolved else '',
+            'summary': self.summaries,
             'view': View.LIST.value if self.is_list else '',
         }
-        encoded = urlencode({name: value for name, value in pairs.items() if value})
+        encoded = urlencode({name: value for name, value in pairs.items() if value}, doseq=True)
         return f'?{encoded}' if encoded else ''
+
+
+def events_query(test_id: int, summaries: tuple[str, ...]) -> ErrorQuery:
+    return ErrorQuery(workload=test_id, view=View.LIST, summaries=summaries[:MAX_SUMMARIES])
