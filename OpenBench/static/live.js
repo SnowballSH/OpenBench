@@ -99,6 +99,7 @@
             this.checked_at = Date.now();
             this.notice = null;
             this.detail = null;
+            this.retry_at = null;
         }
 
         start() {
@@ -113,6 +114,7 @@
             this.state = 'live';
             this.checked_at = Date.now();
             this.detail = null;
+            this.retry_at = null;
             if (recovered) this.announce('Live updates resumed');
             this.render();
         }
@@ -120,12 +122,13 @@
         retrying(delay_ms) {
             if (this.state !== 'retrying') this.announce('Live updates interrupted, retrying');
             this.state = 'retrying';
-            this.detail = `Live updates interrupted · retrying in ${Math.round(delay_ms / 1000)} s`;
+            this.retry_at = Date.now() + delay_ms;
             this.render();
         }
 
         stop(detail) {
             this.state = 'stopped';
+            this.retry_at = null;
             this.detail = detail;
             this.render();
         }
@@ -143,9 +146,14 @@
             this.announcer.textContent = message;
         }
 
+        progress() {
+            if (this.retry_at === null) return `Live · updated ${format_age((Date.now() - this.checked_at) / 1000)}`;
+            const wait = Math.max(0, Math.ceil((this.retry_at - Date.now()) / 1000));
+            return `Live updates interrupted · retrying in ${wait} s`;
+        }
+
         render() {
-            const age = format_age((Date.now() - this.checked_at) / 1000);
-            const progress = this.detail ?? `Live · updated ${age}`;
+            const progress = this.detail ?? this.progress();
             this.root.dataset.liveState = this.state;
             this.text.textContent = this.notice ? `${this.notice} · ${progress}` : progress;
         }
@@ -277,12 +285,32 @@
         return line;
     }
 
+    function set_text(node, text) {
+        if (node.textContent !== text) node.textContent = text;
+    }
+
     function render_moment(row_node, moment) {
         const stamp = row_node.querySelector('.row-name time');
         if (!stamp || !moment) return;
-        stamp.dateTime = moment.at;
-        stamp.title = moment.at;
-        stamp.textContent = `${moment.verb} ${moment.ago}`;
+        if (stamp.dateTime !== moment.at) stamp.dateTime = stamp.title = moment.at;
+        set_text(stamp, `${moment.verb} ${moment.ago}`);
+    }
+
+    function replace_changed(parent, parts) {
+        const shown = [...parent.children];
+        if (shown.length !== parts.length) {
+            parent.replaceChildren(...parts);
+            return;
+        }
+        shown.forEach((node, index) => {
+            if (!node.isEqualNode(parts[index])) node.replaceWith(parts[index]);
+        });
+    }
+
+    function stale_line() {
+        const line = element('div', 'row-meta row-reason');
+        line.append(hidden_text('Status: '), 'changed since this page loaded');
+        return line;
     }
 
     class LiveListing {
@@ -290,37 +318,43 @@
             this.table = table;
             this.machine_status = table.querySelector('[data-live-machine-status]');
             this.rows = new Map([...table.querySelectorAll('tr[data-live-row]')].map(node => [node.dataset.liveRow, node]));
-            this.rendered = new Map();
         }
 
         apply(payload, poller) {
-            if (this.machine_status) this.machine_status.textContent = payload.machine_status;
+            if (this.machine_status) set_text(this.machine_status, payload.machine_status);
 
             const listed = new Map(payload.rows.map(row => [String(row.id), row]));
-            const kept = [...this.rows].filter(([id, node]) => listed.get(id)?.result.status === node.dataset.liveStatus);
+            const current = ([id, node]) => listed.get(id)?.result.status === node.dataset.liveStatus;
+            const kept = [...this.rows].filter(current);
+            const gone = [...this.rows].filter(entry => !current(entry));
             const played = kept.filter(([id, node]) => this.render(node, listed.get(id))).length;
+            gone.forEach(([, node]) => this.mark_stale(node));
 
-            const left = this.rows.size - kept.length;
             const arrived = [...listed.keys()].filter(id => !this.rows.has(id)).length;
-            this.report(left, arrived, poller.status);
+            this.report(gone.length, arrived, poller.status);
 
-            if (played || left || arrived) document.dispatchEvent(new CustomEvent(LISTING_EVENT));
+            if (played || gone.length || arrived) document.dispatchEvent(new CustomEvent(LISTING_EVENT));
             if (!payload.rows.length) poller.stop('Nothing is running · live updates stopped');
         }
 
         render(node, row) {
-            const signature = JSON.stringify(row);
-            if (this.rendered.get(row.id) === signature) return false;
-            this.rendered.set(row.id, signature);
-
             const parts = [stat_block(row.result), progress_bar(row.progress), timing_line(row.timing), reason_line(row.reason)];
-            node.querySelector('td.statblock-cell').replaceChildren(...parts.filter(Boolean));
+            replace_changed(node.querySelector('td.statblock-cell'), parts.filter(Boolean));
             render_moment(node, row.moment);
 
             const played = String(row.result.games) !== node.dataset.liveGames;
             node.dataset.liveGames = row.result.games;
             if (played) flash(node);
             return played;
+        }
+
+        mark_stale(node) {
+            if (node.classList.contains('live-stale')) return;
+            node.classList.add('live-stale');
+            const cell = node.querySelector('td.statblock-cell');
+            const block = cell.querySelector('.statblock');
+            set_text(block.querySelector('.visually-hidden'), 'Out of date. ');
+            cell.replaceChildren(block, stale_line());
         }
 
         report(left, arrived, status) {
@@ -390,6 +424,7 @@
         fire(title, body) {
             if (!this.watching) return;
             this.forget();
+            this.sync();
             const notification = new Notification(title, { body, tag: `openbench-workload-${this.workload_id}` });
             notification.addEventListener('click', () => {
                 window.focus();

@@ -72,12 +72,20 @@ filled in, and nothing exists until the operator submits it.
   is an SPRT, finished, passed, not deleted, dev and base are the same engine,
   it classes as STC (so not LTC, VLTC, SMP or time odds), the engine is
   enabled and has such a preset, and the viewer's account may create tests.
+- A test whose same two commits (same engine and networks) already ran, or
+  are running, as an LTC-class SPRT gets no button. The page links to that
+  run instead ("LTC confirmation: #id"), for every viewer.
 - With `preset=`, `load_clone_source` overlays the preset on the clone. What
-  the test *is* stays the clone's: both branches, benches and networks, the
-  repositories and the info. How it *runs* comes from the preset: time
+  the test *is* stays the clone's: both engines, repositories, branches,
+  benches and networks, and the info (`IDENTITY_FIELDS`). How it *runs* comes from the preset: time
   control, options, bounds and confidence, book, priority, throughput,
   workload size and adjudication. The clone keeps its test mode, so an SPRT
   ignores the preset's `test_max_games` and a fixed-games test its bounds.
-- The form's note reads "Cloned from #id name, with the LTC preset …". An
-  unknown preset name, or a preset on a tune or datagen, clones nothing and
+- Preset values become form text; a JSON `true` or `false` becomes the
+  form's `TRUE` or `FALSE`. A `test_presets` entry that is not an object is
+  passed over rather than failing the page.
+- The form's note names what the preset actually replaced: "Cloned from #id
+  name, with the LTC preset in place of its time control, options, SPRT
+  bounds". Values are compared as numbers where they are numbers, so
+  `[0.0, 3.0]` and `[0.00, 3.00]` are the same bounds. An unknown preset name, or a preset on a tune or datagen, clones nothing and
   says so in the warning banner.

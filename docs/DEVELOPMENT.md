@@ -113,6 +113,12 @@ in `pyproject.toml`:
   way, in [`OpenBench/diagnosis/scheduler.py`](../OpenBench/diagnosis/scheduler.py),
   and the stat-block template filters in
   [`OpenBench/live/display.py`](../OpenBench/live/display.py).
+- **Import order**: `OpenBench.utils` imports the views, and the views import
+  the workload modules, so a fork module they reach must not import
+  `OpenBench.utils` at module level (`progress/conditions.py` imports
+  `TimeControl` inside the function that uses it). `test_startup.py` imports
+  each module in `FIRST_IMPORTS` first in a fresh interpreter; add new
+  modules there.
 
 Fix a finding with a real annotation or narrowing. A `# type: ignore` must
 name its error code and give its reason on the same line; the only one today

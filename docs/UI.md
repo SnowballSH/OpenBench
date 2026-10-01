@@ -255,22 +255,30 @@ and `createElement`.
   when the page lists a pending or active row (`table[data-live-listing]`),
   a workload page while the workload is unfinished
   (`.workload-container[data-live-workload]`). Later index pages, Greens,
-  Search and finished workloads never poll.
+  Search and finished workloads never poll. Neither the script nor the
+  indicator is rendered for a viewer the API would refuse (`may_poll`: a
+  signed-in account that is not enabled, while viewing needs a login).
 - **Polling**: every 15 seconds while the tab is visible, with the token of
   [API.md](API.md#getpost-apiliveworkloads-and-apiliveworkloadid), so an
   unchanged poll is a 57-byte answer. A hidden tab does not poll, and polls
   once as soon as it is shown again. Failures double the wait up to four
-  minutes; three refusals in a row (a session that ended) stop it. It also
+  minutes, with the seconds to the next try counted down in the indicator;
+  three refusals in a row (a session that ended) stop it. It also
   stops when the listing has nothing unfinished left, or the workload
   finished.
 - **Listing rows**: each `tr[data-live-row]` carries its id, status and games.
-  A changed row has its stat-block cell rebuilt from the payload (the same
+  Each poll builds the row's stat-block cell from the payload (the same
   markup as `Blocks/testsummary.html`: stat block, progress bar, timing line,
-  reason) and its "started ... ago" refreshed. Rows are not re-sorted.
+  reason) and swaps in only the parts that differ from what is shown, so a
+  text selection in an unchanged stat block survives the once-a-minute
+  refresh of the relative times. Rows are not re-sorted.
 - **A row that leaves or arrives** (finished, stopped, approved, new) is not
   moved between sections by script: the indicator says "1 workload finished
   or changed state" with a **Refresh** button, which reloads the page. The
   server renders the finished row, its timing and its place in the list.
+  Until then a row that left the payload is marked `.live-stale`: its stat
+  block is dimmed, its hidden result reads "Out of date" and its meta line
+  "changed since this page loaded", so it no longer claims to be running.
 - **Workload page**: the stat block, its hidden "Result:" text and the
   diagnosis banner follow the payload. Each change raises
   `openbench:workload-change` on `document`; `workload_utils.js` reloads the
@@ -283,7 +291,8 @@ and `createElement`.
 - **Notification**: "Notify me when this finishes" is a toggle
   (`aria-pressed`) on an unfinished workload's page. The browser's permission
   is requested only by that click. The choice is kept per workload in
-  `localStorage` (`openbench-live-watch`) and dropped once it fires. Without
+  `localStorage` (`openbench-live-watch`) and dropped once it fires, which
+  also releases the toggle. Without
   it no `Notification` is ever created. While a workload is watched its tab
   keeps polling in the background, once a minute, since a notification is
   for the tab nobody is looking at; the tab still has to stay open.

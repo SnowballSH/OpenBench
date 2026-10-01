@@ -597,9 +597,11 @@ the workload has finished.
 | Authentication failed | 401 | `{"error": "API requires authentication for this server"}` |
 | No workload with that id | 404 | `{"error": "Requested Workload Id does not exist"}` |
 
-A changed listing costs the four queries above, the pending and active rows,
-the machine status and the six of the diagnosis: 13 whatever the number of
-rows. A changed workload costs 10.
+A changed listing costs up to 13 queries whatever the number of rows: the
+four above, the pending and active rows, the machine status, and the six of
+the diagnosis, which are spent only when an active row has no recent rate
+(7 queries while every active row is producing games). A changed workload
+costs up to 10.
 
 ### `GET|POST /api/workload/<id>/<query>/`
 

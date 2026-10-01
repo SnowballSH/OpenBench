@@ -5,7 +5,7 @@ from typing import Any
 from django.contrib.auth.models import User
 from django.test import TestCase
 
-from OpenBench.models import EngineConfig, Profile, Test
+from OpenBench.models import Engine, EngineConfig, Profile, Test
 from OpenBench.progress.domain import TimeClass
 from OpenBench.tests.fixtures import (
     LTC_PRESET,
@@ -18,8 +18,15 @@ from OpenBench.tests.fixtures import (
     set_test_presets,
 )
 from OpenBench.workloads.clone import CloneError, load_clone_source
-from OpenBench.workloads.confirmation import confirmation_for
-from OpenBench.workloads.presets import expanded, preset_of_class, preset_time_class, run_settings, test_preset
+from OpenBench.workloads.confirmation import Confirmation, ExistingConfirmation, confirmation_for
+from OpenBench.workloads.presets import (
+    IDENTITY_FIELDS,
+    expanded,
+    preset_of_class,
+    preset_time_class,
+    run_settings,
+    test_preset,
+)
 
 DEFAULT = {
     'both_branch': 'master',
@@ -86,6 +93,33 @@ class PresetTests(TestCase):
         set_presets(self.config, STC=STC_PRESET)
         self.assertIsNone(preset_of_class(self.config, TimeClass.LTC))
 
+    def test_booleans_become_the_forms_words(self) -> None:
+        self.assertEqual(
+            expanded({'upload_pgns': True, 'both_bench': 12}),
+            {
+                'upload_pgns': 'TRUE',
+                'dev_bench': '12',
+                'base_bench': '12',
+            },
+        )
+
+    def test_presets_that_are_not_objects_are_passed_over(self) -> None:
+        self.config.presets = {'test_presets': {'default': DEFAULT, 'LTC': LTC_PRESET, 'broken': 'x'}}
+        self.assertEqual(preset_of_class(self.config, TimeClass.LTC), 'LTC')
+        self.assertIsNone(test_preset(self.config, 'broken'))
+
+        shapes: tuple[Any, ...] = ({'test_presets': ['LTC']}, {'test_presets': None}, {}, [])
+        for broken in shapes:
+            self.config.presets = broken
+            self.assertIsNone(preset_of_class(self.config, TimeClass.LTC))
+            self.assertIsNone(test_preset(self.config, 'LTC'))
+
+    def test_identity_fields_cover_everything_the_clone_keeps(self) -> None:
+        kept = {
+            f'{side}_{field}' for side in ('dev', 'base') for field in ('engine', 'repo', 'branch', 'bench', 'network')
+        }
+        self.assertEqual(IDENTITY_FIELDS, kept | {'info'})
+
     def test_run_settings_leave_out_what_identifies_the_engines(self) -> None:
         settings = run_settings(present(test_preset(self.config, 'LTC')))
 
@@ -105,11 +139,10 @@ class ConfirmationTests(TestCase):
     def test_a_passed_stc_sprt_is_offered_the_long_preset(self) -> None:
         test = passed_stc(self.author)
 
-        confirmation = present(confirmation_for(test, profile_of(self.author)))
-
-        self.assertEqual(confirmation.preset, 'LTC')
-        self.assertEqual(confirmation.time_control, '40.0+0.40')
-        self.assertEqual(confirmation.url, f'/test/new/?clone={test.id}&preset=LTC')
+        self.assertEqual(
+            confirmation_for(test, profile_of(self.author)),
+            Confirmation(preset='LTC', time_control='40.0+0.40', url=f'/test/new/?clone={test.id}&preset=LTC'),
+        )
 
     def test_only_a_finished_passed_sprt_is_offered_it(self) -> None:
         refused = {
@@ -147,6 +180,32 @@ class ConfirmationTests(TestCase):
         EngineConfig.objects.update(enabled=False)
         self.assertFalse(self.confirmed(test))
 
+    def ltc_run(self, test: Test, **fields: Any) -> Test:
+        run = create_test(self.author, dev_time_control='40.0+0.40', base_time_control='40.0+0.40', **fields)
+        Engine.objects.filter(id=run.dev_id).update(sha=test.dev.sha)
+        Engine.objects.filter(id=run.base_id).update(sha=test.base.sha)
+        return run
+
+    def test_a_pair_already_at_ltc_links_to_that_run_instead(self) -> None:
+        test = passed_stc(self.author)
+        self.ltc_run(test, finished=True, failed=True)
+        running = self.ltc_run(test)
+
+        for viewer in (profile_of(self.author), None):
+            self.assertEqual(
+                confirmation_for(test, viewer), ExistingConfirmation(running.id, '40.0+0.40', f'/test/{running.id}/')
+            )
+
+    def test_other_runs_of_the_pair_do_not_count(self) -> None:
+        test = passed_stc(self.author)
+        self.ltc_run(test, deleted=True)
+        self.ltc_run(test, test_mode='GAMES', max_games=1000)
+        self.ltc_run(test, dev_network='ABCDEF01')
+        another_dev = self.ltc_run(test)
+        Engine.objects.filter(id=another_dev.dev_id).update(sha='c' * 40)
+
+        self.assertIsInstance(confirmation_for(test, profile_of(self.author)), Confirmation)
+
     def test_it_needs_an_account_that_may_create_tests(self) -> None:
         test = passed_stc(self.author)
 
@@ -183,6 +242,29 @@ class PresetCloneTests(TestCase):
         )
         self.assertEqual((source.fields['dev_branch'], source.fields['base_branch']), ('dev', 'base'))
         self.assertEqual(source.fields['test_max_games'], 'N/A')
+        self.assertEqual(source.preset_changes, ('time control', 'options', 'SPRT bounds', 'priority', 'workload size'))
+
+    def test_equal_numbers_written_differently_are_not_a_change(self) -> None:
+        test = passed_stc(self.author)
+
+        source = load_clone_source(str(test.id), 'TEST', 'LTC')
+
+        self.assertEqual(source.fields['test_bounds'], '[0.00, 3.00]')
+        self.assertNotIn('SPRT bounds', source.preset_changes)
+        self.assertNotIn('book', source.preset_changes)
+
+    def test_a_preset_that_moves_one_side_names_it(self) -> None:
+        set_presets(self.config, STC={**STC_PRESET, 'base_options': 'Threads=1 Hash=128'})
+        test = passed_stc(self.author)
+
+        self.assertEqual(load_clone_source(str(test.id), 'TEST', 'STC').preset_changes, ('base options',))
+
+    def test_a_preset_that_changes_nothing_says_so(self) -> None:
+        test = passed_stc(self.author)
+
+        content = self.client.get(f'/test/new/?clone={test.id}&preset=STC').content.decode()
+
+        self.assertIn('the STC preset changes nothing', content)
 
     def test_a_plain_clone_carries_no_preset(self) -> None:
         test = passed_stc(self.author)
@@ -219,7 +301,7 @@ class PresetCloneTests(TestCase):
         prefill = json.loads(present(PREFILL.search(content)).group(1))
         self.assertEqual(prefill['dev_time_control'], '40.0+0.40')
         self.assertEqual(prefill['dev_branch'], 'dev')
-        self.assertIn('with the LTC preset in place of its time control and options', content)
+        self.assertIn('with the LTC preset in place of its time control, options, priority, workload size<', content)
         self.assertFalse(Test.objects.exclude(id=test.id).exists())
 
     def test_an_unknown_preset_warns_and_opens_a_blank_form(self) -> None:
@@ -248,6 +330,17 @@ class ConfirmButtonTests(TestCase):
 
         self.assertIn(f'href="/test/new/?clone={test.id}&amp;preset=LTC"', content)
         self.assertIn('Confirm at LTC (40.0+0.40)</a>', content)
+
+    def test_a_confirmed_pair_links_to_its_ltc_run(self) -> None:
+        test = passed_stc(self.author)
+        run = create_test(self.author, dev_time_control='40.0+0.40', base_time_control='40.0+0.40')
+        Engine.objects.filter(id=run.dev_id).update(sha=test.dev.sha)
+        Engine.objects.filter(id=run.base_id).update(sha=test.base.sha)
+
+        content = self.page(test)
+
+        self.assertNotIn('Confirm at LTC', content)
+        self.assertIn(f'href="/test/{run.id}/">LTC confirmation: #{run.id} (40.0+0.40)</a>', content)
 
     def test_other_tests_do_not(self) -> None:
         for test in (create_test(self.author), create_test(self.author, finished=True, failed=True)):

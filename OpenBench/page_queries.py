@@ -21,6 +21,7 @@ from django.http import HttpRequest
 from django.utils import timezone
 
 import OpenBench.utils
+from OpenBench import upstream
 from OpenBench.diagnosis.listing import attach_row_reasons, attach_stop_reasons
 from OpenBench.insights.listing import RowTiming, SnapshotMarks, finished_row_timing, running_row_timing
 from OpenBench.insights.sources import workload_facts
@@ -54,6 +55,13 @@ def request_profile(request: HttpRequest) -> Profile | None:
 
     cached: Profile | None = getattr(request, PROFILE_ATTRIBUTE)
     return cached
+
+
+def may_poll(profile: object) -> bool:
+    # Mirrors api_authenticate, so a page never loads a poller the API would refuse
+    if not upstream.openbench_config()['require_login_to_view']:
+        return True
+    return isinstance(profile, Profile) and profile.enabled
 
 
 def dev_network_label() -> Subquery:

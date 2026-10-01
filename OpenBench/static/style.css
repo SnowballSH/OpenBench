@@ -2755,6 +2755,10 @@ tr[data-live-row] > td,
     transition: background-color 600ms ease, border-color 600ms ease;
 }
 
+tr.live-stale .statblock {
+    opacity: 0.55;
+}
+
 table.test-list tr.live-changed:not(.table-header) > td {
     background-color: var(--accent-soft-hover);
 }

@@ -28,7 +28,7 @@
         {% if clone_source %}
             <input type="hidden" name="clone_of" value="{{clone_source.id}}">
             <div class="status-message" role="status" id="clone-notice">
-                <span>Cloned from <a href="{{clone_source.url}}">#{{clone_source.id}} {{clone_source.name}}</a>{% if clone_source.preset %}, with the {{clone_source.preset}} preset in place of its time control and options{% endif %}</span>
+                <span>Cloned from <a href="{{clone_source.url}}">#{{clone_source.id}} {{clone_source.name}}</a>{% if clone_source.preset %}{% if clone_source.preset_changes %}, with the {{clone_source.preset}} preset in place of its {{clone_source.preset_changes|join:", "}}{% else %}; the {{clone_source.preset}} preset changes nothing{% endif %}{% endif %}</span>
             </div>
         {% endif %}
 

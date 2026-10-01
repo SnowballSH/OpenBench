@@ -1,23 +1,32 @@
 from collections.abc import Mapping
+from typing import Literal
 
 from OpenBench.models import EngineConfig
 from OpenBench.progress.conditions import time_class
 from OpenBench.progress.domain import TimeClass
 
 type Preset = dict[str, str]
-type Side = str
+type Side = Literal['dev', 'base']
 
 DEFAULT_PRESET = 'default'
 SIDES: tuple[Side, ...] = ('dev', 'base')
 SHARED_PREFIX = 'both_'
 
 # What a workload is, rather than how it is run, so a preset never replaces them on a clone
-IDENTITY_FIELDS = frozenset(f'{side}_{field}' for side in SIDES for field in ('branch', 'bench', 'network'))
+IDENTITY_SIDE_FIELDS = ('engine', 'repo', 'branch', 'bench', 'network')
+IDENTITY_FIELDS = frozenset({f'{side}_{field}' for side in SIDES for field in IDENTITY_SIDE_FIELDS} | {'info'})
 
 
-def test_presets(config: EngineConfig) -> Mapping[str, Mapping[str, object]]:
-    presets: Mapping[str, Mapping[str, object]] = config.presets.get('test_presets', {})
-    return presets
+def test_presets(config: EngineConfig) -> dict[str, Mapping[str, object]]:
+    # The presets are operator-edited JSON, so anything that is not an object is passed over
+    presets = config.presets.get('test_presets') if isinstance(config.presets, dict) else None
+    if not isinstance(presets, dict):
+        return {}
+    return {str(name): preset for name, preset in presets.items() if isinstance(preset, dict)}
+
+
+def form_text(value: object) -> str:
+    return str(value).upper() if isinstance(value, bool) else str(value)
 
 
 def for_each_side(key: str, value: str) -> Preset:
@@ -29,7 +38,7 @@ def for_each_side(key: str, value: str) -> Preset:
 def expanded(preset: Mapping[str, object]) -> Preset:
     # A key for one side outranks the shared one, whatever order the engine config lists them in
     shared_first = sorted(preset.items(), key=lambda item: not item[0].startswith(SHARED_PREFIX))
-    return {name: text for key, value in shared_first for name, text in for_each_side(key, str(value)).items()}
+    return {name: text for key, value in shared_first for name, text in for_each_side(key, form_text(value)).items()}
 
 
 def test_preset(config: EngineConfig, name: str) -> Preset | None:

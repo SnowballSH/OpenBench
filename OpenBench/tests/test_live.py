@@ -391,6 +391,27 @@ class PageHookTests(LiveCase):
         self.assertIn('data-live-status="active" data-live-games="8"', content)
         self.assertIn('data-live-notify aria-pressed="false" hidden', content)
 
+    def test_an_account_the_api_would_refuse_gets_no_poller(self) -> None:
+        test = create_test(self.author)
+        self.client.force_login(create_user('disabled', enabled=False))
+
+        for url in ('/index/', '/user/author/', f'/test/{test.id}/'):
+            content = self.client.get(url).content.decode()
+            self.assertNotIn('live.js', content, url)
+            self.assertNotIn('data-live-indicator', content, url)
+            self.assertNotIn('data-live-listing', content, url)
+            self.assertNotIn('data-live-workload', content, url)
+
+    def test_a_public_server_gives_anonymous_visitors_the_poller(self) -> None:
+        create_test(self.author)
+        self.client.logout()
+
+        with mock.patch.dict(OPENBENCH_CONFIG, {'require_login_to_view': False}):
+            content = self.client.get('/index/').content.decode()
+
+        self.assertIn('live.js', content)
+        self.assertIn('data-live-indicator', content)
+
     def test_a_finished_workload_page_does_not_poll(self) -> None:
         test = create_test(self.author, finished=True, passed=True)
 

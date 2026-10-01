@@ -13,9 +13,9 @@
     {% if server_insights %}
         <script src="{% static 'insights.js' %}?{{ static_version }}" defer></script>
     {% endif %}
-    {% if pending or active %}
+    {% if profile|may_poll %}{% if pending or active %}
         <script src="{% static 'live.js' %}?{{ static_version }}" defer></script>
-    {% endif %}
+    {% endif %}{% endif %}
 {% endblock %}
 
 {% block content %}
@@ -53,11 +53,11 @@
         <label for="row-filter" class="visually-hidden">Filter the workloads on this page</label>
         <input type="search" id="row-filter" data-row-filter="workload-list" data-row-filter-count="row-filter-count" placeholder="Filter this page by name, author, info or result" autocomplete="off">
         <span id="row-filter-count" class="row-filter-count muted" role="status"></span>
-        {% if pending or active %}{% include "OpenBench/Blocks/live_status.html" %}{% endif %}
+        {% if profile|may_poll %}{% if pending or active %}{% include "OpenBench/Blocks/live_status.html" %}{% endif %}{% endif %}
     </div>
 
     <div class="table-wrap w-100">
-    <table id="workload-list" class="test-list stripes hoverable"{% if pending or active %} data-live-listing="/api/live/workloads/"{% if live_author %} data-live-author="{{live_author}}"{% endif %}{% endif %}>
+    <table id="workload-list" class="test-list stripes hoverable"{% if profile|may_poll %}{% if pending or active %} data-live-listing="/api/live/workloads/"{% if live_author %} data-live-author="{{live_author}}"{% endif %}{% endif %}{% endif %}>
 
         <!-- Only show Pending tests for the front page of the Index -->
         {% if paging.page == 1 %}

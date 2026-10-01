@@ -38,7 +38,7 @@ from OpenBench.insights.grouping import sum_by_key
 from OpenBench.machine_info import text_of
 from OpenBench.insights.speed import nodes_per_second
 from OpenBench.models import *
-from OpenBench.workloads.confirmation import confirmation_for
+from OpenBench.workloads.confirmation import ExistingConfirmation, confirmation_for
 
 def view_workload(request, workload, workload_type):
 
@@ -69,7 +69,8 @@ def view_workload(request, workload, workload_type):
         data['diagnosis'] = diagnosis
 
     # A passed STC test offers its LTC confirmation as a prefilled create form; see docs/WORKLOADS.md
-    data['confirmation'] = confirmation_for(workload, OpenBench.page_queries.request_profile(request))
+    confirmation = confirmation_for(workload, OpenBench.page_queries.request_profile(request))
+    data['confirmed_by' if isinstance(confirmation, ExistingConfirmation) else 'confirmation'] = confirmation
 
     return OpenBench.views.render(request, 'workload.html', data)
 

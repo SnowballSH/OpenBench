@@ -361,6 +361,7 @@ register.filter('row_reason', OpenBench.diagnosis.listing.row_reason)
 register.filter('listing_moment', OpenBench.listing_rows.listing_moment)
 register.filter('workload_label', workload_label)
 register.filter('result_label', result_label)
+register.filter('may_poll', OpenBench.page_queries.may_poll)
 register.filter('short_name', OpenBench.workload_names.short_name)
 
 
