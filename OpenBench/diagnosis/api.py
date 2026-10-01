@@ -1,16 +1,17 @@
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from datetime import datetime
 from enum import StrEnum
 
 from django.db.models import QuerySet
 
 from OpenBench.diagnosis.domain import DiagnosisState
-from OpenBench.diagnosis.report import diagnose_workloads
+from OpenBench.diagnosis.report import diagnose_workload, diagnose_workloads
 from OpenBench.insights.domain import WorkloadMode, WorkloadStatus
 from OpenBench.insights.serialize import Json, to_json
 from OpenBench.insights.sources import workload_facts
 from OpenBench.insights.strength import EloInterval, elo_interval
+from OpenBench.insights.workload import workload_insights
 from OpenBench.models import Engine, Test
 
 DEFAULT_LIMIT = 50
@@ -72,6 +73,14 @@ class WorkloadRow:
     updated_at: datetime
     info: str
     diagnosis: DiagnosisRef
+
+
+def insights_payload(workload: Test) -> dict[str, Json]:
+    insights = workload_insights(workload)
+    return {
+        **{field.name: to_json(getattr(insights, field.name)) for field in fields(insights)},
+        'diagnosis': to_json(diagnose_workload(workload, insights.generated_at)),
+    }
 
 
 def whole_number(raw: str, error: str) -> int:

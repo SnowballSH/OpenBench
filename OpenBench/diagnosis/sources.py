@@ -3,13 +3,21 @@ from datetime import datetime
 
 from django.db.models import F, Max, Q
 
-from OpenBench.diagnosis.domain import ASSIGNMENT_WINDOW, PREPARING_WINDOW, Activity, Fleet, Preparing
+from OpenBench.diagnosis.domain import (
+    ASSIGNMENT_WINDOW,
+    BUILD_ALLOWANCE,
+    Activity,
+    Fleet,
+    Preparing,
+    is_build_failure,
+)
 from OpenBench.diagnosis.fleet import group_workers
+from OpenBench.fleet.housekeeping import exits_when_idle
+from OpenBench.machine_info import text_of
 from OpenBench.models import EngineConfig, LogEvent, Machine, Result, Test
 
 FLEET_SAMPLE = 120
 ERROR_SAMPLE = 200
-BUILD_FAILURE_SUFFIX = 'build failed'
 
 
 def newest_machines() -> list[Machine]:
@@ -21,16 +29,18 @@ def worker_errors(workload_ids: Iterable[int]) -> list[LogEvent]:
     return list(events.order_by('-id')[:ERROR_SAMPLE])
 
 
-def build_failures(errors: Iterable[LogEvent]) -> frozenset[tuple[int, int]]:
+def session_blacklists(errors: Iterable[LogEvent], machines: Iterable[Machine]) -> frozenset[tuple[int, int]]:
+    # A Client that exits when idle takes its blacklist with it: the job that replaces it starts with none
+    lasting = {machine.id for machine in machines if not exits_when_idle(text_of(machine.info, 'cli_options'))}
     return frozenset(
-        (event.test_id, event.machine_id) for event in errors if event.summary.endswith(BUILD_FAILURE_SUFFIX)
+        (event.test_id, event.machine_id) for event in errors if is_build_failure(event) and event.machine_id in lasting
     )
 
 
 def load_fleet(active: Sequence[Test], errors: Sequence[LogEvent], now: datetime) -> Fleet:
 
     machines = newest_machines()
-    failures = build_failures(errors)
+    failures = session_blacklists(errors, machines)
 
     return Fleet(
         active=tuple(active),
@@ -56,7 +66,7 @@ def load_preparing(workload_ids: Sequence[int], now: datetime) -> dict[int, list
 
     # A Result with no games, on a Machine still pointed at the Workload, is a worker that has yet to report
     rows = Result.objects.filter(
-        test_id__in=workload_ids, games=0, updated__gte=now - PREPARING_WINDOW, machine__workload=F('test_id')
+        test_id__in=workload_ids, games=0, updated__gte=now - BUILD_ALLOWANCE, machine__workload=F('test_id')
     ).values_list('test_id', 'machine_id', 'updated')
 
     preparing: dict[int, list[Preparing]] = {}
@@ -81,5 +91,10 @@ def load_activities(workload_ids: Sequence[int], errors: Sequence[LogEvent], now
     }
 
 
-def latest_errors(workload: Test) -> tuple[LogEvent, ...]:
-    return tuple(worker_errors([workload.id]))
+def stop_causes(workload_ids: Sequence[int]) -> dict[int, LogEvent]:
+
+    # clientBenchError finishes the Test and logs the mismatch without a log file. It is the cause of
+    # the stop only while it is the Workload's newest event: a later action logs one of its own
+    newest = LogEvent.objects.filter(test_id__in=workload_ids).order_by().values('test_id').annotate(newest=Max('id'))
+    causes = LogEvent.objects.filter(id__in=newest.values('newest'), machine_id__gt=0, log_file='')
+    return {event.test_id: event for event in causes}

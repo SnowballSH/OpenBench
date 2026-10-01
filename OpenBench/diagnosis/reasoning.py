@@ -2,6 +2,7 @@ from collections.abc import Sequence
 from datetime import datetime, timedelta
 
 from OpenBench.diagnosis.domain import (
+    BUILD_ALLOWANCE,
     RECENT_WINDOW,
     SEVERITY,
     SHOWN_ERRORS,
@@ -18,6 +19,7 @@ from OpenBench.diagnosis.domain import (
     Obstacle,
     ObstacleKind,
     WorkerGroup,
+    is_build_failure,
 )
 from OpenBench.diagnosis.standing import FleetJudge, Rival, Standing, StandingKind
 from OpenBench.insights.domain import WorkloadStatus
@@ -113,17 +115,50 @@ def stall_after(workload: Test) -> timedelta:
     return max(STALL_FLOOR, timedelta(seconds=STALL_FACTOR * expected)) if expected else STALL_FLOOR
 
 
+def report_deadline(activity: Activity, limit: timedelta) -> tuple[datetime | None, datetime | None]:
+
+    # A worker is silent while it builds and benchmarks, so a workload taken after the last result gets
+    # the build allowance before the first result is due
+    reported, taken = activity.last_result_at, activity.last_assigned_at
+    if taken is not None and (reported is None or taken > reported):
+        return taken, taken + BUILD_ALLOWANCE + limit
+    return reported, reported + limit if reported is not None else None
+
+
+def abandoned(machine: Machine, errors: Sequence[LogEvent]) -> bool:
+    # A Client that reports a failure and never checks in again has dropped the workload
+    return any(event.machine_id == machine.id and event.created >= machine.updated for event in errors)
+
+
 def reports_only_at_the_end(workload: Test) -> bool:
     return workload.test_mode == 'SPSA' and workload.spsa_run.reporting_type == 'BULK'
 
 
 def diagnose_finished(workload: Test, activity: Activity, now: datetime) -> Diagnosis:
+
     status = settled_status(workload)
+    cause = activity.stopped_by
+
+    if status == WorkloadStatus.STOPPED and cause is not None:
+        return verdict(
+            DiagnosisState.STOPPED_BY_ERROR,
+            f'Stopped by a worker error: "{cause.summary}".',
+            f'stopped by a worker error: {cause.summary}',
+            error_evidence([cause], now),
+        )
+
     return verdict(
         DiagnosisState.FINISHED,
         f'Not applicable: this workload {FINISHED_TEXT.get(status, "has finished")}, so no worker will take it.',
         FINISHED_BRIEF,
-        error_evidence(activity.errors, now) if status == WorkloadStatus.STOPPED else [],
+    )
+
+
+def diagnose_unranked() -> Diagnosis:
+    return verdict(
+        DiagnosisState.UNKNOWN,
+        'Unknown: the queue cannot be ranked while an active workload has a throughput of 0.',
+        'unknown: a throughput of 0',
     )
 
 
@@ -160,18 +195,17 @@ def diagnose_held(workload: Test, holders: Sequence[Machine], activity: Activity
         last_result,
         *error_evidence(unresolved_errors(activity), now),
     ]
-    progress = max(
-        (moment for moment in (activity.last_result_at, activity.last_assigned_at) if moment is not None),
-        default=None,
-    )
     limit = stall_after(workload)
+    quiet_since, due = report_deadline(activity, limit)
 
-    if progress is not None and now - progress > limit and not reports_only_at_the_end(workload):
-        quiet = format_duration((now - progress).total_seconds())
+    if due is not None and quiet_since is not None and now > due and not reports_only_at_the_end(workload):
+        quiet = format_duration((now - quiet_since).total_seconds())
+        single = len(holders) == 1
         return verdict(
             DiagnosisState.STALLED,
-            f'Stalled: {workers} still hold this workload and check in, but nothing has been reported for {quiet} '
-            f'(a result is expected within {format_duration(limit.total_seconds())}).',
+            f'Stalled: {workers} still {"holds" if single else "hold"} this workload and '
+            f'{"checks" if single else "check"} in, but nothing has been reported for {quiet} '
+            f'(a result was expected within {format_duration((due - quiet_since).total_seconds())}).',
             f'stalled: no result for {quiet}',
             evidence,
         )
@@ -195,7 +229,8 @@ def diagnose_starting(activity: Activity, errors: Sequence[LogEvent], now: datet
     return verdict(
         DiagnosisState.STARTING,
         f'Starting: handed to {plural(len(preparing), "worker")}, most recently {ago(now, newest)}, with nothing '
-        'reported yet. Workers send no heartbeat while they build and benchmark the engines.',
+        f'reported yet. Workers are silent while they build and benchmark the engines, for up to '
+        f'{format_duration(BUILD_ALLOWANCE.total_seconds())}.',
         f'starting on {plural(len(preparing), "worker")}',
         [
             Evidence(
@@ -236,7 +271,7 @@ def eligible_evidence(groups: Sequence[WorkerGroup], now: datetime) -> list[Evid
 
 def last_worker_evidence(machine: Machine | None, now: datetime) -> Evidence:
     if machine is None:
-        return Evidence(EvidenceKind.LAST_WORKER, 'No worker has ever registered with this server.')
+        return Evidence(EvidenceKind.LAST_WORKER, 'No registration on record.')
     return Evidence(
         EvidenceKind.LAST_WORKER,
         f'The last worker seen was machine {machine.id} ({machine.user.username}), {ago(now, machine.updated)}.',
@@ -260,11 +295,7 @@ def diagnose_no_workers(
     return verdict(
         DiagnosisState.NO_WORKERS,
         f'No workers: nothing has registered, taken work or reported in the last {window}. '
-        + (
-            f'The last worker was seen {ago(now, last_seen.updated)}.'
-            if last_seen
-            else 'No worker has ever registered.'
-        ),
+        + (f'The last worker was seen {ago(now, last_seen.updated)}.' if last_seen else 'No registration on record.'),
         f'no workers {quiet}',
         [
             last_worker_evidence(last_seen, now),
@@ -372,18 +403,23 @@ def diagnose_passed_over(workload: Test, standing: Standing, groups: Sequence[Wo
     )
 
 
+def diagnose_failing(errors: Sequence[LogEvent], groups: Sequence[WorkerGroup], now: datetime) -> Diagnosis:
+
+    failed = len({event.machine_id for event in errors})
+    newest = errors[0]
+    return verdict(
+        DiagnosisState.FAILING,
+        f'Failing: the last {plural(failed, "worker")} to take it {"failed" if failed == 1 else "all failed"}, '
+        f'most recently with "{newest.summary}" {ago(now, newest.created)}. No result has arrived since.',
+        f'failing: {newest.summary}',
+        [*error_evidence(errors, now), *eligible_evidence(groups, now)],
+    )
+
+
 def diagnose_next_in_line(groups: Sequence[WorkerGroup], errors: Sequence[LogEvent], now: datetime) -> Diagnosis:
 
     if errors:
-        failed = plural(len({event.machine_id for event in errors}), 'worker')
-        newest = errors[0]
-        return verdict(
-            DiagnosisState.FAILING,
-            f'Failing: the last {failed} to take it reported an error and no result has arrived since, '
-            f'most recently "{newest.summary}" {ago(now, newest.created)}.',
-            f'failing: {newest.summary}',
-            [*error_evidence(errors, now), *eligible_evidence(groups, now)],
-        )
+        return diagnose_failing(errors, groups, now)
 
     return verdict(
         DiagnosisState.WAITING,
@@ -416,7 +452,12 @@ def diagnose_unassigned(workload: Test, judge: FleetJudge, activity: Activity, n
         recent_blocked = [(group, found) for group, found in blocked if group.recent(now)]
         return diagnose_no_eligible(recent_blocked if eligible else blocked, eligible, errors, now)
 
-    standing = best_standing([judge.standing(workload, group.machine) for group in ready])
+    standings = [judge.standing(workload, group.machine) for group in ready]
+    ranked = [standing for standing in standings if standing is not None]
+    if len(ranked) < len(standings):
+        return diagnose_unranked()
+
+    standing = best_standing(ranked)
     if standing.kind == StandingKind.NEXT:
         return diagnose_next_in_line(ready, errors, now)
     return diagnose_passed_over(workload, standing, ready, now)
@@ -424,13 +465,24 @@ def diagnose_unassigned(workload: Test, judge: FleetJudge, activity: Activity, n
 
 def diagnose_active(workload: Test, judge: FleetJudge, activity: Activity, now: datetime) -> Diagnosis:
 
-    holders = [machine for machine in judge.fleet.assigned if machine.workload == workload.id]
+    errors = unresolved_errors(activity)
+    holders = [
+        machine
+        for machine in judge.fleet.assigned
+        if machine.workload == workload.id and not abandoned(machine, errors)
+    ]
     if holders:
         return diagnose_held(workload, holders, activity, now)
 
-    return diagnose_starting(activity, unresolved_errors(activity), now) or diagnose_unassigned(
-        workload, judge, activity, now
-    )
+    if starting := diagnose_starting(activity, errors, now):
+        return starting
+
+    # A commit that does not build fails on every worker that takes it, whatever the fleet looks like now
+    if any(is_build_failure(event) for event in errors):
+        ready = [group for group in judge.fleet.groups if group.recent(now)]
+        return diagnose_failing(errors, [group for group in ready if not judge.obstacles(workload, group.machine)], now)
+
+    return diagnose_unassigned(workload, judge, activity, now)
 
 
 def diagnose(workload: Test, judge: FleetJudge, activity: Activity, now: datetime) -> Diagnosis:

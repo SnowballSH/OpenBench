@@ -1,4 +1,4 @@
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from datetime import datetime
 
 from django.utils import timezone
@@ -12,10 +12,10 @@ from OpenBench.diagnosis.reasoning import (
     diagnose_unknown,
     settled_status,
 )
-from OpenBench.diagnosis.sources import latest_errors, load_activities, load_fleet, worker_errors
+from OpenBench.diagnosis.sources import load_activities, load_fleet, stop_causes, worker_errors
 from OpenBench.diagnosis.standing import FleetJudge
 from OpenBench.insights.domain import WorkloadStatus
-from OpenBench.models import Test
+from OpenBench.models import LogEvent, Test
 
 
 def diagnose_active_workloads(now: datetime) -> dict[int, Diagnosis]:
@@ -34,28 +34,32 @@ def diagnose_active_workloads(now: datetime) -> dict[int, Diagnosis]:
     return {workload.id: diagnose(workload, judge, activities[workload.id], now) for workload in active}
 
 
-def diagnose_settled(workload: Test, now: datetime, with_errors: bool) -> Diagnosis | None:
+def is_stopped(workload: Test) -> bool:
+    return workload.finished and settled_status(workload) == WorkloadStatus.STOPPED
+
+
+def diagnose_settled(workload: Test, now: datetime, causes: Mapping[int, LogEvent]) -> Diagnosis | None:
 
     if workload.finished or workload.deleted:
-        stopped = settled_status(workload) == WorkloadStatus.STOPPED
-        errors = latest_errors(workload) if with_errors and stopped else ()
-        return diagnose_finished(workload, Activity(errors=errors), now)
+        return diagnose_finished(workload, Activity(stopped_by=causes.get(workload.id)), now)
     if not workload.approved:
         return diagnose_pending()
     return None
 
 
-def diagnose_workload(workload: Test, now: datetime | None = None) -> Diagnosis:
-    now = now or timezone.now()
-    settled = diagnose_settled(workload, now, with_errors=True)
-    return settled or diagnose_active_workloads(now).get(workload.id) or diagnose_unknown()
-
-
 def diagnose_workloads(workloads: Iterable[Test], now: datetime | None = None) -> dict[int, Diagnosis]:
 
     now = now or timezone.now()
-    settled = {workload.id: diagnose_settled(workload, now, with_errors=False) for workload in workloads}
+    workloads = list(workloads)
+    stopped = [workload.id for workload in workloads if is_stopped(workload)]
+    causes = stop_causes(stopped) if stopped else {}
+
+    settled = {workload.id: diagnose_settled(workload, now, causes) for workload in workloads}
     active = diagnose_active_workloads(now) if any(found is None for found in settled.values()) else {}
     return {
         workload_id: found or active.get(workload_id) or diagnose_unknown() for workload_id, found in settled.items()
     }
+
+
+def diagnose_workload(workload: Test, now: datetime | None = None) -> Diagnosis:
+    return diagnose_workloads([workload], now)[workload.id]

@@ -3,6 +3,7 @@ from datetime import timedelta
 from typing import Any, ClassVar
 from unittest import mock
 
+from django.db import connection
 from django.test import TestCase
 from django.utils import timezone
 
@@ -236,7 +237,7 @@ class WorkloadDiagnosisTests(ClientProtocolCase):
             author='lab-worker', summary='Wrong Bench: 1', log_file='', machine_id=4, test_id=test.id
         )
         found = diagnose_workload(test)
-        self.assertEqual(found.state, DiagnosisState.FINISHED)
+        self.assertEqual(found.state, DiagnosisState.STOPPED_BY_ERROR)
         self.assertIn('Wrong Bench: 1', found.evidence[0].text)
 
     def test_only_ineligible_workers_online(self) -> None:
@@ -427,3 +428,152 @@ class WorkloadsApiTests(ClientProtocolCase):
         self.assertEqual(set(diagnosis['evidence'][0]), {'kind', 'text', 'link'})
         self.assertEqual(diagnosis['evidence'][0]['kind'], 'ineligible')
         self.assertEqual(set(diagnosis['evidence'][0]['link']), {'href', 'label'})
+
+
+class OneShotWorkerTests(ClientProtocolCase):
+    def one_shot(self) -> dict[str, Any]:
+        return self.register(cli_options='-U lab-worker -T 4 --single_workload', machine_name='batch-job')
+
+    def fail_build(self, session: dict[str, Any], test: Test) -> None:
+        report = {**session, 'test_id': test.id, 'error': '[Avalanche] dev build failed', 'logs': 'zig: error'}
+        with mock.patch('OpenBench.views.FileSystemStorage'):
+            self.assertEqual(self.client.post('/clientSubmitError/', report).json(), {})
+
+    def take_and_fail(self, test: Test) -> None:
+        session = self.one_shot()
+        self.assertEqual(self.request_workload(session), test.id)
+        self.fail_build(session, test)
+
+    def age(self, minutes: float) -> None:
+        moment = timezone.now() - timedelta(minutes=minutes)
+        Machine.objects.update(updated=moment)
+        Result.objects.update(updated=moment)
+        LogEvent.objects.update(created=moment)
+
+    def test_a_job_that_failed_to_build_is_not_a_running_worker(self) -> None:
+        test = create_test(self.author)
+        self.take_and_fail(test)
+        found = diagnose_workload(test)
+        self.assertEqual(found.state, DiagnosisState.FAILING)
+        self.assertIn('the last 1 worker to take it failed', found.headline)
+        self.assertIn('"[Avalanche] dev build failed"', found.headline)
+
+    def test_failed_jobs_do_not_become_ineligible_kinds_of_worker(self) -> None:
+        test = create_test(self.author)
+        for _ in range(3):
+            self.take_and_fail(test)
+        self.age(5)
+        fresh = self.one_shot()
+
+        found = diagnose_workload(test)
+        self.assertEqual(found.state, DiagnosisState.FAILING)
+        self.assertIn('the last 3 workers to take it all failed', found.headline)
+        self.assertEqual(self.predicted(fresh), {test.id})
+        self.assertEqual(self.request_workload(fresh), test.id)
+
+    def test_old_build_failures_still_read_as_failing(self) -> None:
+        test = create_test(self.author)
+        self.take_and_fail(test)
+        self.age(45)
+        self.assertEqual(diagnose_workload(test).state, DiagnosisState.FAILING)
+
+    def test_a_result_after_the_failures_resolves_them(self) -> None:
+        test = create_test(self.author)
+        self.take_and_fail(test)
+        self.age(5)
+        session = self.one_shot()
+        self.request_workload(session)
+        Result.objects.filter(machine_id=session['machine_id']).update(games=20, updated=timezone.now())
+        self.assertEqual(diagnose_workload(test).state, DiagnosisState.RUNNING)
+
+    def test_a_playing_worker_that_reports_a_crash_is_still_running(self) -> None:
+        test = create_test(self.author)
+        session = self.register()
+        self.request_workload(session)
+        report = {**session, 'test_id': test.id, 'error': 'Disconnect', 'logs': '[Event]'}
+        with mock.patch('OpenBench.views.FileSystemStorage'):
+            self.client.post('/clientSubmitError/', report)
+        self.client.post('/clientHeartbeat/', {**session, 'test_id': test.id})
+        self.assertEqual(diagnose_workload(test).state, DiagnosisState.RUNNING)
+
+    def test_a_long_build_is_starting_and_not_an_idle_fleet(self) -> None:
+        test = create_test(self.author)
+        session = self.register()
+        self.request_workload(session)
+        self.age(12)
+        found = diagnose_workload(test)
+        self.assertEqual(found.state, DiagnosisState.STARTING)
+
+        self.client.post('/clientHeartbeat/', {**session, 'test_id': test.id})
+        self.assertEqual(diagnose_workload(test).state, DiagnosisState.RUNNING)
+
+    def test_a_worker_silent_past_the_build_allowance_is_gone(self) -> None:
+        test = create_test(self.author)
+        self.request_workload(self.register())
+        self.age(45)
+        self.assertEqual(diagnose_workload(test).state, DiagnosisState.NO_WORKERS)
+
+    def test_checking_in_without_a_result_past_the_allowance_is_stalled(self) -> None:
+        test = create_test(self.author)
+        session = self.register()
+        self.request_workload(session)
+        self.age(60)
+        self.client.post('/clientHeartbeat/', {**session, 'test_id': test.id})
+        found = diagnose_workload(test)
+        self.assertEqual(found.state, DiagnosisState.STALLED)
+        self.assertIn('1 worker (4 threads) still holds this workload and checks in', found.headline)
+
+
+class StoppedByErrorTests(ClientProtocolCase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.test = create_test(self.author)
+        session = self.register()
+        self.request_workload(session)
+        report = {**session, 'test_id': self.test.id, 'error': 'Wrong Bench: 123 (expected 1)'}
+        self.assertEqual(self.client.post('/clientBenchError/', report).json(), {})
+        self.test.refresh_from_db()
+        self.client.force_login(self.author)
+
+    def test_bench_mismatch_stops_the_workload_and_says_so(self) -> None:
+        self.assertTrue(self.test.finished)
+        found = diagnose_workload(self.test)
+        self.assertEqual(found.state, DiagnosisState.STOPPED_BY_ERROR)
+        self.assertEqual(found.headline, 'Stopped by a worker error: "Wrong Bench: 123 (expected 1)".')
+
+    def test_workload_page_shows_the_banner(self) -> None:
+        content = self.client.get(f'/test/{self.test.id}/').content.decode()
+        self.assertIn('class="diagnosis diagnosis-warning" data-diagnosis-state="stopped_by_error"', content)
+        self.assertIn('Stopped by a worker error: &quot;Wrong Bench: 123 (expected 1)&quot;.', content)
+
+    def test_listings_say_why(self) -> None:
+        row = self.client.get('/api/workloads/').json()['workloads'][0]
+        self.assertEqual((row['status'], row['diagnosis']['state']), ('stopped', 'stopped_by_error'))
+        self.assertIn('Wrong Bench', row['diagnosis']['headline'])
+        self.assertIn('stopped by a worker error: Wrong Bench: 123', self.client.get('/index/').content.decode())
+
+    def test_a_later_manual_action_is_the_cause_instead(self) -> None:
+        LogEvent.objects.create(author='admin', summary='STOP', log_file='', test_id=self.test.id)
+        self.assertEqual(diagnose_workload(self.test).state, DiagnosisState.FINISHED)
+        self.assertNotIn('data-diagnosis-state', self.client.get(f'/test/{self.test.id}/').content.decode())
+
+
+class DegenerateWorkloadTests(ClientProtocolCase):
+    def test_zero_throughput_is_unknown_instead_of_a_server_error(self) -> None:
+        broken = create_test(self.author, throughput=0)
+        other = create_test(self.author)
+        self.register()
+        self.client.force_login(self.author)
+        for url in ('/index/', f'/test/{broken.id}/', f'/test/{other.id}/', '/api/workloads/?status=active'):
+            with self.subTest(url):
+                self.assertEqual(self.client.get(url).status_code, 200)
+        self.assertEqual(diagnose_workload(broken).state, DiagnosisState.UNKNOWN)
+
+    def test_worker_errors_are_found_through_the_index(self) -> None:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                'EXPLAIN QUERY PLAN SELECT id FROM "OpenBench_logevent" '
+                'WHERE test_id IN (1, 2) AND machine_id > 0 ORDER BY id DESC LIMIT 200'
+            )
+            plan = ' '.join(str(row[-1]) for row in cursor.fetchall())
+        self.assertIn('logevent_test_machine', plan)

@@ -21,7 +21,7 @@ from django.http import HttpRequest
 from django.utils import timezone
 
 import OpenBench.utils
-from OpenBench.diagnosis.listing import attach_row_reasons
+from OpenBench.diagnosis.listing import attach_row_reasons, attach_stop_reasons
 from OpenBench.insights.listing import RowTiming, SnapshotMarks, finished_row_timing, running_row_timing
 from OpenBench.insights.sources import workload_facts
 from OpenBench.insights.timing import RECENT_WINDOW, Mark
@@ -168,7 +168,10 @@ def workload_list_data(
     # Pending and Active tests, and the Machine status, only show on the first page
     start, end, paging = OpenBench.utils.getPaging(completed, page, url)
     shown = front.data() if front and paging['page'] == 1 else {}
-    return {**shown, 'completed': listing_tests(completed)[start:end], 'paging': paging}
+    now = timezone.now()
+    listed = list(listing_tests(completed, now)[start:end])
+    attach_stop_reasons(listed, now)
+    return {**shown, 'completed': listed, 'paging': paging}
 
 
 def attach_event_workloads(events: Iterable[LogEvent]) -> list[LogEvent]:

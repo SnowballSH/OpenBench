@@ -31,9 +31,9 @@ MEDIUM = dataclasses.replace(
 )
 
 PAGE_QUERIES = {
-    '/index/': 15,
-    '/index/2/': 6,
-    '/user/user1/': 15,
+    '/index/': 16,
+    '/index/2/': 7,
+    '/user/user1/': 16,
     '/greens/': 6,
     '/search/?keywords=branch': 7,
     '/search/2/?authors=user1+user2': 7,
@@ -44,9 +44,9 @@ PAGE_QUERIES = {
     '/machines/': 11,
     '/machines/?show=7d': 11,
     '/users/': 8,
-    '/api/workloads/': 10,
-    '/api/workloads/?status=finished&limit=200': 4,
-    '/api/workloads/?since_id=0&limit=200': 10,
+    '/api/workloads/': 11,
+    '/api/workloads/?status=finished&limit=200': 5,
+    '/api/workloads/?since_id=0&limit=200': 11,
 }
 
 MACHINE_QUERIES = 11

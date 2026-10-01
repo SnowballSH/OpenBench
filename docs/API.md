@@ -466,8 +466,9 @@ curl -s https://openbench.example.org/api/workloads/?status=active \
 - `info` is the first line of the workload's info.
 - `diagnosis.state` and `diagnosis.headline` are the verdict of
   [INSIGHTS.md](INSIGHTS.md#workload-diagnosis); the evidence behind it is in
-  `/api/workload/<id>/insights/`. A finished workload reads `finished`, a
-  pending one `awaiting_approval`.
+  `/api/workload/<id>/insights/`. A finished workload reads `finished`, one
+  that a worker's bench mismatch stopped `stopped_by_error` with the error in
+  its headline, a pending one `awaiting_approval`.
 
 | Error | Status | Body |
 |---|---|---|
@@ -476,7 +477,8 @@ curl -s https://openbench.example.org/api/workloads/?status=active \
 | `since_id` not a whole number | 400 | `{"error": "since_id must be a whole number"}` |
 
 The response costs a fixed number of queries whatever the `limit`: the rows,
-plus the six of the diagnosis when a row is active.
+plus the six of the diagnosis when a row is active and one more when a row is
+stopped.
 
 ### `GET|POST /api/workload/<id>/<query>/`
 

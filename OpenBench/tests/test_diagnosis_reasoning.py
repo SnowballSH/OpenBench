@@ -116,8 +116,10 @@ class SettledWorkloadTests(SimpleTestCase):
         self.assertIn('has finished', diagnose(tune, fleet([], []), Activity(), NOW).headline)
 
     def test_stopped_workload_cites_its_last_worker_error(self):
-        activity = Activity(errors=(error(7, 'Wrong Bench: 123', 30),))
+        activity = Activity(stopped_by=error(7, 'Wrong Bench: 123', 30))
         found = diagnose(workload(finished=True), fleet([], []), activity, NOW)
+        self.assertEqual(found.state, DiagnosisState.STOPPED_BY_ERROR)
+        self.assertEqual(found.headline, 'Stopped by a worker error: "Wrong Bench: 123".')
         self.assertEqual(kinds(found), [EvidenceKind.ERROR])
         self.assertIn('Wrong Bench: 123', found.evidence[0].text)
 
@@ -127,7 +129,7 @@ class NoWorkerTests(SimpleTestCase):
         test = workload()
         found = diagnose(test, fleet([], [test]), Activity(), NOW)
         self.assertEqual(found.state, DiagnosisState.NO_WORKERS)
-        self.assertIn('No worker has ever registered', found.headline)
+        self.assertIn('No registration on record.', found.headline)
         self.assertEqual(found.severity, Severity.WARNING)
 
     def test_idle_fleet_says_when_the_last_worker_was_seen(self):
@@ -316,8 +318,8 @@ class EligibleWorkerTests(SimpleTestCase):
         errors = (error(8, '[Avalanche] dev build failed', 2, log_file='event8.log'), error(7, 'Engine crashed', 5))
         found = diagnose(test, fleet([machine(seen=1)], [test]), Activity(errors=errors), NOW)
         self.assertEqual(found.state, DiagnosisState.FAILING)
-        self.assertIn('the last 2 workers to take it reported an error', found.headline)
-        self.assertIn('"[Avalanche] dev build failed" 2m ago', found.headline)
+        self.assertIn('the last 2 workers to take it all failed', found.headline)
+        self.assertIn('with "[Avalanche] dev build failed" 2m ago', found.headline)
         self.assertEqual(
             [item.link for item in found.evidence[:2]], [Link('/event/8/', 'Log 8'), Link('/errors/', 'Errors')]
         )
@@ -359,7 +361,7 @@ class HeldWorkloadTests(SimpleTestCase):
         found = diagnose(test, fleet([machine(holds=10)], [test]), Activity(last_result_at=minutes_ago(25)), NOW)
         self.assertEqual(found.state, DiagnosisState.STALLED)
         self.assertEqual(found.severity, Severity.WARNING)
-        self.assertIn('nothing has been reported for 25m (a result is expected within 10m)', found.headline)
+        self.assertIn('nothing has been reported for 25m (a result was expected within 10m)', found.headline)
 
     def test_long_time_controls_wait_longer(self):
         test = workload(dev_time_control='120.0+1.20')
@@ -393,4 +395,4 @@ class HeldWorkloadTests(SimpleTestCase):
         test = workload()
         activity = Activity(preparing=(Preparing(1, minutes_ago(4)),), errors=(error(1, 'x build failed', 3),))
         found = diagnose(test, fleet([machine(seen=4, holds=10)], [test], frozenset({(10, 1)})), activity, NOW)
-        self.assertEqual(found.state, DiagnosisState.NO_ELIGIBLE_WORKERS)
+        self.assertEqual(found.state, DiagnosisState.FAILING)

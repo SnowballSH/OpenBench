@@ -471,18 +471,20 @@ States, in the order they are decided:
 
 | State | When |
 |---|---|
-| `finished` | Finished, stopped or deleted: no worker will take it. A stopped workload cites its last worker error, since a bench mismatch stops a test. |
+| `finished` | Finished, stopped or deleted: no worker will take it. |
+| `stopped_by_error` | Stopped, and the workload's newest logged event is a worker error without a log file: `clientBenchError` finishes a test on a bench mismatch and logs exactly that. A later Stop, Restart or other action logs its own event and takes this state away. |
 | `awaiting_approval` | Not approved yet. |
-| `running` | A machine seen in the last 2 minutes holds it. Evidence: the machines, and when the last result arrived. |
-| `stalled` | Such machines still check in, but nothing has been reported for longer than the stall limit. |
-| `starting` | No holder is checking in, but a machine took it in the last 10 minutes and has reported no game and no error. A worker sends no heartbeat while it builds and benchmarks. |
+| `running` | A machine seen in the last 2 minutes holds it, and has not reported an error for it since it last checked in (a Client that fails to build reports once and drops the workload). Evidence: the machines, and when the last result arrived. |
+| `stalled` | Such machines still check in, but no result arrived within the stall limit of the last one, or within the build allowance plus the stall limit of the workload being taken. |
+| `starting` | No holder is checking in, but a machine took it within the build allowance (30 minutes) and has reported no game and no error. A worker is silent while it builds and benchmarks. |
+| `failing` | Nobody holds it and workers have reported build failures since its last result: a commit that does not build fails on every worker, so this is said whatever the fleet looks like now. |
 | `no_workers` | No machine has been seen in the last 10 minutes, and the fleet of the last 24 hours includes one that could take it (or there is no such fleet). Says when the last worker was seen. |
 | `no_eligible_workers` | Workers were seen, but none that could take it; each kind is listed with every rule that excludes it. Also when the only kinds that could take it have gone quiet while others are online. |
 | `outranked` | An eligible worker is online, but for every such worker a higher-priority workload it can play comes first, or its `--focus` / `--only` engine has work waiting. Evidence: those workloads and the priority gap. |
 | `low_share` | It is among the candidates, but other candidates have fewer threads for their throughput, so they are served first. |
-| `failing` | It is next in line for an online worker, yet workers have reported errors for it since its last result. Evidence: the last three, linked to their logs. |
+| `failing` | Also: it is next in line for an online worker, yet workers have reported other errors for it since its last result. Evidence: the last three, linked to their logs. |
 | `waiting` | It is next in line for an online worker and nothing is wrong: a busy worker asks again only when its batch ends. |
-| `unknown` | The workload or every registration seen cannot be evaluated (a missing `Threads` option, a registration without the fields the scheduler reads). |
+| `unknown` | The workload or every registration seen cannot be evaluated (a missing `Threads` option, a registration without the fields the scheduler reads), or the queue cannot be ranked because an active workload has a throughput of 0. |
 
 Worker errors newer than the last result are attached to every active state,
 so a `no_workers` verdict still shows that the last workers failed.
@@ -548,11 +550,18 @@ left is forgotten after a quarter of an hour.
   workload request and the server does not store it. The Client adds a
   workload after a build failure, which it also reports, so a Machine with a
   `... build failed` error for the workload is treated as refusing it for that
-  session. A `--blacklist` given on the command line cannot be seen.
+  session. That only applies to Clients that keep polling: a `--single_workload`
+  or `--fleet` Client exits, and the job that replaces it starts with an empty
+  blacklist and is handed the workload again, so such registrations are judged
+  as a fresh one would be and stay in their pool's group. A `--blacklist`
+  given on the command line cannot be seen.
 - **Next in line is not a promise.** The scheduler picks at random among equal
   ratios and lets a machine keep its workload while the split stays within 25%
   of fair, so `waiting` means the next free worker would be offered it or a
   tied workload.
+- **Build allowance.** Thirty minutes from taking a workload, during which
+  silence reads as `starting` and no first result is due. A build that takes
+  longer reads as a worker that left.
 - **Stall limit.** Ten minutes, or four times an estimated game
   (`2 × (base + 80 × increment)` of the dev time control) when that is longer.
   Tunes that report in bulk only report at the end and are never called
@@ -560,18 +569,17 @@ left is forgotten after a quarter of an hour.
 - **Sampling.** Only the 120 newest Machines and the 200 newest worker errors
   of the active workloads are read. With more than 120 Machines online the
   thread counts behind `low_share` undercount.
-- **Errors are matched by workload only.** `LogEvent` has no index on
-  `test_id`; the lookup scans the table, which stays small because only
-  worker errors and workload actions are logged.
 
 ### Where it shows, and what it costs
 
 - **Workload page**: a banner above the configuration for every workload that
-  is not finished (`Blocks/diagnosis.html`): quiet with collapsed evidence for
+  is not finished, and for one stopped by a worker error
+  (`Blocks/diagnosis.html`): quiet with collapsed evidence for
   `ok` and `info`, amber with the evidence open for `warning`.
 - **Listings**: an active row whose timing line has no rate shows `brief`
   under it, amber for a warning, with the headline as its tooltip. Rows that
-  are producing games are left alone.
+  are producing games are left alone. A finished row stopped by a worker
+  error shows that error the same way.
 - **API**: `insights.diagnosis` on `/api/workload/<id>/insights/`, and the
   state and headline on each row of `/api/workloads/`
   ([API.md](API.md#getpost-apiworkloads)).
@@ -580,9 +588,10 @@ Every active workload is diagnosed from one shared picture of the fleet, in
 six queries whatever the number of workloads and Machines: the active
 workloads, their worker errors, the newest Machines, the engine
 configurations, the last result time per workload, and the Results still
-without a game. A pending or finished workload costs none, a stopped one a
-single query for its errors. A listing pays the six only when an active row
-has no rate.
+without a game. A pending or finished workload costs none; stopped ones cost
+one query between them, for their newest events. A listing pays the six only
+when an active row has no rate, and the one only when it lists a stopped
+workload. Both error lookups use the `logevent_test_machine` index.
 
 ## Comparing workloads
 

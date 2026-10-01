@@ -43,7 +43,14 @@ class FleetJudge:
     def options(self, machine: Machine) -> list[Test]:
         return [workload for workload in self.fleet.active if not self.obstacles(workload, machine)]
 
-    def standing(self, workload: Test, machine: Machine) -> Standing:
+    def standing(self, workload: Test, machine: Machine) -> Standing | None:
+        # A throughput of zero cannot be ranked, and makes the scheduler itself fail for this machine
+        try:
+            return self.ranked(workload, machine)
+        except ArithmeticError:
+            return None
+
+    def ranked(self, workload: Test, machine: Machine) -> Standing:
 
         options = self.options(machine)
         candidates, has_focus = scheduler.refine(options, machine)

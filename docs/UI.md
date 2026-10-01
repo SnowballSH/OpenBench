@@ -118,7 +118,7 @@ without relying on fill alone.
 - **Banners**: `.error-message`, `.warning-message`, `.status-message` render
   the session messages in `base.html`.
 - **Diagnosis**: `.diagnosis` with `.diagnosis-{ok,info,warning}` is the
-  workload page's "what is this waiting for" banner (`Blocks/diagnosis.html`):
+  workload page's "what is this waiting for" (or "what stopped this") banner (`Blocks/diagnosis.html`):
   a `<section>` with a hidden `<h2>`, the headline, and the evidence in a
   `<details>` that starts open only for a warning. `.row-reason` is the same
   verdict in a few words on a listing row's `.row-meta` line,
