@@ -17,7 +17,7 @@ The examples below were captured from a local server filled by
 - [Configuration](#configuration): `api/config/`, `api/config/<engine>/`, `api/buildinfo/`
 - [Networks](#networks): list, download, delete
 - [Workloads](#workloads): `api/workloads/`, `api/live/…`, `api/workload/<id>/<query>/`, `api/spsa/<id>/<query>/`, `api/pgns/<id>/`
-- [Server](#server): `api/insights/server/`, `api/progress/`, `api/jump/`, `api/storage/`, `api/active/`
+- [Server](#server): `api/insights/server/`, `api/progress/`, `api/errors/`, `api/jump/`, `api/storage/`, `api/active/`
 - [`/scripts/`](#scripts): upload a network, create a test
 - [`/health/`](#health)
 - [Client worker endpoints](#client-worker-endpoints)
@@ -74,7 +74,7 @@ user only when that flag is set; the rest always demand one.
 
 | Rule | Endpoints |
 |---|---|
-| Enabled user when `require_login_to_view` is `true`, otherwise public | `api/config/`, `api/config/<engine>/`, `api/buildinfo/`, `api/networks/<engine>/`, `api/workload/…`, `api/live/…`, `api/spsa/…`, `api/pgns/<id>/`, `api/insights/server/` |
+| Enabled user when `require_login_to_view` is `true`, otherwise public | `api/config/`, `api/config/<engine>/`, `api/buildinfo/`, `api/networks/<engine>/`, `api/workload/…`, `api/live/…`, `api/spsa/…`, `api/pgns/<id>/`, `api/insights/server/`, `api/errors/` |
 | Always an enabled user | `api/active/`, `api/networks/<engine>/<id>/` (download), `/scripts/` |
 | Always an enabled **Approver** | `api/networks/<engine>/<id>/delete/`, and `UPLOAD_NETWORK` through `/scripts/` |
 | Always a **manager** (Profile or Django superuser) | `api/storage/` |
@@ -90,7 +90,7 @@ Every `/api/` endpoint answers a failed login with 401. The message differs:
 
 | Endpoints | Body |
 |---|---|
-| `api/config/…`, `api/buildinfo/`, `api/networks/<engine>/`, `api/workload/…`, `api/live/…`, `api/spsa/…`, `api/pgns/…`, `api/insights/server/` | `{"error": "API requires authentication for this server"}` |
+| `api/config/…`, `api/buildinfo/`, `api/networks/<engine>/`, `api/workload/…`, `api/live/…`, `api/spsa/…`, `api/pgns/…`, `api/insights/server/`, `api/errors/` | `{"error": "API requires authentication for this server"}` |
 | `api/networks/<engine>/<id>/` (download), `api/networks/<engine>/<id>/delete/`, `api/storage/` | `{"error": "API requires authentication for this endpoint"}` |
 | `api/active/` | `{"error": "Bad Credentials"}` |
 
@@ -170,6 +170,8 @@ The read endpoints and `POST api/active/` change nothing and do not check CSRF.
 | GET, POST | `/api/pgns/<id>/` | view | The workload's PGN archive |
 | GET, POST | `/api/insights/server/` | view | Fleet and workload counters |
 | GET, POST | `/api/progress/?engine=&window=` | view | Engine lineage and activity over a time window |
+| GET, POST | `/api/errors/?workload=&kind=&unresolved=&limit=` | view | Worker errors grouped by workload and summary |
+| GET, POST | `/api/errors/<event id>/log/` | view | The log uploaded with one worker error |
 | GET, POST | `/api/jump/?q=` | view | Quick-jump suggestions |
 | GET, POST | `/api/storage/` | manager | Disk usage of the data directory |
 | POST | `/api/active/` | user | Workloads a described machine could be assigned |
@@ -1119,6 +1121,150 @@ in the same cases. The earlier `greens`,
 `elo_steps` and `summary.elo_gained` fields are gone. The JSON schema, the
 model, formulas and caveats are
 in [INSIGHTS.md](INSIGHTS.md#engine-progress).
+
+### `GET|POST /api/errors/?workload=&kind=&unresolved=&limit=`
+
+What is failing: the worker errors behind `/errors/`, grouped by workload and
+normalised summary, most recently seen first. Kinds, grouping and the status
+rules are in [INSIGHTS.md](INSIGHTS.md#worker-errors).
+
+| Parameter | Meaning |
+|---|---|
+| `workload` | Only this workload id |
+| `kind` | `build`, `bench`, `crash`, `timeloss`, `illegal`, `genfens`, `other`, or `game` for crash, time loss and illegal move together. An unknown value is ignored |
+| `unresolved` | `1`, `true`, `on` or `yes` leaves out the groups whose status is `resolved` |
+| `summary` | Only events whose stored summary is exactly this text. Repeatable, at most 50 values |
+| `limit` | Groups returned, 1 to 100; 25 by default |
+
+Each parameter is read from the query string, or from the POST body beside
+the credentials; the query string wins.
+
+```json
+{
+    "as_of": "2026-10-01T06:51:05.120000+00:00",
+    "total": 2,
+    "truncated": false,
+    "groups": [
+        {
+            "workload": {
+                "id": 9,
+                "exists": true,
+                "url": "/test/9/",
+                "title": "Pawn static-eval correction history (corrhist-pawn)",
+                "commits": "741d6dc4 vs 874c026d",
+                "engine": "Avalanche",
+                "time_control": "8.0+0.08",
+                "finished": false,
+                "deleted": false,
+                "games": 0
+            },
+            "kind": "build",
+            "title": "Avalanche build failed",
+            "subject": "741d6dc4",
+            "count": 14,
+            "first_seen": "2026-10-01T06:37:05.120000+00:00",
+            "last_seen": "2026-10-01T06:50:05.120000+00:00",
+            "status": "happening",
+            "reason": "seen in the last 10 minutes",
+            "affected": {
+                "registrations": 14,
+                "hosts": 13,
+                "pruned": 1,
+                "sampled": false,
+                "pools": [
+                    {
+                        "label": "batch-*",
+                        "cpu": "AMD EPYC 9R14",
+                        "hosts": 13
+                    }
+                ]
+            },
+            "bench": null,
+            "latest_event": 99,
+            "log_url": "/api/errors/99/log/"
+        },
+        {
+            "workload": {
+                "id": 8,
+                "exists": false
+            },
+            "kind": "bench",
+            "title": "Wrong Bench",
+            "subject": "Avalanche-28C4E45C",
+            "count": 1,
+            "first_seen": "2026-09-29T02:10:44+00:00",
+            "last_seen": "2026-09-29T02:10:44+00:00",
+            "status": "resolved",
+            "reason": "workload no longer exists",
+            "affected": {
+                "registrations": 1,
+                "hosts": 1,
+                "pruned": 0,
+                "sampled": false,
+                "pools": [
+                    {
+                        "label": "demo-1",
+                        "cpu": "AMD Ryzen 9 7950X",
+                        "hosts": 1
+                    }
+                ]
+            },
+            "bench": {
+                "reported": [
+                    2780000
+                ],
+                "expected": null,
+                "difference": null
+            },
+            "latest_event": 100,
+            "log_url": null
+        }
+    ]
+}
+```
+
+- `total` counts the groups that match, before `limit`. `truncated` is true
+  when more than 500 (workload, summary) pairs matched and only the 500 most
+  recently seen were grouped.
+- `status` is `happening`, `quiet` or `resolved`, and `reason` says why in
+  words.
+- `title` and `subject` are the normalised summary: `subject` is the branch
+  (first eight digits of a commit) for a build failure, the binary for a
+  bench or genfens failure, and empty for a game error.
+- `title` and `subject` are cut to 128 characters, ending in `…` when cut; a
+  summary with no text is titled `(no summary)`.
+- `affected.registrations` counts distinct Machine rows that reported it,
+  `hosts` the distinct hosts among those still registered, `pruned` the ones
+  whose row is gone. `sampled` is true when the counts were taken over the
+  newest 900 reporters of the returned workloads rather than all of them;
+  `registrations` of a group that merges several summaries is then an upper
+  bound.
+- `bench` is null except for a wrong bench: every number reported, the
+  workload's expected bench for that binary (null when the binary matches
+  neither engine or the workload is gone) and newest reported minus expected.
+- `log_url` is the log of the newest event in the group that has one, or
+  null: see the next endpoint. `/event/<latest_event>/` is its page.
+- A workload row that no longer exists comes back as
+  `{"id": <id>, "exists": false}`.
+
+| Error | Status | Body |
+|---|---|---|
+| Authentication failed | 401 | `{"error": "API requires authentication for this server"}` |
+| Throttled | 429 | `{"error": "Too many failed logins"}` |
+
+### `GET|POST /api/errors/<event id>/log/`
+
+The log a worker uploaded with one error event, whole and unmodified, as
+`text/plain; charset=utf-8` with
+`Content-Disposition: attachment; filename="event<id>.log"`. It is worker
+input: a build log or a PGN, of any size the worker sent. Treat it as
+untrusted text.
+
+| Error | Status | Body |
+|---|---|---|
+| Authentication failed | 401 | `{"error": "API requires authentication for this server"}` |
+| No such error event, or it has no stored log | 404 | `{"error": "No logs for event exist"}` |
+| Throttled | 429 | `{"error": "Too many failed logins"}` |
 
 ### `GET|POST /api/jump/?q=`
 

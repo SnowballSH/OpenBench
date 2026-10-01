@@ -1,7 +1,98 @@
-<!DOCTYPE html>
+{% extends "OpenBench/base.html" %}
 
-<html lang="en">
-    <body>
-        <pre>{{content}}</pre>
-    </body>
-</html>
+{% block title %}Error {{detail.event.id}} · OpenBench{% endblock %}
+
+{% load static mytags %}
+
+{% block scripts %}
+    <script src="{% static 'triage.js' %}?{{ static_version }}" defer></script>
+{% endblock %}
+
+{% block page_heading %}{% endblock %}
+
+{% block content %}
+
+    {% if detail %}
+    <div class="triage">
+
+    <div class="fleet-heading">
+        <h1>{{detail.signature.title}}</h1>
+        <span class="badge">{{detail.signature.kind.label}}</span>
+    </div>
+
+    <div class="table-wrap" data-region-label="Error details">
+        <table class="test-config wrappable">
+            <tr><th scope="row" class="td-label">Summary</th><td class="mono">{{detail.event.summary|truncatechars:512}}</td></tr>
+            <tr><th scope="row" class="td-label">When</th><td><time datetime="{{detail.event.created|date:'c'}}" title="{{detail.event.created|date:'c'}}">{{detail.ago}}</time> <span class="timestamp muted">{{detail.event.created|date:'U'}}</span></td></tr>
+            <tr><th scope="row" class="td-label">Workload</th><td>{% include "OpenBench/Blocks/event_workload.html" with workload=detail.workload test_id=detail.event.test_id primary="" %}</td></tr>
+            <tr><th scope="row" class="td-label">Occurrences</th><td><a href="/errors/{{detail.occurrences_querystring}}">{{detail.occurrences|insertCommas}} with this summary on the workload</a></td></tr>
+            {% if detail.bench %}
+                <tr><th scope="row" class="td-label">Bench</th><td class="mono">{% include "OpenBench/Blocks/bench_mismatch.html" with bench=detail.bench %}</td></tr>
+            {% endif %}
+            <tr><th scope="row" class="td-label">Reported by</th><td>{{detail.reporter.owner|capfirst}}{% if detail.reporter.known %}, <a href="/machines/{{detail.reporter.machine_id}}/">machine {{detail.reporter.machine_id}}</a>{% if detail.reporter.name %} <span class="mono">{{detail.reporter.name}}</span>{% endif %}{% else %}, machine {{detail.reporter.machine_id}} <span class="muted">(no longer registered)</span>{% endif %}</td></tr>
+            {% if detail.reporter.known %}
+                <tr><th scope="row" class="td-label">Pool</th><td>{{detail.reporter.pool}}</td></tr>
+                <tr><th scope="row" class="td-label">CPU</th><td>{{detail.reporter.cpu_name|default:"Unknown"}}{% if detail.reporter.threads %}, {{detail.reporter.threads}} thread{{detail.reporter.threads|pluralize}}{% endif %}</td></tr>
+                <tr><th scope="row" class="td-label">OS</th><td>{{detail.reporter.os_name|default:"Unknown"}}</td></tr>
+                <tr><th scope="row" class="td-label">Compilers</th><td class="mono">{% for compiler in detail.reporter.compilers %}<div>{{compiler}}</div>{% empty %}<span class="muted">None reported</span>{% endfor %}</td></tr>
+            {% endif %}
+        </table>
+    </div>
+
+    {% if detail.log %}
+
+        {% if detail.log.key_lines %}
+        <section class="card triage-key" aria-labelledby="key-lines-title">
+            <div class="card-header"><h2 class="card-title" id="key-lines-title">Key lines</h2></div>
+            <ol class="key-lines">
+                {% for line in detail.log.key_lines %}
+                    <li>
+                        {% if line.shown %}<a class="key-line-number mono" href="#L{{line.number}}" data-log-jump>{{line.number}}<span class="visually-hidden">: go to line</span></a>{% else %}<span class="key-line-number mono muted">{{line.number}}</span>{% endif %}
+                        <span class="badge{% if line.label == 'error' %} badge-fail{% endif %}">{{line.label}}</span>
+                        <code class="key-line-text">{{line.text}}</code>
+                    </li>
+                {% endfor %}
+            </ol>
+        </section>
+        {% endif %}
+
+        <section class="card triage-log" aria-labelledby="log-title" data-log-view>
+            <div class="card-header">
+                <h2 class="card-title" id="log-title">Log</h2>
+                <span class="muted">{{detail.log.excerpt.total|insertCommas}} line{{detail.log.excerpt.total|pluralize}}, {{detail.log.size|filesizeformat}}</span>
+                <span class="triage-log-actions">
+                    <button type="button" class="anchorbutton btn-blue" data-log-copy>{% if detail.log.excerpt.omitted or detail.log.truncated %}Copy shown lines{% else %}Copy log{% endif %}</button>
+                    <a class="anchorbutton btn-blue" href="/event/{{detail.event.id}}/raw" download>Download raw</a>
+                </span>
+            </div>
+            <p class="visually-hidden" role="status" data-log-status></p>
+
+            {% if detail.log.truncated %}
+                <p class="warning-message" role="status">Only the first {{detail.log.limit|filesizeformat}} of this {{detail.log.size|filesizeformat}} log are shown. Download the raw log for the rest.</p>
+            {% endif %}
+
+            <div class="log" tabindex="0" role="region" aria-label="Log text">
+                {% include "OpenBench/Blocks/log_lines.html" with lines=detail.log.excerpt.head %}
+                {% if detail.log.excerpt.folded %}
+                    <details class="log-fold">
+                        <summary>{{detail.log.excerpt.folded|length|insertCommas}} more line{{detail.log.excerpt.folded|length|pluralize}}</summary>
+                        {% include "OpenBench/Blocks/log_lines.html" with lines=detail.log.excerpt.folded %}
+                    </details>
+                {% endif %}
+                {% if detail.log.excerpt.omitted %}
+                    <p class="log-omitted muted">{{detail.log.excerpt.omitted|insertCommas}} line{{detail.log.excerpt.omitted|pluralize}} left out here. Download the raw log to read them.</p>
+                {% endif %}
+                {% include "OpenBench/Blocks/log_lines.html" with lines=detail.log.excerpt.tail %}
+            </div>
+        </section>
+
+    {% elif detail.expects_log %}
+        <p class="triage-empty">The log file for this error is no longer stored.</p>
+    {% else %}
+        <p class="triage-empty">The worker sent no log with this error.</p>
+    {% endif %}
+
+    </div>
+    {% endif %}
+
+{% endblock %}

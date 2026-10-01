@@ -121,9 +121,8 @@ in `pyproject.toml`:
   modules there.
 
 Fix a finding with a real annotation or narrowing. A `# type: ignore` must
-name its error code and give its reason on the same line; the only one today
-is where `page_queries.attach_event_workloads` attaches a workload to each
-`LogEvent` for the templates.
+name its error code and give its reason on the same line; the fork-owned code
+has none today.
 
 ## Fork-owned and upstream-owned code
 
@@ -131,7 +130,7 @@ This is a fork of [AndyGrant/OpenBench](https://github.com/AndyGrant/OpenBench),
 and upstream changes are merged in periodically.
 
 - **Fork-owned**: `OpenBench/compare/`, `OpenBench/converters.py`, `OpenBench/fleet/`, `OpenBench/games/`, `OpenBench/insights/`, `OpenBench/listing_rows.py`, `OpenBench/live/`,
-  `OpenBench/diagnosis/`,
+  `OpenBench/diagnosis/`, `OpenBench/triage/`,
   `OpenBench/machine_info.py`, `OpenBench/navigation/`, `OpenBench/progress/`, `OpenBench/security/`, `OpenBench/storage/`,
   `OpenBench/page_queries.py`, `OpenBench/upstream.py`, `OpenBench/workload_names.py`,
   `OpenBench/workloads/clone.py`, `OpenBench/workloads/confirmation.py`, `OpenBench/workloads/presets.py`,

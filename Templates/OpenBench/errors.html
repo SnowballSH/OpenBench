@@ -8,30 +8,124 @@
 
 {% block content %}
 
-    <div class="table-wrap">
-    <table class="hoverable">
+    <div class="triage">
 
-        <tr class="table-header">
-            <th>Date</th>
-            <th>#</th>
-            <th>User</th>
-            <th>Test</th>
-            <th>Summary</th>
-            <th>Logs</th>
-        </tr>
+    <div class="triage-controls">
+        <nav class="fleet-filter" aria-label="Layout">
+            <a href="/errors/{{query.as_groups.querystring}}" class="fleet-filter-option"{% if not query.is_list %} aria-current="true"{% endif %}>Grouped</a>
+            <a href="/errors/{{query.as_list.querystring}}" class="fleet-filter-option"{% if query.is_list %} aria-current="true"{% endif %}>Every event</a>
+        </nav>
 
-        {% for event in events %}
-            <tr{% if event.log_file %} data-row-href="/event/{{event.id}}"{% elif event.workload %} data-row-href="{{event.workload|workload_url}}"{% endif %}>
-                <td class="timestamp muted">{{event.created|date:'U'}}</td>
-                <td><a href="/machines/{{event.machine_id}}">{{event.machine_id}}</a></td>
-                <td>{{event.author|capfirst}}</td>
-                <td>{% if event.workload %}<a{% if not event.log_file %} class="row-link"{% endif %} href="{{event.workload|workload_url}}"><span class="row-id">#{{event.workload.id}}</span> {{event.workload.dev.name|short_name}}</a>{% endif %}</td>
-                <td>{{event.summary}}</td>
-                <td>{% if event.log_file %}<a class="row-link" href="/event/{{event.id}}">View<span class="visually-hidden"> log of error {{event.id}}</span></a>{% endif %}</td>
+        <nav class="fleet-filter" aria-label="Error kind">
+            {% for option, querystring, chosen in query.kind_links %}
+                <a href="/errors/{{querystring}}" class="fleet-filter-option"{% if chosen %} aria-current="true"{% endif %}>{{option.label}}</a>
+            {% endfor %}
+        </nav>
+
+        {% if not query.is_list %}
+        <nav class="fleet-filter" aria-label="Resolution">
+            <a href="/errors/{{query.toggled_unresolved.querystring}}" class="fleet-filter-option"{% if query.unresolved %} aria-current="true"{% endif %}>Only unresolved</a>
+        </nav>
+        {% endif %}
+    </div>
+
+    {% if query.workload %}
+        <p class="muted">Showing workload #{{query.workload}} only. <a href="/errors/{{query.without_workload.querystring}}">Show every workload</a></p>
+    {% endif %}
+
+    {% if query.summaries %}
+        <p class="muted">Showing {{query.summaries|length}} chosen summar{{query.summaries|length|pluralize:"y,ies"}} only. <a href="/errors/{{query.without_summaries.querystring}}">Show every summary</a></p>
+    {% endif %}
+
+    {% if query.is_list %}
+
+        {% if events %}
+        <div class="table-wrap">
+        <table class="hoverable">
+
+            <tr class="table-header">
+                <th>When</th>
+                <th>Machine</th>
+                <th>User</th>
+                <th>Workload</th>
+                <th>Kind</th>
+                <th>Summary</th>
+                <th>Logs</th>
             </tr>
-        {% endfor %}
 
-    </table>
+            {% for row in events %}
+                <tr{% if row.has_log %} data-row-href="/event/{{row.event.id}}/"{% elif row.workload %} data-row-href="{{row.workload|workload_url}}"{% endif %}>
+                    <td><time class="muted" datetime="{{row.event.created|date:'c'}}" title="{{row.event.created|date:'c'}}">{{row.ago}}</time></td>
+                    <td><a href="/machines/{{row.event.machine_id}}/">{{row.event.machine_id}}</a></td>
+                    <td>{{row.event.author|capfirst}}</td>
+                    <td>{% include "OpenBench/Blocks/event_workload.html" with workload=row.workload test_id=row.event.test_id primary=row.has_log|yesno:",1" %}</td>
+                    <td><span class="badge">{{row.signature.kind.label}}</span></td>
+                    <td class="triage-summary">{{row.event.summary|truncatechars:160}}</td>
+                    <td>{% if row.has_log %}<a class="row-link" href="/event/{{row.event.id}}/">View<span class="visually-hidden"> log of error {{row.event.id}}</span></a>{% else %}<a href="/event/{{row.event.id}}/">Details<span class="visually-hidden"> of error {{row.event.id}}</span></a>{% endif %}</td>
+                </tr>
+            {% endfor %}
+
+        </table>
+        </div>
+        {% else %}
+            <p class="triage-empty">No worker errors match.</p>
+        {% endif %}
+
+    {% else %}
+
+        {% if truncated %}
+            <p class="muted">Grouping the 500 most recently seen summaries; older errors are in <a href="/errors/{{query.as_list.querystring}}">every event</a>.</p>
+        {% endif %}
+
+        {% if groups %}
+        <div class="table-wrap w-100">
+        <table class="hoverable triage-groups">
+
+            <tr class="table-header">
+                <th>Error</th>
+                <th>Workload</th>
+                <th class="numeric">Count</th>
+                <th>Hosts</th>
+                <th>First seen</th>
+                <th>Last seen</th>
+                <th>Status</th>
+            </tr>
+
+            {% for row in groups %}
+                <tr{% if row.log_event_id %} data-row-href="/event/{{row.log_event_id}}/"{% elif row.workload %} data-row-href="{{row.workload|workload_url}}"{% endif %}>
+                    <td class="triage-error">
+                        <span class="badge">{{row.group.signature.kind.label}}</span>
+                        {% if row.log_event_id %}<a class="row-link" href="/event/{{row.log_event_id}}/">{{row.group.signature.title}}<span class="visually-hidden">: newest log</span></a>{% else %}<a href="/event/{{row.group.latest_event_id}}/">{{row.group.signature.title}}</a>{% endif %}
+                        {% if row.group.signature.subject %}<div class="row-meta mono">{{row.group.signature.subject}}</div>{% endif %}
+                        {% if row.bench %}<div class="row-meta mono">{% include "OpenBench/Blocks/bench_mismatch.html" with bench=row.bench %}</div>{% endif %}
+                    </td>
+                    <td class="triage-workload">{% include "OpenBench/Blocks/event_workload.html" with workload=row.workload test_id=row.group.test_id primary=row.log_event_id|yesno:",1" %}</td>
+                    <td class="numeric"><a href="/errors/{{row.events_querystring}}" title="List these events">&times;{{row.group.count|insertCommas}}<span class="visually-hidden"> events, listed</span></a></td>
+                    <td class="triage-hosts">
+                        {% with affected=row.affected %}
+                            {{affected.hosts|insertCommas}} host{{affected.hosts|pluralize}}{% if affected.sampled %}<span title="Counted over the newest 900 reporting registrations">+</span>{% endif %}
+                            {% for pool in affected.pools|slice:":3" %}<div class="row-meta" title="{{pool.cpu_name}}">{{pool.label}} &times;{{pool.hosts|insertCommas}}</div>{% endfor %}
+                            {% if affected.pools|length > 3 %}<div class="row-meta">and {{affected.pools|length|add:"-3"}} more pools</div>{% endif %}
+                            {% if affected.pruned %}<div class="row-meta" title="Their Machine rows have been pruned">{{affected.pruned|insertCommas}} no longer registered</div>{% endif %}
+                        {% endwith %}
+                    </td>
+                    <td><time class="muted" datetime="{{row.group.first_seen|date:'c'}}" title="{{row.group.first_seen|date:'c'}}">{{row.first_ago}}</time></td>
+                    <td><time datetime="{{row.group.last_seen|date:'c'}}" title="{{row.group.last_seen|date:'c'}}">{{row.last_ago}}</time></td>
+                    <td>
+                        <span class="badge {{row.verdict.standing.badge}}">{{row.verdict.standing.label}}</span>
+                        <div class="row-meta">{{row.verdict.reason}}</div>
+                    </td>
+                </tr>
+            {% endfor %}
+
+        </table>
+        </div>
+        {% else %}
+            <p class="triage-empty">No worker errors match.</p>
+        {% endif %}
+
+    {% endif %}
+
     </div>
 
     {% include "OpenBench/Blocks/pagebrowser.html" %}

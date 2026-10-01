@@ -137,6 +137,45 @@ Machine info (the fleet, `/api/insights/server/`, a workload's insights and
 summary) also coerce each field as they read it, so a Machine stored before
 this check cannot break them.
 
+### Worker logs
+
+A build log or PGN uploaded with `clientSubmitError`, and the error summary
+itself, are text chosen by whoever runs a worker. The error pages
+(`OpenBench/triage/`) treat them as hostile:
+
+- **One file per event.** The log of event `<id>` is read from
+  `MEDIA_ROOT/event<id>.log` and nowhere else. The name is rebuilt from the
+  id; the `log_file` column is only compared with it, so a row that names
+  another file, a path or a traversal has no log. A symlink at that name is
+  refused. Operator events (no Machine) never have a log page.
+- **Bounded reads.** The page reads at most 2 MiB of a log and says when it
+  cut it; it renders at most 5,240 lines. `/event/<id>/raw` streams the file
+  without loading it.
+- **Bounded work.** Finding the key lines is linear in the log: each pattern
+  reads only the first 4,096 characters of a line and none of them can
+  backtrack across the line, a traceback is followed for at most 200 lines,
+  and the scan stops at 30 key lines. `test_triage.py` times 2 MiB logs built
+  to defeat each of those.
+- **Text only.** Everything is escaped by the template; nothing in a log
+  becomes a link. Terminal escape sequences are removed (CSI, such as
+  colours, and OSC, such as window titles and terminal hyperlinks, closed or
+  not). Every C0 control except the tab, DEL, the C1 controls U+0080 to
+  U+009F, the direction marks U+200E, U+200F and U+061C, the bidirectional
+  embeddings, overrides and isolates U+202A to U+202E and U+2066 to U+2069,
+  and the line and paragraph separators U+2028 and U+2029 are each replaced
+  with U+FFFD, so a log cannot reorder or hide what a reader sees. Lines are
+  split on `\n` alone (a trailing `\r` is dropped), so a line's number is
+  its number in the raw file. `triage.js` reads `textContent` to copy and
+  never writes markup.
+- **Summaries.** An error summary is worker text too, and SQLite does not
+  enforce the column's length. A title or subject is cut to 128 characters, a
+  summary shown in full to 160 (list) or 512 (event page), and an empty one
+  reads "(no summary)".
+- **Download.** The raw log is served as
+  `text/plain; charset=utf-8` with `Content-Disposition: attachment` and
+  `X-Content-Type-Options: nosniff`, so a browser saves it and never renders
+  it. Like every page, it needs a login when `require_login_to_view` is set.
+
 ## Input bounds
 
 - `/search/` takes at most 20 space-separated `keywords` and 20 `authors`.

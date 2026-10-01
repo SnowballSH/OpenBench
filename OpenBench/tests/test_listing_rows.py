@@ -230,6 +230,7 @@ class RenderedRowTests(TestCase):
             '/users/': '/user/',
             '/events/': '/test/',
             '/errors/': '/test/',
+            '/errors/?view=list': '/test/',
             '/progress/?window=all': '/',
         }
         for url, prefix in pages.items():
@@ -244,11 +245,14 @@ class RenderedRowTests(TestCase):
 
     def test_an_error_opens_its_log_or_else_its_workload(self) -> None:
         logged = LogEvent.objects.create(
-            author='user1', summary='Crash', log_file='crash.log', machine_id=1, test_id=self.pinned.id
+            author='user1', summary='Stalled', log_file='', machine_id=1, test_id=self.pinned.id
         )
-        destinations = [row.href for row in self.audited('/errors/').rows]
-        self.assertIn(f'/event/{logged.id}', destinations)
-        self.assertIn(f'/test/{self.pinned.id}/', destinations)
+        LogEvent.objects.filter(id=logged.id).update(log_file=f'event{logged.id}.log')
+        for url in ('/errors/', '/errors/?view=list'):
+            with self.subTest(url=url):
+                destinations = [row.href for row in self.audited(url).rows]
+                self.assertIn(f'/event/{logged.id}/', destinations)
+                self.assertIn(f'/test/{self.pinned.id}/', destinations)
 
     def test_networks_stay_plain_rows(self) -> None:
         self.assertEqual(self.audited('/networks/').rows, [])

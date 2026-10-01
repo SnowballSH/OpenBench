@@ -26,6 +26,7 @@
     <div class="workload-container" data-workload-id="{{workload.id}}"{% if not workload.finished and not workload.deleted and profile|may_poll %} data-live-workload="/api/live/workload/{{workload.id}}/" data-live-status="{% if workload.approved %}active{% else %}pending{% endif %}" data-live-games="{{workload.games}}"{% endif %}>
 
     {% if diagnosis %}{% include "OpenBench/Blocks/diagnosis.html" %}{% endif %}
+    {% if worker_errors %}<p class="workload-errors"><a href="/errors/?workload={{workload.id}}">Worker errors ({{worker_errors}})</a></p>{% endif %}
 
     <div id="config" class="table-wrap" data-region-label="Configuration">
         <table class="test-config wrappable">

@@ -37,6 +37,7 @@ from OpenBench.models import (
     Book,
     Engine,
     EngineConfig,
+    LogEvent,
     Machine,
     Profile,
     Result,
@@ -46,6 +47,14 @@ from OpenBench.models import (
     WorkloadSnapshot,
 )
 from OpenBench.stats import PentanomialSPRT
+from OpenBench.triage.demo import (
+    BUILD_LOG,
+    CRASH_PGN,
+    ILLEGAL_PGN,
+    build_failure_summary,
+    record_error,
+    wrong_bench_summary,
+)
 from OpenBench.upstream import openbench_config
 
 DEMO_PASSWORD = 'openbench-demo'
@@ -99,6 +108,23 @@ STC = '8.0+0.08'
 LTC = '40.0+0.4'
 
 LTC_HASH_MB = 64
+
+BUILD_FAILURE_WORKLOAD = 'simd-accumulator'
+
+BENCH_MISMATCH_WORKLOAD = 'tt-cluster-prefetch'
+
+GAME_ERROR_WORKLOAD = 'lmr-tweak'
+
+BUILD_FAILURES = 14
+
+BUILD_FAILURE_FIRST_JOB = 100
+
+# Past the two minutes a Machine counts as online: a job whose build failed has exited
+BUILD_FAILURE_NEWEST_MINUTES_AGO = 3
+
+BENCH_DRIFT = 18_422
+
+MODIFY_REPEATS = 4
 
 PGN_BATCHES = 5
 
@@ -190,6 +216,8 @@ WORKLOADS = [
     DemoWorkload('aspiration-width', 'SPRT', -6.0, 1800, 'failed'),
     DemoWorkload('smp-scaling', 'GAMES', 12.0, 400, 'active', max_games=4000, tc='20.0+0.2', threads=4),
     DemoWorkload('qsearch-see', 'SPRT', 1.0, 0, 'pending'),
+    DemoWorkload(BUILD_FAILURE_WORKLOAD, 'SPRT', 0.0, 0, 'active', info='AVX-512 accumulator refresh'),
+    DemoWorkload(BENCH_MISMATCH_WORKLOAD, 'SPRT', 0.0, 0, 'stopped', info='Prefetch the transposition cluster'),
     DemoWorkload('ltc-regression', 'GAMES', -0.5, 1000, 'finished', max_games=2000, tc='40.0+0.4'),
     DemoWorkload(
         'nezha-v3-data',
@@ -349,6 +377,8 @@ class Command(BaseCommand):
             create_batch_hosts(machines[SUPERVISED_HOST])
             assign_online_machines(machines)
             age_offline_machines(machines)
+            create_operator_events(users[0])
+            create_worker_errors(machines)
             create_game_archives(options['seed'])
 
         self.stdout.write(
@@ -596,6 +626,54 @@ def create_batch_hosts(supervised: Machine) -> None:
 
     for index, hours_ago in enumerate(BATCH_IDLE_HOSTS_HOURS_AGO, start=BATCH_PLAYING_HOSTS):
         register_idle_sessions(owner, batch_info(supervised.info, index), now - datetime.timedelta(hours=hours_ago))
+
+
+def create_operator_events(approver: User) -> None:
+    for test in Test.objects.select_related('dev').order_by('creation', 'id'):
+        summaries = [f'CREATE P={test.priority} TP={test.throughput}', *(['APPROVE'] if test.approved else [])]
+        if test.dev.name == GAME_ERROR_WORKLOAD:
+            summaries += ['MODIFY'] * MODIFY_REPEATS
+        for summary in summaries:
+            author = test.author if summary.startswith('CREATE') else approver.username
+            event = LogEvent.objects.create(author=author, summary=summary, log_file='', test_id=test.id)
+            LogEvent.objects.filter(id=event.id).update(created=test.creation)
+
+
+def failed_build_job(supervised: Machine, index: int, at: datetime.datetime) -> Machine:
+    job = Machine.objects.create(
+        user=supervised.user, info=batch_info(supervised.info, BUILD_FAILURE_FIRST_JOB + index)
+    )
+    Machine.objects.filter(id=job.id).update(updated=at)
+    return job
+
+
+def create_worker_errors(machines: Sequence[Machine]) -> None:
+
+    now = timezone.now()
+    supervised = machines[SUPERVISED_HOST]
+    owner = supervised.user.username
+
+    failing = Test.objects.select_related('dev').get(dev__name=BUILD_FAILURE_WORKLOAD)
+    for index in range(BUILD_FAILURES, 0, -1):
+        at = now - datetime.timedelta(minutes=BUILD_FAILURE_NEWEST_MINUTES_AGO + index - 1)
+        job = failed_build_job(supervised, index, at)
+        record_error(failing, job.id, owner, build_failure_summary(failing), at, BUILD_LOG)
+        if index == BUILD_FAILURES:
+            job.delete()
+
+    mismatch = Test.objects.select_related('dev').get(dev__name=BENCH_MISMATCH_WORKLOAD)
+    reported = wrong_bench_summary(mismatch, mismatch.dev.bench + BENCH_DRIFT)
+    record_error(mismatch, machines[0].id, machines[0].user.username, reported, mismatch.updated, None)
+
+    playing = Test.objects.get(dev__name=GAME_ERROR_WORKLOAD)
+    for machine, summary, log, hours_ago in (
+        (machines[1], 'Disconnect', CRASH_PGN, 26),
+        (machines[3], 'Disconnect', CRASH_PGN, 5),
+        (machines[1], 'Illegal Move', ILLEGAL_PGN, 3),
+    ):
+        record_error(
+            playing, machine.id, machine.user.username, summary, now - datetime.timedelta(hours=hours_ago), log
+        )
 
 
 def assign_online_machines(machines: list[Machine]) -> None:
