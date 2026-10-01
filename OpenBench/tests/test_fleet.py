@@ -821,7 +821,7 @@ class HostGroupingTests(TestCase):
         self.client.force_login(self.reader)
         urls = ['/machines/?show=7d', f'/machines/{self.earlier.id}/', '/users/', '/index/']
         before = [query_count(self.client, url) for url in urls]
-        self.assertEqual(before, [9, 11, 8, 8])
+        self.assertEqual(before, [9, 11, 8, 14])
 
         for index in range(12):
             extra = self.session(timedelta(minutes=index), create_test(self.reader).id)

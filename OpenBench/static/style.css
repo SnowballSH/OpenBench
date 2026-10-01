@@ -763,6 +763,51 @@ body.standalone {
     content: "\f058";
 }
 
+.diagnosis {
+    --banner: var(--info);
+    padding: var(--space-3) var(--space-4);
+    border: 1px solid color-mix(in srgb, var(--banner) 35%, transparent);
+    border-left: 3px solid var(--banner);
+    border-radius: var(--radius);
+    background-color: color-mix(in srgb, var(--banner) 10%, var(--surface));
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.diagnosis-ok {
+    --banner: var(--pass);
+    background-color: var(--surface);
+}
+
+.diagnosis-warning {
+    --banner: var(--warn);
+}
+
+.diagnosis-headline {
+    margin: 0;
+    font-weight: 500;
+}
+
+.diagnosis-details {
+    margin-top: var(--space-2);
+    color: var(--text-muted);
+    font-size: var(--text-sm);
+}
+
+.diagnosis-details > summary {
+    width: fit-content;
+    cursor: pointer;
+}
+
+.diagnosis-evidence {
+    margin: var(--space-2) 0 0;
+    padding-left: var(--space-5);
+}
+
+.diagnosis-evidence > li + li {
+    margin-top: var(--space-1);
+}
+
 :is(.error-message, .warning-message, .status-message) pre {
     margin: 0;
     font-family: inherit;
@@ -1205,6 +1250,10 @@ tr[data-row-href]:not(.table-header):is(:hover, :focus-within) > td {
     color: var(--text-muted);
     font-size: var(--text-xs);
     line-height: var(--leading-tight);
+}
+
+.row-reason-warning {
+    color: var(--warn-text);
 }
 
 .row-filter {
@@ -2009,6 +2058,10 @@ td.contribution-name {
 
     .workload-container #actions {
         order: -1;
+    }
+
+    .workload-container > .diagnosis {
+        order: -2;
     }
 }
 

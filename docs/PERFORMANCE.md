@@ -8,25 +8,29 @@ there first.
 
 | Page | Queries |
 |---|---|
-| `/index/` (page 1), `/user/<name>/` | 9 |
-| `/index/<n>/`, `/greens/` | 6 |
+| `/index/` (page 1), `/user/<name>/` | 9, plus 6 when an active row has no rate, plus 1 when a stopped workload is listed |
+| `/index/<n>/`, `/greens/` | 6, plus 1 when a stopped workload is listed |
 | `/search/` | 7 |
 | `/go/?q=` (the header's quick jump; the header itself adds none) | 3 to 6 |
 | `/api/jump/?q=` | at most 7 |
 | `/events/`, `/errors/` | 7 |
 | `/networks/` | 5 |
-| `/test/<id>/` | 11 |
+| `/test/<id>/` | 10, 11 for a stopped workload, 16 for an active one |
 | `/api/workload/<id>/summary/`, `/results/` | 5 |
-| `/api/workload/<id>/insights/` | 6 |
+| `/api/workload/<id>/insights/` | 6, or 12 for an active workload |
 | `/api/workload/<id>/history.csv` | 5 |
 | `/compare/?a=<id>&b=<id>` | 7 |
 | `/api/insights/server/` | 11 |
 | `/machines/`, `/machines/?show=…` | 11 (9 before any snapshot exists in the last 24 hours, and 8 with no listed workload: empty lookups are skipped) |
 | `/machines/<id>/` | 11 |
 | `/users/` | 8 |
+| `/api/workloads/` | 4, plus 6 with an active row, plus 1 with a stopped one |
 
 Budgets include the session, user and Profile lookups every logged-in page
-pays.
+pays. The six extra queries are the workload diagnosis
+([INSIGHTS.md](INSIGHTS.md#workload-diagnosis)), which judges every active
+workload from one shared read of the fleet; `test_diagnosis.py` pins that
+count at both dataset sizes.
 
 ## Where the per-row queries went
 
@@ -76,6 +80,7 @@ measured with 20,000 Tests, 50,000 LogEvents and 100,000 PGNs:
 | `test_author` | `/user/<name>/` | `SCAN test` → `SEARCH USING INDEX (author=?)` | count 7.0 → 0.4 ms |
 | `logevent_machine` | `/events/` count and page | `SCAN logevent` → `SEARCH USING COVERING INDEX (machine_id=?)` | count 1.7 → 0.5 ms |
 | `pgn_unprocessed`: `test_id WHERE NOT processed` | The PGN watcher's batch, `/api/pgns/<id>/` | `SCAN pgn` + temp B-tree sort → `SCAN/SEARCH USING INDEX` | watcher 5.1 → 0.7 ms, api 3.8 → 0.01 ms |
+| `logevent_test_machine`: `(test_id, machine_id)` | The diagnosis' worker errors of the active workloads, and the newest event of each stopped one | `SCAN logevent` → `SEARCH USING INDEX logevent_test_machine (test_id=? AND machine_id>?)`; newest event: `SEARCH USING COVERING INDEX logevent_test_machine (test_id=?)` | |
 | `network_engine_sha` | The dev Network annotation on every listed row, network lookups | correlated `SCAN network` per row → `SEARCH` | |
 
 ### `Machine.host_key`
