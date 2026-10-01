@@ -58,6 +58,7 @@ WORKLOAD_QUERIES = {
     '/api/workload/{}/summary/': 5,
     '/api/workload/{}/results/': 5,
     '/api/workload/{}/insights/': 12,
+    '/api/workload/{}/games/': 4,
     '/api/workload/{}/history.csv': 5,
 }
 

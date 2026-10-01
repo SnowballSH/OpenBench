@@ -106,6 +106,33 @@ directories it could not read. The scan reads directory entries and `stat`
 results only, never file contents, stops after 100,000 entries (the page then
 says the totals are partial), and is cached for 60 seconds per process.
 
+### PGN archive size
+
+A workload created with **Upload PGNs** `COMPACT` or `VERBOSE` adds to
+`Media/PGNs/<workload>.pgn.tar` for as long as it runs, and the per-game
+insights ([INSIGHTS.md](INSIGHTS.md#games)) need it. Measured on the
+synthetic fixtures (`OpenBench/games/synthetic.py`, 512 games averaging 126
+plies, bzip2 as the Client compresses a batch):
+
+| Upload PGNs | Per game | Per ply | 100,000 games |
+|---|---|---|---|
+| `COMPACT` (score and depth) | 0.39 kB | 3.1 B | about 39 MB |
+| `VERBOSE` (adds time, nodes, selective depth) | 0.97 kB | 7.7 B | about 97 MB |
+
+Real games compress a little differently (legal move sequences repeat more
+than the fixtures' placeholder moves, real scores less), and an engine that
+emits `info string pgncomment` lines adds their text to every move. Each
+batch also costs a 512-byte tar header plus padding to 512 bytes. The
+analysis itself adds one `GameAnalysis` row per workload to the database, at
+most about 0.6 MB and usually a few kB.
+
+For the lab: have the agent send `upload_pgns=COMPACT` when it creates a
+test. A chain of STC and LTC tests of 20,000 to 60,000 games each is then 8
+to 24 MB per test. Use `VERBOSE` only on tests where speed per phase matters;
+it more than doubles the archive. Removing a finished workload's archive (see
+below) keeps its analysed numbers: the `GameAnalysis` row stays and the page
+keeps showing it.
+
 ### Freeing space safely
 
 - **Networks**: delete retired networks from the engine's Networks page (or
