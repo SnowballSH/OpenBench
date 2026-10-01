@@ -31,16 +31,12 @@ from OpenBench.config import OPENBENCH_CONFIG
 from OpenBench.models import *
 from OpenBench.workloads.verify_workload import parse_integer
 
-
 def modify_workload(request, id, action=None):
 
     actions = {
-        'APPROVE': approve_workload,
-        'RESTART': restart_workload,
-        'STOP': stop_workload,
-        'DELETE': delete_workload,
-        'RESTORE': restore_workload,
-        'MODIFY': tweak_workload,
+        'APPROVE' : approve_workload, 'RESTART' : restart_workload,
+        'STOP'    : stop_workload,    'DELETE'  : delete_workload,
+        'RESTORE' : restore_workload, 'MODIFY'  : tweak_workload,
     }
 
     # Make sure the requested Action is a known one
@@ -58,7 +54,7 @@ def modify_workload(request, id, action=None):
     # Must be an approver, or interacting with their own workload
     profile = Profile.objects.get(user=request.user)
     if not profile.approver and workload.author != request.user.username:
-        return OpenBench.views.redirect(request, '/index/', error="You cannot interact with another user's Workload")
+        return OpenBench.views.redirect(request, '/index/', error='You cannot interact with another user\'s Workload')
 
     # Must be an approver
     if action == 'APPROVE' and not profile.approver:
@@ -76,39 +72,30 @@ def modify_workload(request, id, action=None):
     # Send back to the index, notifying them of the success
     return OpenBench.views.redirect(request, '/index/', status=message)
 
-
 def self_approval_forbidden(request, workload) -> bool:
-    return (
-        OPENBENCH_CONFIG['use_cross_approval']
-        and workload.author == request.user.username
-        and not request.user.is_superuser
-    )
-
+    return OPENBENCH_CONFIG['use_cross_approval'] \
+       and workload.author == request.user.username \
+       and not request.user.is_superuser
 
 def approve_workload(request, profile, workload):
-    workload.approved = True
+    workload.approved = True;
     return 'Workload was Approved!'
 
-
 def restart_workload(request, profile, workload):
-    workload.finished = False
+    workload.finished = False;
     return 'Workload was Restarted!'
 
-
 def stop_workload(request, profile, workload):
-    workload.finished = True
+    workload.finished = True;
     return 'Workload was Stopped!'
-
 
 def delete_workload(request, profile, workload):
     workload.deleted = True
     return 'Workload was Deleted!'
 
-
 def restore_workload(request, profile, workload):
     workload.deleted = False
     return 'Workload was Restored!'
-
 
 def tweak_workload(request, profile, workload):
 

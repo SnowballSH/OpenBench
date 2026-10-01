@@ -30,7 +30,6 @@ import OpenBench.spsa_utils
 import OpenBench.stats
 import OpenBench.utils
 
-
 def oneDigitPrecision(value):
     try:
         value = round(value, 1)
@@ -41,7 +40,6 @@ def oneDigitPrecision(value):
         return pre + '.' + post[0:1]
     except:
         return value
-
 
 def twoDigitPrecision(value):
     try:
@@ -54,7 +52,6 @@ def twoDigitPrecision(value):
     except:
         return value
 
-
 def gitDiffLink(test):
 
     repo = OpenBench.utils.path_join(*test.dev.source.split('/')[:-2])
@@ -63,8 +60,8 @@ def gitDiffLink(test):
     if test.test_mode == 'SPSA':
         return OpenBench.utils.path_join(repo, 'compare', test.dev.sha[:8])
 
-    return OpenBench.utils.path_join(repo, 'compare', '{0}..{1}'.format(test.base.sha[:8], test.dev.sha[:8]))
-
+    return OpenBench.utils.path_join(repo, 'compare',
+        '{0}..{1}'.format(test.base.sha[:8], test.dev.sha[:8]))
 
 def spsa_parameter_count(test):
 
@@ -74,28 +71,21 @@ def spsa_parameter_count(test):
 
     return test.spsa_run.parameters.count()
 
-
 def shortStatBlock(test):
 
-    tri_line = 'Games: %d W: %d L: %d D: %d' % test.as_nwld()
+    tri_line   = 'Games: %d W: %d L: %d D: %d' % test.as_nwld()
     penta_line = 'Ptnml(0-2): %d, %d, %d, %d, %d' % test.as_penta()
 
     if test.test_mode == 'SPSA':
-        spsa_run = test.spsa_run  # Avoid extra database accesses
+        spsa_run = test.spsa_run # Avoid extra database accesses
         statlines = [
             'Tuning %d Parameters' % (spsa_parameter_count(test)),
             '%d/%d Iterations' % (test.games / (2 * spsa_run.pairs_per), spsa_run.iterations),
-            '%d/%d Games Played' % (test.games, 2 * spsa_run.iterations * spsa_run.pairs_per),
-        ]
+            '%d/%d Games Played' % (test.games, 2 * spsa_run.iterations * spsa_run.pairs_per)]
 
     elif test.test_mode == 'SPRT':
         llr_line = 'LLR: %0.2f (%0.2f, %0.2f) [%0.2f, %0.2f]' % (
-            test.currentllr,
-            test.lowerllr,
-            test.upperllr,
-            test.elolower,
-            test.eloupper,
-        )
+            test.currentllr, test.lowerllr, test.upperllr, test.elolower, test.eloupper)
         statlines = [llr_line, tri_line, penta_line] if test.use_penta else [llr_line, tri_line]
 
     elif test.test_mode == 'GAMES':
@@ -111,30 +101,24 @@ def shortStatBlock(test):
 
     return '\n'.join(statlines)
 
-
 def option_integer(options, option):
 
     # Options edited outside the create form may lack a value, or hold a bad one
-    try:
-        return int(OpenBench.utils.extract_option(options, option))
-    except TypeError, ValueError:
-        return None
-
+    try: return int(OpenBench.utils.extract_option(options, option))
+    except (TypeError, ValueError): return None
 
 def longStatBlock(test):
 
     assert test.test_mode != 'SPSA'
 
-    threads = option_integer(test.dev_options, 'Threads')
-    hashmb = option_integer(test.dev_options, 'Hash')
+    threads     = option_integer(test.dev_options, 'Threads')
+    hashmb      = option_integer(test.dev_options, 'Hash')
     timecontrol = test.dev_time_control + ['s', '']['=' in test.dev_time_control]
-    type_text = 'SPRT' if test.test_mode == 'SPRT' else 'Conf'
+    type_text   = 'SPRT' if test.test_mode == 'SPRT' else 'Conf'
 
-    settings = [timecontrol]
-    if threads is not None:
-        settings.append('Threads=%d' % (threads))
-    if hashmb is not None:
-        settings.append('Hash=%dMB' % (hashmb))
+    settings = [ timecontrol ]
+    if threads is not None: settings.append('Threads=%d' % (threads))
+    if hashmb  is not None: settings.append('Hash=%dMB' % (hashmb))
 
     lower, elo, upper = OpenBench.stats.Elo(test.results())
 
@@ -144,10 +128,8 @@ def longStatBlock(test):
     ]
 
     if test.test_mode == 'SPRT':
-        lines.append(
-            'LLR   | %0.2f (%0.2f, %0.2f) [%0.2f, %0.2f]'
-            % (test.currentllr, test.lowerllr, test.upperllr, test.elolower, test.eloupper)
-        )
+        lines.append('LLR   | %0.2f (%0.2f, %0.2f) [%0.2f, %0.2f]' % (
+            test.currentllr, test.lowerllr, test.upperllr, test.elolower, test.eloupper))
 
     lines.append('Games | N: %d W: %d L: %d D: %d' % test.as_nwld())
 
@@ -156,36 +138,27 @@ def longStatBlock(test):
 
     return '\n'.join(lines)
 
-
 def testResultColour(test):
 
     if test.passed:
-        if test.elolower + test.eloupper < 0:
-            return 'blue'
+        if test.elolower + test.eloupper < 0: return 'blue'
         return 'green'
     if test.failed:
-        if test.wins >= test.losses:
-            return 'yellow'
+        if test.wins >= test.losses: return 'yellow'
         return 'red'
     return ''
 
-
 def sumAttributes(iterable, attribute):
-    try:
-        return sum([getattr(f, attribute) for f in iterable])
-    except:
-        return 0
-
+    try: return sum([getattr(f, attribute) for f in iterable])
+    except: return 0
 
 def insertCommas(value):
     return '{:,}'.format(int(value))
-
 
 def prettyName(name):
     if re.search('^[0-9a-fA-F]{40}$', name):
         return name[:16].upper()
     return name
-
 
 def dev_network_name(test):
 
@@ -196,7 +169,6 @@ def dev_network_name(test):
     network = OpenBench.models.Network.objects.filter(engine=test.dev_engine, sha256=test.dev_network).first()
     return network.name if network else None
 
-
 def prettyDevName(test):
 
     # If engines are different, use the base name + branch
@@ -205,6 +177,7 @@ def prettyDevName(test):
 
     # If testing different Networks, possibly use the Network name
     if test.dev.name == test.base.name and test.dev_netname != '':
+
         # Nets match as well, so revert back to the branch name
         if test.dev_network == test.base_network:
             return prettyName(test.dev.name)
@@ -215,25 +188,21 @@ def prettyDevName(test):
 
     return prettyName(test.dev.name)
 
-
 def workload_label(test):
     return OpenBench.listing_rows.workload_label(test, prettyDevName(test))
-
 
 def testIdToPrettyName(test_id):
     return prettyName(OpenBench.models.Test.objects.get(id=test_id).dev.name)
 
-
 def testIdToTimeControl(test_id):
     return OpenBench.models.Test.objects.get(id=test_id).dev_time_control
-
 
 def cpuflagsBlock(machine, N=8):
 
     reported = []
-    flags = machine.info['cpu_flags']
+    flags    = machine.info['cpu_flags']
 
-    general_flags = ['BMI2', 'POPCNT']
+    general_flags   = ['BMI2', 'POPCNT']
     broad_avx_flags = ['AVX2', 'AVX', 'SSE42', 'SSE41', 'SSSE3']
 
     for flag in general_flags:
@@ -252,24 +221,20 @@ def cpuflagsBlock(machine, N=8):
 
     return ' '.join(reported)
 
-
 def compilerBlock(machine):
     string = ''
     for engine, info in machine.info['compilers'].items():
         string += '%-16s %-8s (%s)\n' % (engine, info[0], info[1])
     return string
 
-
 def removePrefix(value, prefix):
     return value.removeprefix(prefix)
-
 
 def machine_name(machine_id):
     try:
         machine = OpenBench.models.Machine.objects.get(id=machine_id)
         return machine.info['machine_name']
-    except:
-        return 'None'
+    except: return 'None'
 
 
 register = django.template.Library()
@@ -290,25 +255,22 @@ register.filter('compilerBlock', compilerBlock)
 register.filter('removePrefix', removePrefix)
 register.filter('machine_name', machine_name)
 
-
 def book_download_link(workload):
-    if book := OpenBench.models.Book.objects.filter(name=workload.book_name).first():
+    if (book := OpenBench.models.Book.objects.filter(name=workload.book_name).first()):
         return book.source
-
 
 def network_download_link(workload, branch):
 
-    assert branch in ['dev', 'base']
+    assert branch in [ 'dev', 'base' ]
 
-    sha = workload.dev_network if branch == 'dev' else workload.base_network
-    engine = workload.dev_engine if branch == 'dev' else workload.base_engine
+    sha    = workload.dev_network if branch == 'dev' else workload.base_network
+    engine = workload.dev_engine  if branch == 'dev' else workload.base_engine
 
     # Network could have been deleted after this workload was finished
-    if network := OpenBench.models.Network.objects.filter(sha256=sha, engine=engine).first():
+    if (network := OpenBench.models.Network.objects.filter(sha256=sha, engine=engine).first()):
         return '/networks/%s/download/%s/' % (engine, sha)
 
     return '/networks/%s/' % (engine)
-
 
 def workload_url(workload):
 
@@ -317,9 +279,8 @@ def workload_url(workload):
         workload = OpenBench.models.Test.objects.get(id=workload)
 
     # Differentiate between Tunes, Datagen, and regular Tests
-    mapping = {'SPSA': 'tune', 'DATAGEN': 'datagen'}
+    mapping = { 'SPSA' : 'tune', 'DATAGEN' : 'datagen' }
     return '/%s/%d/' % (mapping.get(workload.test_mode, 'test'), workload.id)
-
 
 def workload_pretty_name(workload):
 
@@ -333,7 +294,6 @@ def workload_pretty_name(workload):
 
     return workload.dev.name
 
-
 def git_diff_text(workload, N=24):
 
     dev_name = workload.dev.name
@@ -346,29 +306,24 @@ def git_diff_text(workload, N=24):
 
 
 def test_is_smp_odds(test):
-    dev_threads = option_integer(test.dev_options, 'Threads')
+    dev_threads  = option_integer(test.dev_options , 'Threads')
     base_threads = option_integer(test.base_options, 'Threads')
     return dev_threads != base_threads
-
 
 def test_is_time_odds(test):
     return test.dev_time_control != test.base_time_control
 
-
 def test_is_fischer(test):
     return 'FRC' in test.book_name.upper() or '960' in test.book_name.upper()
 
-
 @dataclasses.dataclass(frozen=True)
 class RowProgress:
-    kind: str
-    fraction: float
-    label: str
-
+    kind     : str
+    fraction : float
+    label    : str
 
 def _clamped(value: float) -> float:
     return min(1.0, max(0.0, value))
-
 
 def workload_progress(test) -> RowProgress | None:
 
@@ -384,7 +339,6 @@ def workload_progress(test) -> RowProgress | None:
 
     return None
 
-
 register.filter('book_download_link', book_download_link)
 register.filter('network_download_link', network_download_link)
 
@@ -393,9 +347,9 @@ register.filter('workload_pretty_name', workload_pretty_name)
 
 register.filter('git_diff_text', git_diff_text)
 
-register.filter('test_is_smp_odds', test_is_smp_odds)
-register.filter('test_is_time_odds', test_is_time_odds)
-register.filter('test_is_fischer', test_is_fischer)
+register.filter('test_is_smp_odds'  , test_is_smp_odds  )
+register.filter('test_is_time_odds' , test_is_time_odds )
+register.filter('test_is_fischer'   , test_is_fischer   )
 
 register.filter('workload_progress', workload_progress)
 register.filter('listing_timing', OpenBench.page_queries.listing_row_timing)
@@ -406,15 +360,10 @@ register.filter('short_name', OpenBench.workload_names.short_name)
 
 @register.filter
 def next(iterable, index):
-    try:
-        return iterable[int(index) + 1]
-    except:
-        return None
-
+    try: return iterable[int(index) + 1]
+    except: return None
 
 @register.filter
 def previous(iterable, index):
-    try:
-        return iterable[int(index) - 1]
-    except:
-        return None
+    try: return iterable[int(index) - 1]
+    except: return None

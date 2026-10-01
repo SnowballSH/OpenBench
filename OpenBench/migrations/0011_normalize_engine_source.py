@@ -14,8 +14,9 @@ def normalize_engine_source(apps, schema_editor):
     Engine = apps.get_model('OpenBench', 'Engine')
 
     for engine in Engine.objects.all():
+
         source = engine.source
-        parts = source.split('/')
+        parts  = source.split('/')
 
         # Path 1 -- legacy GitHub archive download, of the form
         #   https://github.com/<owner>/<repo>/archive/<sha>.zip
@@ -27,7 +28,7 @@ def normalize_engine_source(apps, schema_editor):
         #   https://api.github.com/repos/<owner>/<repo>/actions/runs/<id>/artifacts
         # The owner and repo are the two segments that follow "repos".
         elif '/actions/' in source:
-            index = parts.index('repos')
+            index       = parts.index('repos')
             owner, repo = parts[index + 1], parts[index + 2]
 
         # Anything else is already the modern zipball form; leave it untouched.
@@ -41,6 +42,7 @@ def normalize_engine_source(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
+
     dependencies = [
         ('OpenBench', '0010_remove_test_awaiting'),
     ]

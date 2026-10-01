@@ -5,6 +5,7 @@ import django.db.models.deletion
 
 
 class Migration(migrations.Migration):
+
     dependencies = [
         ('OpenBench', '0001_initial'),
     ]
@@ -15,26 +16,14 @@ class Migration(migrations.Migration):
             fields=[
                 ('id', models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
                 ('reporting_type', models.CharField(choices=[('BULK', 'BULK'), ('BATCHED', 'BATCHED')], max_length=16)),
-                (
-                    'distribution_type',
-                    models.CharField(choices=[('SINGLE', 'SINGLE'), ('MULTIPLE', 'MULTIPLE')], max_length=16),
-                ),
+                ('distribution_type', models.CharField(choices=[('SINGLE', 'SINGLE'), ('MULTIPLE', 'MULTIPLE')], max_length=16)),
                 ('alpha', models.FloatField()),
                 ('gamma', models.FloatField()),
                 ('iterations', models.IntegerField()),
                 ('pairs_per', models.IntegerField()),
                 ('a_ratio', models.FloatField()),
                 ('a_value', models.FloatField()),
-                (
-                    'tune',
-                    models.OneToOneField(
-                        blank=True,
-                        null=True,
-                        on_delete=django.db.models.deletion.CASCADE,
-                        related_name='spsa_run',
-                        to='OpenBench.test',
-                    ),
-                ),
+                ('tune', models.OneToOneField(blank=True, null=True, on_delete=django.db.models.deletion.CASCADE, related_name='spsa_run', to='OpenBench.test')),
             ],
         ),
         migrations.CreateModel(
@@ -52,12 +41,7 @@ class Migration(migrations.Migration):
                 ('c_value', models.FloatField()),
                 ('a_end', models.FloatField()),
                 ('a_value', models.FloatField()),
-                (
-                    'spsa_run',
-                    models.OneToOneField(
-                        on_delete=django.db.models.deletion.CASCADE, related_name='parameters', to='OpenBench.spsarun'
-                    ),
-                ),
+                ('spsa_run', models.OneToOneField(on_delete=django.db.models.deletion.CASCADE, related_name='parameters', to='OpenBench.spsarun')),
             ],
         ),
     ]

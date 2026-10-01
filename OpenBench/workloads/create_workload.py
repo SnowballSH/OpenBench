@@ -45,10 +45,9 @@ from OpenBench.models import *
 from OpenBench.workloads.clone import CloneError, load_clone_source, submitted_fields
 from OpenBench.workloads.verify_workload import GITHUB_TIMEOUT_SECONDS, verify_workload
 
-
 def create_workload(request, workload_type):
 
-    assert workload_type in ['TEST', 'TUNE', 'DATAGEN']
+    assert workload_type in [ 'TEST', 'TUNE', 'DATAGEN' ]
 
     if not request.user.is_authenticated:
         return OpenBench.views.redirect(request, '/login/', error='Only enabled users can create tests')
@@ -79,67 +78,66 @@ def create_workload(request, workload_type):
         warning = 'Consider Rebasing: Dev (%s) appears behind Base (%s)' % (workload.dev.name, workload.base.name)
 
     username = request.user.username
-    profile = Profile.objects.get(user=request.user)
-    summary = 'CREATE P=%d TP=%d' % (workload.priority, workload.throughput)
+    profile  = Profile.objects.get(user=request.user)
+    summary  = 'CREATE P=%d TP=%d' % (workload.priority, workload.throughput)
     LogEvent.objects.create(author=username, summary=summary, log_file='', test_id=workload.id)
 
     if not OPENBENCH_CONFIG['use_cross_approval'] and profile.approver:
-        workload.approved = True
-        workload.save()
+        workload.approved = True; workload.save()
 
     return OpenBench.views.redirect(request, '/index/', warning=warning)
-
 
 def render_form(request, workload_type, clone_source, prefill_fields, error=None, warning=None):
 
     engines = EngineConfig.objects.filter(enabled=True).order_by('name')
 
     data = {
-        'networks': list(Network.objects.all().values()),
-        'books': Book.objects.filter(enabled=True).order_by('name'),
-        'engines': engines,
+        'networks' : list(Network.objects.all().values()),
+        'books'    : Book.objects.filter(enabled=True).order_by('name'),
+        'engines'  : engines,
+
         # The presets, nps and source are all applied by create_workload.js
-        'engine_configs': {engine.name: OpenBench.model_utils.engine_config_to_dict(engine) for engine in engines},
+        'engine_configs' : {
+            engine.name : OpenBench.model_utils.engine_config_to_dict(engine)
+            for engine in engines
+        },
+
         # Applied by create_workload.js after the presets, so these values win
-        'clone_source': clone_source,
-        'prefill_fields': prefill_fields,
-        'bench_hints': clone_source.bench_hints if clone_source else None,
+        'clone_source'   : clone_source,
+        'prefill_fields' : prefill_fields,
+        'bench_hints'    : clone_source.bench_hints if clone_source else None,
     }
 
     if workload_type == 'TEST':
-        data['workload'] = workload_type
-        data['dev_text'] = 'Dev'
-        data['dev_title_text'] = 'Dev'
-        data['submit_text'] = 'Create Engine Test'
+        data['workload']        = workload_type
+        data['dev_text']        = 'Dev'
+        data['dev_title_text']  = 'Dev'
+        data['submit_text']     = 'Create Engine Test'
         data['submit_endpoint'] = '/test/new/'
 
     if workload_type == 'TUNE':
-        data['workload'] = workload_type
-        data['dev_text'] = ''
-        data['dev_title_text'] = 'Engine'
-        data['submit_text'] = 'Create SPSA Tune'
+        data['workload']        = workload_type
+        data['dev_text']        = ''
+        data['dev_title_text']  = 'Engine'
+        data['submit_text']     = 'Create SPSA Tune'
         data['submit_endpoint'] = '/tune/new/'
 
     if workload_type == 'DATAGEN':
-        data['workload'] = workload_type
-        data['dev_text'] = 'Dev'
-        data['dev_title_text'] = 'Dev'
-        data['submit_text'] = 'Create Datagen'
+        data['workload']        = workload_type
+        data['dev_text']        = 'Dev'
+        data['dev_title_text']  = 'Dev'
+        data['submit_text']     = 'Create Datagen'
         data['submit_endpoint'] = '/datagen/new/'
 
     return OpenBench.views.render(request, 'create_workload.html', data, error=error, warning=warning)
-
 
 def find_clone_source(raw_id, workload_type):
 
     if raw_id is None:
         return None, None
 
-    try:
-        return load_clone_source(raw_id, workload_type), None
-    except CloneError as error:
-        return None, str(error)
-
+    try: return load_clone_source(raw_id, workload_type), None
+    except CloneError as error: return None, str(error)
 
 def create_new_test(request):
 
@@ -149,45 +147,45 @@ def create_new_test(request):
     if errors:
         return None, errors
 
-    test = Test()
-    test.author = request.user.username
-    test.book_name = request.POST['book_name']
-    test.upload_pgns = request.POST['upload_pgns']
-    test.info = dev_info[4]
+    test                   = Test()
+    test.author            = request.user.username
+    test.book_name         = request.POST['book_name']
+    test.upload_pgns       = request.POST['upload_pgns']
+    test.info              = dev_info[4]
 
-    test.dev = Engine.objects.create(name=dev_info[1], source=dev_info[0], sha=dev_info[2], bench=dev_info[3])
-    test.dev_repo = request.POST['dev_repo']
-    test.dev_engine = request.POST['dev_engine']
-    test.dev_options = request.POST['dev_options']
-    test.dev_network = request.POST['dev_network']
-    test.dev_time_control = OpenBench.utils.TimeControl.parse(request.POST['dev_time_control'])
+    test.dev               = Engine.objects.create(name=dev_info[1], source=dev_info[0], sha=dev_info[2], bench=dev_info[3])
+    test.dev_repo          = request.POST['dev_repo']
+    test.dev_engine        = request.POST['dev_engine']
+    test.dev_options       = request.POST['dev_options']
+    test.dev_network       = request.POST['dev_network']
+    test.dev_time_control  = OpenBench.utils.TimeControl.parse(request.POST['dev_time_control'])
 
-    test.base = Engine.objects.create(name=base_info[1], source=base_info[0], sha=base_info[2], bench=base_info[3])
-    test.base_repo = request.POST['base_repo']
-    test.base_engine = request.POST['base_engine']
-    test.base_options = request.POST['base_options']
-    test.base_network = request.POST['base_network']
+    test.base              = Engine.objects.create(name=base_info[1], source=base_info[0], sha=base_info[2], bench=base_info[3])
+    test.base_repo         = request.POST['base_repo']
+    test.base_engine       = request.POST['base_engine']
+    test.base_options      = request.POST['base_options']
+    test.base_network      = request.POST['base_network']
     test.base_time_control = OpenBench.utils.TimeControl.parse(request.POST['base_time_control'])
 
-    test.workload_size = int(request.POST['workload_size'])
-    test.priority = int(request.POST['priority'])
-    test.throughput = int(request.POST['throughput'])
+    test.workload_size     = int(request.POST['workload_size'])
+    test.priority          = int(request.POST['priority'])
+    test.throughput        = int(request.POST['throughput'])
 
-    test.syzygy_wdl = request.POST['syzygy_wdl']
-    test.syzygy_adj = request.POST['syzygy_adj']
-    test.win_adj = request.POST['win_adj']
-    test.draw_adj = request.POST['draw_adj']
+    test.syzygy_wdl        = request.POST['syzygy_wdl']
+    test.syzygy_adj        = request.POST['syzygy_adj']
+    test.win_adj           = request.POST['win_adj']
+    test.draw_adj          = request.POST['draw_adj']
 
-    test.scale_method = request.POST['scale_method']
-    test.scale_nps = int(request.POST['scale_nps'])
+    test.scale_method      = request.POST['scale_method']
+    test.scale_nps         = int(request.POST['scale_nps'])
 
-    test.test_mode = request.POST['test_mode']
+    test.test_mode         = request.POST['test_mode']
 
     if test.test_mode == 'SPRT':
         test.elolower = float(request.POST['test_bounds'].split(',')[0].lstrip('['))
         test.eloupper = float(request.POST['test_bounds'].split(',')[1].rstrip(']'))
-        test.alpha = float(request.POST['test_confidence'].split(',')[1].rstrip(']'))
-        test.beta = float(request.POST['test_confidence'].split(',')[0].lstrip('['))
+        test.alpha    = float(request.POST['test_confidence'].split(',')[1].rstrip(']'))
+        test.beta     = float(request.POST['test_confidence'].split(',')[0].lstrip('['))
         test.lowerllr = math.log(test.beta / (1.0 - test.alpha))
         test.upperllr = math.log((1.0 - test.beta) / test.alpha)
 
@@ -208,7 +206,6 @@ def create_new_test(request):
 
     return test, None
 
-
 def create_new_tune(request):
 
     # Collects erros, and collects all data from the Github API
@@ -217,34 +214,32 @@ def create_new_tune(request):
     if errors:
         return None, errors
 
-    test = Test()
-    test.author = request.user.username
-    test.book_name = request.POST['book_name']
-    test.upload_pgns = request.POST['upload_pgns']
-    test.info = request.POST.get('info', '')
+    test                  = Test()
+    test.author           = request.user.username
+    test.book_name        = request.POST['book_name']
+    test.upload_pgns      = request.POST['upload_pgns']
+    test.info             = request.POST.get('info', '')
 
-    test.dev = test.base = Engine.objects.create(
-        name=dev_info[1], source=dev_info[0], sha=dev_info[2], bench=dev_info[3]
-    )
-    test.dev_repo = test.base_repo = request.POST['dev_repo']
-    test.dev_engine = test.base_engine = request.POST['dev_engine']
-    test.dev_options = test.base_options = request.POST['dev_options']
-    test.dev_network = test.base_network = request.POST['dev_network']
+    test.dev              = test.base              = Engine.objects.create(name=dev_info[1], source=dev_info[0], sha=dev_info[2], bench=dev_info[3])
+    test.dev_repo         = test.base_repo         = request.POST['dev_repo']
+    test.dev_engine       = test.base_engine       = request.POST['dev_engine']
+    test.dev_options      = test.base_options      = request.POST['dev_options']
+    test.dev_network      = test.base_network      = request.POST['dev_network']
     test.dev_time_control = test.base_time_control = OpenBench.utils.TimeControl.parse(request.POST['dev_time_control'])
 
-    test.workload_size = int(request.POST['spsa_pairs_per'])
-    test.priority = int(request.POST['priority'])
-    test.throughput = int(request.POST['throughput'])
+    test.workload_size    = int(request.POST['spsa_pairs_per'])
+    test.priority         = int(request.POST['priority'])
+    test.throughput       = int(request.POST['throughput'])
 
-    test.syzygy_wdl = request.POST['syzygy_wdl']
-    test.syzygy_adj = request.POST['syzygy_adj']
-    test.win_adj = request.POST['win_adj']
-    test.draw_adj = request.POST['draw_adj']
+    test.syzygy_wdl       = request.POST['syzygy_wdl']
+    test.syzygy_adj       = request.POST['syzygy_adj']
+    test.win_adj          = request.POST['win_adj']
+    test.draw_adj         = request.POST['draw_adj']
 
-    test.scale_method = request.POST['scale_method']
-    test.scale_nps = int(request.POST['scale_nps'])
+    test.scale_method     = request.POST['scale_method']
+    test.scale_nps        = int(request.POST['scale_nps'])
 
-    test.test_mode = 'SPSA'
+    test.test_mode        = 'SPSA'
 
     if test.dev_network:
         name = Network.objects.get(engine=test.dev_engine, sha256=test.dev_network).name
@@ -260,7 +255,6 @@ def create_new_tune(request):
 
     return test, None
 
-
 def create_new_datagen(request):
 
     # Collects erros, and collects all data from the Github API
@@ -269,46 +263,46 @@ def create_new_datagen(request):
     if errors:
         return None, errors
 
-    test = Test()
-    test.author = request.user.username
-    test.book_name = request.POST['book_name']
-    test.upload_pgns = request.POST['upload_pgns']
-    test.info = request.POST.get('info', '')
+    test                   = Test()
+    test.author            = request.user.username
+    test.book_name         = request.POST['book_name']
+    test.upload_pgns       = request.POST['upload_pgns']
+    test.info              = request.POST.get('info', '')
 
-    test.dev = Engine.objects.create(name=dev_info[1], source=dev_info[0], sha=dev_info[2], bench=dev_info[3])
-    test.dev_repo = request.POST['dev_repo']
-    test.dev_engine = request.POST['dev_engine']
-    test.dev_options = request.POST['dev_options']
-    test.dev_network = request.POST['dev_network']
-    test.dev_time_control = OpenBench.utils.TimeControl.parse(request.POST['dev_time_control'])
+    test.dev               = Engine.objects.create(name=dev_info[1], source=dev_info[0], sha=dev_info[2], bench=dev_info[3])
+    test.dev_repo          = request.POST['dev_repo']
+    test.dev_engine        = request.POST['dev_engine']
+    test.dev_options       = request.POST['dev_options']
+    test.dev_network       = request.POST['dev_network']
+    test.dev_time_control  = OpenBench.utils.TimeControl.parse(request.POST['dev_time_control'])
 
-    test.base = Engine.objects.create(name=base_info[1], source=base_info[0], sha=base_info[2], bench=base_info[3])
-    test.base_repo = request.POST['base_repo']
-    test.base_engine = request.POST['base_engine']
-    test.base_options = request.POST['base_options']
-    test.base_network = request.POST['base_network']
+    test.base              = Engine.objects.create(name=base_info[1], source=base_info[0], sha=base_info[2], bench=base_info[3])
+    test.base_repo         = request.POST['base_repo']
+    test.base_engine       = request.POST['base_engine']
+    test.base_options      = request.POST['base_options']
+    test.base_network      = request.POST['base_network']
     test.base_time_control = OpenBench.utils.TimeControl.parse(request.POST['base_time_control'])
 
-    test.max_games = int(request.POST['datagen_max_games'])
-    test.genfens_args = request.POST['datagen_custom_genfens']
-    test.play_reverses = request.POST['datagen_play_reverses'] == 'YES'
+    test.max_games         = int(request.POST['datagen_max_games'])
+    test.genfens_args      = request.POST['datagen_custom_genfens']
+    test.play_reverses     = request.POST['datagen_play_reverses'] == 'YES'
 
-    test.workload_size = int(request.POST['workload_size'])
-    test.priority = int(request.POST['priority'])
-    test.throughput = int(request.POST['throughput'])
+    test.workload_size     = int(request.POST['workload_size'])
+    test.priority          = int(request.POST['priority'])
+    test.throughput        = int(request.POST['throughput'])
 
-    test.syzygy_wdl = request.POST['syzygy_wdl']
-    test.syzygy_adj = request.POST['syzygy_adj']
-    test.win_adj = request.POST['win_adj']
-    test.draw_adj = request.POST['draw_adj']
+    test.syzygy_wdl        = request.POST['syzygy_wdl']
+    test.syzygy_adj        = request.POST['syzygy_adj']
+    test.win_adj           = request.POST['win_adj']
+    test.draw_adj          = request.POST['draw_adj']
 
-    test.scale_method = request.POST['scale_method']
-    test.scale_nps = int(request.POST['scale_nps'])
+    test.scale_method      = request.POST['scale_method']
+    test.scale_nps         = int(request.POST['scale_nps'])
 
-    test.test_mode = 'DATAGEN'
+    test.test_mode         = 'DATAGEN'
 
-    test.use_tri = not test.play_reverses
-    test.use_penta = test.play_reverses
+    test.use_tri           = not test.play_reverses
+    test.use_penta         = test.play_reverses
 
     if test.dev_network:
         test.dev_netname = Network.objects.get(engine=test.dev_engine, sha256=test.dev_network).name
@@ -334,17 +328,16 @@ def branch_is_out_of_date(workload):
     # Format the request to the Github endpoint
     base = 'https://api.github.com/repos/'
     base = workload.dev_repo.replace('github.com', 'api.github.com/repos')
-    url = OpenBench.utils.path_join(base, 'compare', '%s...%s' % (workload.dev.sha, workload.base.sha))
+    url  = OpenBench.utils.path_join(base, 'compare', '%s...%s' % (workload.dev.sha, workload.base.sha))
 
     try:
         # Out of date if ahead_by is non-zero
         headers = OpenBench.utils.read_git_credentials(workload.dev_engine)
-        data = requests.get(url, headers=headers, timeout=GITHUB_TIMEOUT_SECONDS).json()
+        data    = requests.get(url, headers=headers, timeout=GITHUB_TIMEOUT_SECONDS).json()
         return data.get('ahead_by', 0) > 0
 
     except:
         # If something went wrong, just ignore it
         import traceback
-
         traceback.print_exc()
         return False

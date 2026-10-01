@@ -37,21 +37,20 @@ from OpenBench.machine_info import text_of
 from OpenBench.insights.speed import nodes_per_second
 from OpenBench.models import *
 
-
 def view_workload(request, workload, workload_type):
 
-    assert workload_type in ['TEST', 'TUNE', 'DATAGEN']
+    assert workload_type in [ 'TEST', 'TUNE', 'DATAGEN' ]
 
     # The individual per-machine Result rows are never sent with the page; they
     # are fetched on demand via the "Fetch Individual Results" button. The
     # aggregate summary is fetched automatically once the page loads.
 
     data = {
-        'workload': workload,
+        'workload' : workload,
     }
 
     if workload_type == 'TEST':
-        data['type'] = workload_type
+        data['type']= workload_type
         data['dev_text'] = 'Dev'
 
     if workload_type == 'TUNE':
@@ -64,20 +63,17 @@ def view_workload(request, workload, workload_type):
 
     return OpenBench.views.render(request, 'workload.html', data)
 
-
 def fetch_results(workload):
 
     # One minute prior to now
     target = timezone.now() - datetime.timedelta(minutes=1)
 
     # Create `active` field for current machines
-    qs = (
-        Result.objects.filter(test=workload)
-        .select_related('machine__user')
-        .annotate(
-            active=ExpressionWrapper(
-                Q(machine__updated__gte=target) & Q(test_id=F('machine__workload')), output_field=BooleanField()
-            )
+    qs = Result.objects.filter(test=workload).select_related('machine__user').annotate(
+        active=ExpressionWrapper(
+            Q(machine__updated__gte=target) &
+            Q(test_id=F('machine__workload')),
+            output_field=BooleanField()
         )
     )
 
@@ -90,18 +86,13 @@ def fetch_results(workload):
         'machine__id',
         'machine__user__username',
         'games',
-        'LL',
-        'LD',
-        'DD',
-        'DW',
-        'WW',
+        'LL', 'LD', 'DD', 'DW', 'WW',
         'timeloss',
         'crashes',
         'active',
     )
 
     return list(qs)
-
 
 def fetch_result_summaries(workload):
 
@@ -113,11 +104,7 @@ def fetch_result_summaries(workload):
     qs = qs.values(
         'machine__user__username',
         'machine__info',
-        'LL',
-        'LD',
-        'DD',
-        'DW',
-        'WW',
+        'LL', 'LD', 'DD', 'DW', 'WW',
         'dev_nodes',
         'dev_time',
         'dev_time_scaled',
@@ -133,18 +120,14 @@ def fetch_result_summaries(workload):
 
     def nodes(row):
         return (
-            row['dev_nodes'],
-            row['dev_time'],
-            row['dev_time_scaled'],
-            row['base_nodes'],
-            row['base_time'],
-            row['base_time_scaled'],
+            row['dev_nodes'], row['dev_time'], row['dev_time_scaled'],
+            row['base_nodes'], row['base_time'], row['base_time_scaled']
         )
 
     groupings = {
-        'user': lambda row: row['machine__user__username'],
-        'cpu_name': lambda row: text_of(row['machine__info'], 'cpu_name'),
-        'isa_name': lambda row: text_of(row['machine__info'], 'isa_name'),
+        'user'     : lambda row: row['machine__user__username'],
+        'cpu_name' : lambda row: text_of(row['machine__info'], 'cpu_name'),
+        'isa_name' : lambda row: text_of(row['machine__info'], 'isa_name'),
     }
 
     # Turn a { key: penta } bucket into ready-to-display rows: the penta as a
@@ -161,23 +144,20 @@ def fetch_result_summaries(workload):
 
     def summarize(bucket, nps_stats):
         total_pairs = sum(sum(penta) for penta in bucket.values())
-        rows = [
-            {
-                'key': key,
-                'penta': '(%d, %d, %d, %d, %d)' % tuple(penta),
-                **({'elo': elo_display(penta)} if with_elo else {}),
-                'pairs': sum(penta),
-                'percent': '%.2f' % (100.0 * sum(penta) / total_pairs if total_pairs else 0.0),
-                'dev_nps': nodes_per_second(nps_stats[key][0], nps_stats[key][1]),
-                'dev_nps_scaled': nodes_per_second(nps_stats[key][0], nps_stats[key][2]),
-                'base_nps': nodes_per_second(nps_stats[key][3], nps_stats[key][4]),
-                'base_nps_scaled': nodes_per_second(nps_stats[key][3], nps_stats[key][5]),
-            }
-            for key, penta in bucket.items()
-        ]
+        rows = [{
+            'key'             : key,
+            'penta'           : '(%d, %d, %d, %d, %d)' % tuple(penta),
+            **({ 'elo' : elo_display(penta) } if with_elo else {}),
+            'pairs'           : sum(penta),
+            'percent'         : '%.2f' % (100.0 * sum(penta) / total_pairs if total_pairs else 0.0),
+            'dev_nps'         : nodes_per_second(nps_stats[key][0], nps_stats[key][1]),
+            'dev_nps_scaled'  : nodes_per_second(nps_stats[key][0], nps_stats[key][2]),
+            'base_nps'        : nodes_per_second(nps_stats[key][3], nps_stats[key][4]),
+            'base_nps_scaled' : nodes_per_second(nps_stats[key][3], nps_stats[key][5]),
+        } for key, penta in bucket.items()]
         return sorted(rows, key=lambda row: row['pairs'], reverse=True)
 
     return {
-        name: summarize(sum_by_key(rows, key_of, penta, 'Unknown'), sum_by_key(rows, key_of, nodes, 'Unknown'))
+        name : summarize(sum_by_key(rows, key_of, penta, 'Unknown'), sum_by_key(rows, key_of, nodes, 'Unknown'))
         for name, key_of in groupings.items()
     }

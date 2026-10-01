@@ -5,6 +5,7 @@ import django.db.models.deletion
 
 
 class Migration(migrations.Migration):
+
     dependencies = [
         ('OpenBench', '0002_spsarun_spsaparameter'),
     ]
@@ -13,8 +14,6 @@ class Migration(migrations.Migration):
         migrations.AlterField(
             model_name='spsaparameter',
             name='spsa_run',
-            field=models.ForeignKey(
-                on_delete=django.db.models.deletion.CASCADE, related_name='parameters', to='OpenBench.spsarun'
-            ),
+            field=models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='parameters', to='OpenBench.spsarun'),
         ),
     ]

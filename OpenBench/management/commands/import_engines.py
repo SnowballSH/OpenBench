@@ -34,8 +34,8 @@ from django.core.management.base import BaseCommand, CommandError
 from OpenBench.config import PRESET_TYPES, verify_engine_presets
 from OpenBench.models import EngineConfig
 
-
 class Command(BaseCommand):
+
     help = 'Create or update Engines from .json files, or directories of them'
 
     def add_arguments(self, parser):
@@ -45,15 +45,15 @@ class Command(BaseCommand):
 
         for path in options['paths']:
             for fname in expand_path(path):
+
                 with open(fname) as fin:
                     conf = json.load(fin)
 
-                name = os.path.basename(fname).removesuffix('.json')
+                name   = os.path.basename(fname).removesuffix('.json')
                 fields = engine_fields(fname, name, conf)
 
                 engine, created = EngineConfig.objects.update_or_create(name=name, defaults=fields)
                 self.stdout.write('%s %s' % ('Created' if created else 'Updated', engine.name))
-
 
 def engine_fields(fname, name, conf):
 
@@ -70,26 +70,25 @@ def engine_fields(fname, name, conf):
         raise CommandError('%s must contain a boolean "private"' % (fname))
 
     # Missing preset types were previously filled in when the file was loaded
-    presets = {x: conf.get(x) or {'default': {}} for x in PRESET_TYPES}
+    presets = { x : conf.get(x) or { 'default' : {} } for x in PRESET_TYPES }
     for group in presets.values():
         group.setdefault('default', {})
 
-    if error := verify_engine_presets(presets):
+    if (error := verify_engine_presets(presets)):
         raise CommandError('%s %s' % (fname, error))
 
     build = conf['build']
 
     return {
-        'private': conf['private'],
-        'nps': conf['nps'],
-        'source': conf['source'],
-        'build_path': build.get('path', ''),
-        'build_compilers': ' '.join(build.get('compilers', [])),
-        'build_cpuflags': ' '.join(build.get('cpuflags', [])),
-        'build_systems': ' '.join(build.get('systems', [])),
-        'presets': presets,
+        'private'         : conf['private'],
+        'nps'             : conf['nps'],
+        'source'          : conf['source'],
+        'build_path'      : build.get('path', ''),
+        'build_compilers' : ' '.join(build.get('compilers', [])),
+        'build_cpuflags'  : ' '.join(build.get('cpuflags', [])),
+        'build_systems'   : ' '.join(build.get('systems', [])),
+        'presets'         : presets,
     }
-
 
 def expand_path(path):
 
