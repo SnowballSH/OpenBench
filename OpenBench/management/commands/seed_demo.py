@@ -218,7 +218,7 @@ COMMIT_CHAIN = (
         accepted=True,
     ),
     DemoCommit(
-        'Add a pawn correction history table',
+        'Pawn static-eval correction history (corrhist-pawn), indexed by pawn structure and side',
         5.0,
         (DemoStage(STC, 'passed'), DemoStage(LTC, 'active', pairs=1400, hash_mb=LTC_HASH_MB)),
     ),
@@ -230,6 +230,10 @@ CHAIN_ROOT = 'Seeded chain root'
 CHAIN_SPAN_DAYS = 5.0
 
 CHAIN_SLOT_USED = 0.6
+
+COMMIT_TAG = 'avl'
+
+COMMIT_TAG_LENGTH = 12
 
 SEARCH_PARAMETERS = (
     DemoParameter('LmrBase', True, 0.75, 0.25, 1.50, 0.08, 0.002, 0.92),
@@ -303,8 +307,9 @@ def chain_workloads(
     commits: Sequence[DemoCommit], root: str = CHAIN_ROOT, span_days: float = CHAIN_SPAN_DAYS
 ) -> list[DemoWorkload]:
 
-    # One SPRT per stage, oldest first: finished stages take evenly spaced slots of span_days
-    # and end before the next slot opens, so the chain reads in order; running ones start now
+    # One SPRT per stage, oldest first, each in its own evenly spaced slot of span_days: a finished stage
+    # ends before the next slot opens and a running one runs on until now, so every stage is created
+    # after the test that accepted its base. The info is the lab agent's: the subject, then its commit tag.
     stages = sum(len(commit.stages) for commit in commits)
     slot_days = span_days / stages
     base = commit_sha(root)
@@ -321,13 +326,13 @@ def chain_workloads(
                     pairs=stage.pairs,
                     state=stage.state,
                     tc=stage.tc,
-                    days_ago=span_days - slot_days * len(workloads) if finished else 0.0,
-                    duration_hours=24 * slot_days * CHAIN_SLOT_USED if finished else 0.0,
+                    days_ago=(days_ago := span_days - slot_days * len(workloads)),
+                    duration_hours=24 * (slot_days * CHAIN_SLOT_USED if finished else days_ago),
                     author=commit.author,
                     base_name=base,
                     dev_sha=dev,
                     base_sha=base,
-                    info=commit.subject,
+                    info=f'{commit.subject}\n{COMMIT_TAG}:{dev[:COMMIT_TAG_LENGTH]}',
                     hash_mb=stage.hash_mb,
                 )
             )
@@ -481,7 +486,7 @@ def schedule(state: str, rng: random.Random, days_ago: float = 0.0, duration_hou
 def exact_schedule(days_ago: float, duration_hours: float) -> Schedule:
     created = timezone.now() - datetime.timedelta(days=days_ago)
     started = created + datetime.timedelta(minutes=5)
-    return Schedule(created, started, started + datetime.timedelta(hours=duration_hours))
+    return Schedule(created, started, min(timezone.now(), started + datetime.timedelta(hours=duration_hours)))
 
 
 def past_schedule(days_ago: float, rng: random.Random) -> Schedule:

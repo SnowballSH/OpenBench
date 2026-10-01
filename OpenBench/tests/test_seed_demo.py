@@ -7,6 +7,7 @@ from django.test import SimpleTestCase, TestCase, override_settings
 from django.utils import timezone
 
 from OpenBench.management.commands.seed_demo import (
+    CHAIN_ROOT,
     COMMIT_CHAIN,
     LTC,
     PAST_SPRTS,
@@ -175,7 +176,9 @@ class SeedDemoTests(TestCase):
         for test in pinned:
             self.assertEqual((test.dev.name, test.base.name), (test.dev.sha, test.base.sha))
             self.assertEqual(test.test_mode, 'SPRT')
-            self.assertIn(test.info, {commit.subject for commit in COMMIT_CHAIN})
+            subject, tag = test.info.split('\n')
+            self.assertIn(subject, {commit.subject for commit in COMMIT_CHAIN})
+            self.assertEqual(tag, f'avl:{test.dev.sha[:12]}')
             self.assertEqual(test.upload_pgns, 'FALSE')
             for engine in (test.dev, test.base):
                 benches.setdefault(engine.sha, set()).add(engine.bench)
@@ -184,6 +187,13 @@ class SeedDemoTests(TestCase):
         finished = [test.updated for test in pinned if test.finished]
         self.assertEqual(finished, sorted(finished))
         self.assertTrue(any(not test.finished for test in pinned))
+        self.assertTrue(any(len(commit.subject) >= 80 for commit in COMMIT_CHAIN))
+
+        accepted_at = {commit_sha(CHAIN_ROOT): min(test.creation for test in pinned)}
+        for test in pinned:
+            self.assertGreaterEqual(test.creation, accepted_at[test.base.sha])
+            if test.passed and test.dev_time_control == LTC:
+                accepted_at[test.dev.sha] = test.updated
 
         ltc = [test for test in pinned if test.dev_time_control == LTC]
         self.assertTrue(ltc)
@@ -197,7 +207,9 @@ class ChainWorkloadTests(SimpleTestCase):
             DemoCommit(f'commit {index}', 5.0, (DemoStage(STC, 'passed'), DemoStage(LTC, 'passed')), accepted=accept)
             for index, accept in enumerate(accepted)
         ]
-        return [(spec.info, spec.dev_sha, spec.base_sha) for spec in chain_workloads(commits, root='root')]
+        return [
+            (spec.info.split('\n')[0], spec.dev_sha, spec.base_sha) for spec in chain_workloads(commits, root='root')
+        ]
 
     def test_an_accepted_commit_becomes_the_next_base(self):
         root, first, second = commit_sha('root'), commit_sha('commit 0'), commit_sha('commit 1')
@@ -219,13 +231,16 @@ class ChainWorkloadTests(SimpleTestCase):
         commit = DemoCommit('subject', 2.0, (DemoStage(STC, 'passed'), DemoStage(LTC, 'active', pairs=10, hash_mb=64)))
         stc, ltc = chain_workloads([commit])
         self.assertEqual((stc.name, stc.base_name), (stc.dev_sha, stc.base_sha))
+        self.assertEqual(stc.info, f'subject\navl:{stc.dev_sha[:12]}')
         self.assertRegex(stc.name, '^[0-9a-f]{40}$')
         self.assertEqual((stc.mode, stc.tc, stc.state, stc.hash_mb), ('SPRT', STC, 'passed', 0))
         self.assertEqual((ltc.mode, ltc.tc, ltc.state, ltc.hash_mb, ltc.pairs), ('SPRT', LTC, 'active', 64, 10))
-        self.assertGreater(stc.days_ago, 0)
-        self.assertEqual(ltc.days_ago, 0)
+        self.assertGreater(stc.days_ago, ltc.days_ago)
+        self.assertLess(stc.duration_hours, 24 * (stc.days_ago - ltc.days_ago))
+        self.assertEqual(ltc.duration_hours, 24 * ltc.days_ago)
 
-    def test_finished_stages_run_oldest_first(self):
-        ages = [spec.days_ago for spec in chain_workloads(COMMIT_CHAIN) if spec.days_ago]
+    def test_stages_are_created_oldest_first(self):
+        ages = [spec.days_ago for spec in chain_workloads(COMMIT_CHAIN)]
         self.assertEqual(ages, sorted(ages, reverse=True))
+        self.assertGreater(min(ages), 0)
         self.assertLess(max(ages), 6)
