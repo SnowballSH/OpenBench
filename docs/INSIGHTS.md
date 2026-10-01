@@ -3,6 +3,7 @@
 The Server keeps a small time series of every Workload's cumulative counters,
 and derives progress, throughput, time-left and strength statistics from it.
 Two JSON endpoints expose the results for the workload page and the index.
+Workloads that upload PGNs also get per-game statistics; see [Games](#games).
 
 Code lives in `OpenBench/insights/`:
 
@@ -388,6 +389,286 @@ values as empty cells. Every cell is built from a number or a timestamp, and
 `cell_text` raises on anything else (a string, a boolean), so a cell can never
 begin a spreadsheet formula: a leading `-` only ever starts a negative number.
 
+## Games
+
+Counters say how many pairs fell in each pentanomial bucket; they cannot say
+which colour won, how a game ended, how long it lasted or which opening it
+came from. When a Workload uploads PGNs, the Server reads those games and
+answers these questions on the workload page.
+
+Code lives in `OpenBench/games/`:
+
+| Module | Role |
+|---|---|
+| `pgn.py` | Tolerant parser for the Client's upload dialect: headers, moves and their comments. |
+| `domain.py` | Enums, limits, the three game phases and the adjudication rules of a Workload. |
+| `termination.py` | How a game ended: the written reason when the PGN still has one, otherwise inferred. |
+| `facts.py` | Everything measured from one game (`GameFacts`). |
+| `aggregate.py` | `Aggregate`, the counters over all analysed games, and `PairTracker`. |
+| `archive.py` | Streams the members of a `.pgn.tar` from a byte offset within a `Budget`. |
+| `service.py` | Persists the aggregate in `GameAnalysis` and resumes it; called by the PGN watcher and the API. |
+| `report.py` | Turns an aggregate into the payload (rates, quartiles, top openings). |
+| `views.py` | `GET|POST /api/workload/<id>/games/`. |
+| `synthetic.py` | Demo and test games in the match runner's format, uploaded through the Client's formatter. |
+
+### Enabling it
+
+Per-game data exists only for Workloads created with **Upload PGNs** set to
+`COMPACT` or `VERBOSE`; the setting cannot be changed afterwards. `COMPACT`
+gives everything except nodes per second and time per move, which need
+`VERBOSE`. A test without uploads shows one muted line under the Insights
+heading saying so, and nothing else. A lab agent creating tests through
+`/scripts/` sends `upload_pgns=COMPACT`; nothing else is needed, and the
+Games group appears on the workload page as soon as the first batch is
+archived. [DEPLOYMENT.md](DEPLOYMENT.md#pgn-archive-size) has the disk cost.
+
+### The dialect
+
+`Client/pgn_util.py` rewrites the match runner's PGN before upload. A game is
+a block of header lines, a blank line, one line of moves, and a blank line:
+
+```
+[Round "1"]
+[White "Avalanche-dev"]
+[Black "Avalanche-base"]
+[Result "1-0"]
+[FEN "rnbqkb1r/ppp2ppp/4pn2/3p4/2PP4/2N5/PP2PPPP/R1BQKBNR w KQkq - 2 4"]
+[TimeControl "8+0.08"]
+[ScaleFactor "1.0"]
+
+Bg5 {+0.31/14} Be7 {-0.25/13} ... Qh7# {+M1/3} 1-0
+```
+
+- Headers kept: `Event`, `Site`, `Date`, `Round`, `White`, `Black`, `Result`,
+  `FEN`, `TimeControl`, `Variant`, `ScaleFactor`, `SetUp`, and `GameEndTime`
+  for `VERBOSE`. The engine names end in `-dev` and `-base`; that suffix is
+  how a game's sides are told apart.
+- Every move carries one comment. `COMPACT`: `score/depth`. `VERBOSE`:
+  `score/depth 0.105s, n=123456, sd=22` (time, nodes, selective depth). Either
+  may end in `, line=…`, an engine's `info string pgncomment` text, which is
+  ignored. `book` marks a book move and `unknown` a move without a usable
+  comment. Scores are in pawns from the mover's side; `+M5` is a mate score.
+- **The reason a game ended is not uploaded.** The match runner writes a
+  `Termination` header and ends the last comment with a sentence such as
+  `Black loses on time`; the Client drops both. Mate is still visible (the
+  last move ends in `#`); everything else is inferred, see
+  [How games ended](#how-games-ended).
+
+The parser also reads the match runner's own output (move numbers, wrapped
+lines, the closing sentence, a `Termination` header), so archives produced by
+a Client that keeps the reason would be classified exactly.
+
+A block is **malformed**, counted and skipped, when a header line is not
+`[Name "value"]`, `White`, `Black` or `Result` is missing, the result is not
+`1-0`, `0-1`, `1/2-1/2` or `*`, the move line does not end in the same result,
+a move is not SAN or coordinate notation, the engine names do not end in
+`-dev` and `-base`, or the game is longer than 1 MiB. Moves are not checked
+for legality. A game with result `*` is **unfinished**: counted on its own and
+left out of every statistic.
+
+### What is measured
+
+All of it is from dev's point of view unless it says White.
+
+- **Results by colour**: wins, draws and losses of dev as White and as Black,
+  and of the White side whichever engine played it. `score` is
+  `(wins + draws / 2) / games`. The White score is the first-move (and book)
+  advantage; a gap between dev's two rows that the White score does not
+  explain is dev playing one colour better.
+- **Pair outcomes**: the two games of an opening are matched within one
+  uploaded batch by `Round` and opening, with the colours reversed. Each pair
+  is one of `WW`, `WD`, `WL`, `DD`, `DL`, `LL`. `pentanomial` is
+  `[LL, DL, DD + WL, WD, WW]`, the same order as the Workload's counters;
+  `middle_wl_share = WL / (WL + DD)` is the part of the middle bucket that was
+  a win and a loss rather than two draws, which the counters cannot give. A
+  `WL` pair means the same colour won both games: `white_sweeps` and
+  `black_sweeps` count them by colour. Games whose partner is not in the same
+  batch are `unpaired_games`.
+- <a id="how-games-ended"></a>**How games ended**: each finished game falls in
+  one category. Uploaded PGNs give only these, by inference:
+
+  | Key | Rule |
+  |---|---|
+  | `checkmate` | Decisive and the last move ends in `#`. |
+  | `win_adjudication` | Decisive, no mate, and the loser's last `movecount` own scores were all at or below `-score` of the Workload's Win ADJ. setting. |
+  | `unexplained_win` | Any other decisive game: a time loss, an illegal move, a crash or disconnect, or a tablebase adjudication. The Workload's `crashes` and `timelosses` counters say how many of the first three there were. |
+  | `draw_adjudication` | Drawn, the game reached `movenumber` and the last `movecount` scores of both sides were within `score` of zero (Draw ADJ.). |
+  | `draw_by_rule` | Any other draw: repetition, the fifty-move rule, stalemate, insufficient material or a tablebase adjudication. |
+
+  With adjudication set to `None` the two adjudication rows never appear. When
+  a PGN states the reason, it is used as written and may also be `time_loss`,
+  `illegal_move`, `disconnect`, `repetition`, `fifty_moves`, `stalemate` or
+  `insufficient_material`. `inferred_games` says how many were inferred.
+- **Game length**: plies played from the opening position (book moves in the
+  PGN count, moves before a `FEN` do not). Mean, quartiles (linear
+  interpolation between ranks) and the longest game, for all, decisive and
+  drawn games, and a histogram in 20-ply bins. Lengths are exact up to 600
+  plies; longer games count as 600.
+- **Openings**: the key is the first four fields of the `FEN` header, or the
+  book moves when there is no `FEN`. Three lists of at most ten openings:
+  `lopsided` ranks by `|2 × dev_score − 1| × pairs` (dev's net pairs won or
+  lost there), `colour_bound` by the number of `WL` pairs, `drawn` lists
+  openings whose pairs were all `DD` over at least two pairs, most pairs
+  first. `always_drawn` counts every such opening. At most 8,192 openings are
+  tracked per Workload; pairs from further ones still count everywhere else
+  and are reported as `untracked_opening_pairs`.
+- **Evaluations** (`evals`, `null` when no game carries a score):
+  - `book`: the first reported score of each game seen from White, clamped to
+    ±10 pawns, in centipawns: `mean_white_cp` is the book's bias and
+    `mean_abs_cp` how unbalanced its positions are.
+  - `advantage`: for dev and base at +1.00, +3.00 and +5.00, the games in
+    which that engine's own score reached the threshold at least once
+    (`reached`), how they ended for it, and `not_won_share`, the share it
+    failed to win. A mate score passes every threshold.
+  - `phases`: plies 1 to 40, 41 to 80 and 81 onwards, counted from the opening
+    position. Per engine: `mean_depth` over moves with a depth, and for
+    `VERBOSE` uploads `nps` (nodes over the reported move times) and
+    `mean_time_ms`. Times are as reported, not divided by `ScaleFactor`.
+    `has_timing` is false for `COMPACT` archives.
+
+### Storage and cost
+
+`GameAnalysis` holds one row per Workload: the aggregate as JSON (`state`),
+its schema `version`, `games`, the number of archive `members` read, the byte
+offset reached (`analysed_bytes`), and whether the last pass reached the end
+of the archive (`complete`). The aggregate is nothing but counters keyed by
+name, so two passes over two halves of an archive give the same state as one
+pass over the whole. Its size does not depend on the number of games: ply
+counts are capped at 600 distinct values and openings at 8,192 rows (about
+0.6 MB of JSON at the cap, 5 kB without the opening table).
+
+The archive is append-only, so the offset of the first unread tar header is a
+complete cursor. A pass opens the archive there, reads whole members, and
+stops when the archive ends or its `Budget` runs out (checked between
+members, so a pass always makes progress):
+
+| Caller | Budget |
+|---|---|
+| PGN watcher, after it appends a Workload's batches (`refresh_after_archiving`) | 4 MiB of compressed batches, 20,000 games or 2 s |
+| `/api/workload/<id>/games/`, when the watcher has not caught up | 2 MiB, 10,000 games or 1 s |
+
+A pass that finds nothing new costs one `stat`, one read of a tar header and
+one query, and writes nothing. The write is conditional on the row still
+being at the offset the pass started from, so two concurrent passes cannot
+count a batch twice; the loser discards its work. A row from an older
+`version`, or an offset beyond the end of a replaced archive, restarts from
+the first byte. The watcher calls the analysis after it has flagged the PGN
+rows and deleted the batch files, inside a guard that logs any exception: a
+failing analysis never stops archiving.
+
+Limits, each reported under `limits` and named in the page's "Partial" line:
+
+- `complete` is false while a budget stopped a pass before the end; the page
+  then asks again every 4 s, and each request advances by one budget.
+- A member that is not valid bzip2, is truncated, or expands beyond 64 MiB is
+  a `damaged_members` entry; the games read before the damage are kept.
+- A member still being appended, or bytes after the cursor that are not a tar
+  header, end the pass without moving the cursor, so it is retried.
+- Throughput is a few hundred to a few thousand games per second per core in
+  pure Python; an archive that predates this feature is caught up over
+  successive watcher passes and page views rather than in one request.
+
+### `GET|POST /api/workload/<id>/games/`
+
+Same authentication and errors as the other workload endpoints (`401`
+without a view permission, `404` for an unknown id).
+
+```json
+{
+  "games": {
+    "status": "ready",
+    "upload_pgns": "VERBOSE",
+    "active": true,
+    "report": {
+      "updated_at": "2026-10-01T05:37:20.114000+00:00",
+      "games": 240,
+      "limits": {
+        "complete": true, "analysed_bytes": 223232, "archive_bytes": 235520, "members": 5,
+        "damaged_members": 0, "malformed_games": 0, "unfinished_games": 0,
+        "unpaired_games": 0, "untracked_opening_pairs": 0
+      },
+      "colour": {
+        "dev_as_white": { "wins": 34, "draws": 70, "losses": 16, "score": 0.575 },
+        "dev_as_black": { "wins": 19, "draws": 70, "losses": 31, "score": 0.45 },
+        "white": { "wins": 65, "draws": 140, "losses": 35, "score": 0.5625 }
+      },
+      "pairs": {
+        "total": 120, "ww": 7, "wd": 21, "wl": 18, "dd": 49, "dl": 21, "ll": 4,
+        "pentanomial": [4, 21, 67, 21, 7], "middle_wl_share": 0.2687,
+        "white_sweeps": 14, "black_sweeps": 4
+      },
+      "terminations": {
+        "inferred_games": 240,
+        "rows": [ { "key": "draw_adjudication", "label": "Draw adjudication", "games": 78, "share": 0.325 } ]
+      },
+      "lengths": {
+        "all": { "games": 240, "mean": 135.2, "q1": 108.0, "median": 127.0, "q3": 163.0, "longest": 355 },
+        "decisive": { "games": 100, "mean": 120.5, "q1": 97.0, "median": 120.0, "q3": 144.0, "longest": 219 },
+        "drawn": { "games": 140, "mean": 145.8, "q1": 111.0, "median": 134.0, "q3": 173.0, "longest": 355 },
+        "bin_plies": 20,
+        "histogram": [ { "first_ply": 1, "last_ply": 20, "decisive": 0, "drawn": 0 } ]
+      },
+      "openings": {
+        "tracked": 16, "always_drawn": 1,
+        "lopsided": [ {
+          "opening": "rnbqkb1r/ppp2ppp/4pn2/3p4/2PP4/2N5/PP2PPPP/R1BQKBNR w KQkq -",
+          "pairs": 15, "ww": 0, "wd": 4, "wl": 0, "dd": 11, "dl": 0, "ll": 0,
+          "white_sweeps": 0, "black_sweeps": 0, "dev_score": 0.567
+        } ],
+        "colour_bound": [],
+        "drawn": []
+      },
+      "evals": {
+        "games": 240,
+        "book": { "games": 240, "mean_white_cp": 26.1, "mean_abs_cp": 35.2 },
+        "advantage": [ {
+          "side": "dev", "threshold_cp": 100, "reached": 66, "won": 52, "drawn": 11, "lost": 3,
+          "not_won_share": 0.212
+        } ],
+        "phases": [ {
+          "key": "early", "label": "Plies 1 to 40",
+          "dev": { "moves": 2400, "mean_depth": 17.7, "timed_moves": 2400, "nps": 1213000.0, "mean_time_ms": 312.0 },
+          "base": { "moves": 2400, "mean_depth": 17.7, "timed_moves": 2400, "nps": 1182000.0, "mean_time_ms": 313.0 }
+        } ],
+        "has_timing": true
+      }
+    }
+  }
+}
+```
+
+(Lists trimmed to their first entry. `openings` rows have the same fields in
+all three lists; `advantage` has six rows, `phases` three.)
+
+- `status`: `disabled` when the Workload has `upload_pgns` `FALSE` (no file
+  or analysis is looked at), `empty` when no batch has been archived yet,
+  `ready` otherwise. `report` is `null` unless `ready`.
+- `active`: the Workload is not finished, so more batches may arrive; the
+  page then asks again every minute.
+- A ratio is `null` when its denominator is zero.
+
+Cost: 4 queries when disabled, 5 when the analysis is up to date (the
+Workload, then the `GameAnalysis` row), plus one conditional update when the
+request had to analyse.
+
+### On the page
+
+`OpenBench/static/games.js`, loaded only when the Workload uploads PGNs,
+fills a `data-games-insights` container at the end of the Insights section
+and leaves it hidden until a report with games arrives:
+
+- Tiles: games analysed (pairs and batches), White score with dev's score per
+  colour, split pairs (`middle_wl_share`), median length, and book balance
+  when games carry scores. A "Partial" line lists whatever `limits` reports.
+- Tables: results by colour with a win/draw/loss bar and its legend, pair
+  outcomes with the pentanomial bucket each belongs to, and how games ended,
+  with a note when endings are inferred.
+- A stacked histogram of game length (decisive in `--series-1`, drawn in
+  `--series-2`, with a legend), described by its `aria-label` and by the
+  quartile table beside it, which `aria-details` names.
+- The three opening tables, then unconverted advantages and search by phase
+  when `evals` is present. NPS and time columns appear only with timing.
+
 ## Where it shows
 
 - **Workload page** (`Templates/OpenBench/workload.html`, `OpenBench/static/insights.js`):
@@ -416,6 +697,8 @@ begin a spreadsheet formula: a leading `-` only ever starts a negative number.
   - Contributions: per-CPU and per-machine tables with a share bar, games,
     pairs per hour and Elo (not SPSA).
   - A **Download history (CSV)** link beside the Insights heading.
+  - A Games group when the Workload uploads PGNs, or one line saying how to
+    get it when a test does not; see [Games](#games).
   - A **Compare with workload** form under the actions: a plain GET form to
     `/compare/` with `a` set to this workload and `b` typed in, so it works
     without JavaScript.
@@ -522,6 +805,14 @@ finished list went from 1.2 to 2.6 ms and 25 rows at offset 2,475 from 2.7 to
 161 ms, about 9 µs a row.
 
 ## Demo data
+
+`seed_demo` also gives one active test (`VERBOSE`) and one finished test
+(`COMPACT`) a PGN archive of 240 games each, written in the match runner's
+format by `OpenBench/games/synthetic.py` and passed through the Client's own
+`pgn_util.compress_pgn_files`, so the archives are in the real upload
+dialect. The moves are placeholders, not legal games; results, scores,
+lengths and endings are drawn per opening so every table has something to
+show.
 
 `seed_demo` gives every seeded Workload with games a 150-point history between
 its start and its finish (or now), with jittered arrival rates and LLRs

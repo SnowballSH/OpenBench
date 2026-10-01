@@ -14,6 +14,7 @@ Documentation for OpenBench is available in the [Wiki](https://github.com/AndyGr
 SnowballSH/OpenBench runs the testing server for the [Avalanche](https://github.com/SnowballSH/Avalanche) chess engine. It keeps upstream's Client and wire protocol unchanged, so any OpenBench Client of the same version works against it, and adds:
 
 - **Insights**: per-workload progress history, time left, rates, Elo with intervals, LOS and per-machine and per-CPU contributions, drawn as charts ([docs/INSIGHTS.md](docs/INSIGHTS.md)); time taken and time left on every listing.
+- **Game insights**: for workloads that upload PGNs, results by colour, true pair outcomes, how games ended, game length, openings and evaluations, analysed incrementally from the archive. See [docs/INSIGHTS.md](docs/INSIGHTS.md#games).
 - **Engine progress** (`/progress/`): the commit lineage of an engine (trunk steps, one pooled Elo measurement per time-control class, candidates that branched off), a chained estimate per class with direct checks, weekly SPRT outcomes and games per day.
 - **Compare** two workloads side by side, **Clone** a workload into a prefilled form, and export a workload's history as CSV.
 - **Fleet pages**: machines online and recently offline, per-machine history, per-user activity; a manager-only storage overview.

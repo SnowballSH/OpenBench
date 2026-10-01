@@ -17,6 +17,7 @@ there first.
 | `/api/workload/<id>/summary/`, `/results/` | 5 |
 | `/api/workload/<id>/insights/` | 6 |
 | `/api/workload/<id>/history.csv` | 5 |
+| `/api/workload/<id>/games/` | 4 without PGN uploads, 5 with an up-to-date analysis; see [INSIGHTS.md](INSIGHTS.md#storage-and-cost) |
 | `/compare/?a=<id>&b=<id>` | 7 |
 | `/api/insights/server/` | 11 |
 | `/machines/`, `/machines/?show=…` | 11 (9 before any snapshot exists in the last 24 hours, and 8 with no listed workload: empty lookups are skipped) |
