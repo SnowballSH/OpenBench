@@ -21,6 +21,7 @@
 import django.urls, OpenBench.converters, OpenBench.views, OpenBench.insights.views, OpenBench.progress.views, OpenBench.storage.views
 import OpenBench.compare.views
 import OpenBench.diagnosis.views
+import OpenBench.digest.views
 import OpenBench.live.views
 import OpenBench.navigation.views
 import OpenBench.games.views
@@ -48,6 +49,9 @@ urlpatterns = [
     # Engine progress over time, for every engine or one
     django.urls.path(r'progress/', OpenBench.progress.views.progress),
     django.urls.path(r'progress/<str:engine>/', OpenBench.progress.views.progress),
+
+    # What happened while the operator was away
+    django.urls.path(r'digest/', OpenBench.digest.views.digest),
 
     # The header's quick jump: an id, a commit, a name or text to its page
     django.urls.path(r'go/', OpenBench.navigation.views.go),
@@ -124,6 +128,7 @@ urlpatterns = [
     django.urls.path(r'api/insights/server/', OpenBench.insights.views.api_server_insights),
     django.urls.path(r'api/storage/', OpenBench.storage.views.api_storage),
     django.urls.path(r'api/progress/', OpenBench.progress.views.api_progress),
+    django.urls.path(r'api/digest/', OpenBench.digest.views.api_digest),
     django.urls.path(r'api/jump/', OpenBench.navigation.views.api_jump),
     django.urls.path(r'api/errors/', OpenBench.triage.views.api_errors),
     django.urls.path(r'api/errors/<id:event_id>/log/', OpenBench.triage.views.api_error_log),

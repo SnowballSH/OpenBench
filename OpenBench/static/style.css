@@ -2452,6 +2452,61 @@ th[aria-sort="descending"] .sort-button::after {
 }
 
 /* ==========================================================================
+   Pages: activity digest
+   ========================================================================== */
+
+.digest-headline p {
+    margin: 0;
+    font-size: var(--text-lg);
+    line-height: var(--leading);
+}
+
+.digest-headline p + p {
+    margin-top: var(--space-1);
+    color: var(--text-muted);
+    font-size: var(--text-md);
+}
+
+.digest-table :is(td, th) {
+    vertical-align: top;
+}
+
+.digest-workload {
+    min-width: 14rem;
+    max-width: 26rem;
+    white-space: normal;
+}
+
+@media (max-width: 767px) {
+    .digest-workload {
+        min-width: 11rem;
+    }
+}
+
+.digest-state {
+    max-width: 16rem;
+    white-space: normal;
+}
+
+.digest-llr {
+    min-width: 5rem;
+}
+
+.digest-chart {
+    padding: 0;
+}
+
+.digest-note {
+    margin: var(--space-3) 0 0;
+}
+
+.digest-series-stc { background-color: var(--series-1); }
+.digest-series-ltc { background-color: var(--series-2); }
+.digest-series-vltc { background-color: var(--series-3); }
+.digest-series-smp { background-color: var(--series-4); }
+.digest-series-other { background-color: var(--neutral-edge); }
+
+/* ==========================================================================
    Pages: engine progress
    ========================================================================== */
 
