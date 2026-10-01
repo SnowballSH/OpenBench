@@ -16,7 +16,8 @@ MACHINES_PATH = '/machines/'
 
 
 def normalise(raw: str) -> str:
-    return ' '.join(raw.split())
+    printable = ''.join(character if character.isprintable() else ' ' for character in raw)
+    return ' '.join(printable.split())
 
 
 def is_commit_prefix(text: str) -> bool:

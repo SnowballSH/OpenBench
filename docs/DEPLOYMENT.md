@@ -218,8 +218,8 @@ an idle host would add about 1,440 rows a day that never play a game. Rows
 with Results are history and are never removed (`Result.machine` is
 `PROTECT`); the never-used ones are removed in two ways.
 
-**At registration**, `clientWorkerInfo` deletes, in the same transaction as
-the new row, registrations that are all of:
+**At registration**, `clientWorkerInfo` deletes, right after the new row is
+saved and in its own transaction, registrations that are all of:
 
 - of the same owner as the one registering (not the same machine: an
   ephemeral cloud job is a new host every time and never registers again, so
