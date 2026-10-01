@@ -22,6 +22,11 @@
         deleted: '■ Deleted',
     };
 
+    const STATE_LABELS = { completed: 'Completed', stopped: 'Stopped', deleted: 'Deleted' };
+    const STATE_VARIANTS = {
+        pending: 'warn', active: 'accent', passed: 'pass', failed: 'fail', completed: 'pass', stopped: 'neutral', deleted: 'neutral',
+    };
+
     class FetchError extends Error {
         constructor(message, client) {
             super(message);
@@ -474,6 +479,7 @@
             this.title = document.title;
             this.statblock = container.querySelector('#long-statblock');
             this.outcome = container.querySelector('[data-live-outcome]');
+            this.badge = container.querySelector('[data-live-badge]');
             this.diagnosis = container.querySelector('.diagnosis');
         }
 
@@ -500,6 +506,8 @@
             this.statblock.className = `long-statblock long-statblock-${result.colour}`;
             this.statblock.replaceChildren(...with_breaks(result.statblock));
             this.outcome.textContent = `Result: ${result.outcome}. `;
+            this.badge.className = `badge badge-${STATE_VARIANTS[result.status] ?? 'neutral'}`;
+            set_text(this.badge, STATE_LABELS[result.status] ?? result.outcome);
         }
 
         settle(result, poller) {

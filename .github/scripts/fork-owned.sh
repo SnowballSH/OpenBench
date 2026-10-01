@@ -21,6 +21,7 @@ fork_owned=(
     OpenBench/workload_names.py
     OpenBench/workloads/clone.py
     OpenBench/workloads/confirmation.py
+    OpenBench/workloads/page.py
     OpenBench/workloads/presets.py
     OpenBench/management/commands/prune_machines.py
     OpenBench/management/commands/seed_demo.py

@@ -20,6 +20,7 @@
         no_target: 'no target to reach',
         no_rate: 'no recent throughput',
     };
+    const ESTIMATE_NOTE = 'Assumes the test keeps producing results like it has so far; an order of magnitude, not a promise.';
     const DURATION_STEPS = [60, 300, 600, 900, 1800, 3600, 7200, 10800, 21600, 43200, 86400, 172800, 345600, 604800, 1209600];
 
     const count_format = new Intl.NumberFormat();
@@ -116,14 +117,6 @@
         return tile;
     }
 
-    function tile_group(heading, tiles) {
-        const group = element('div', 'insights-group');
-        const grid = element('div', 'stat-tiles');
-        grid.append(...tiles);
-        group.append(element('h3', 'insights-group-title', heading), grid);
-        return group;
-    }
-
     async function fetch_json(url) {
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
@@ -163,20 +156,6 @@
         return stat_tile({ label: 'Elapsed', value: format_duration(timing.elapsed_seconds), meta });
     }
 
-    function games_tile(progress) {
-        if (!is_number(progress.target_games) || progress.target_games <= 0)
-            return stat_tile({ label: 'Games', value: format_count(progress.games), meta: `${format_count(progress.pairs)} pairs` });
-
-        const fraction = progress.fraction ?? 0;
-        const label = `${format_count(progress.games)} of ${format_count(progress.target_games)} games`;
-        return stat_tile({
-            label: 'Games',
-            value: format_count(progress.games),
-            meta: `of ${format_count(progress.target_games)} · ${format_percent(fraction, 0)}`,
-            gauge: meter(fraction, 'fill', label),
-        });
-    }
-
     function rate_tile(timing) {
         const recent = timing.recent;
         const overall = timing.overall;
@@ -212,28 +191,86 @@
 
         return stat_tile({
             label: estimate || (insights.workload.mode === 'SPRT' && eta.kind !== 'finished') ? 'Time left (estimate)' : 'Time left',
-            title: estimate ? 'Assumes the test keeps producing results like it has so far; an order of magnitude, not a promise.' : undefined,
+            title: estimate ? ESTIMATE_NOTE : undefined,
             value,
             meta: eta_meta(insights),
         });
     }
 
-    function llr_tile(progress) {
+    function llr_meter(progress) {
         const span = progress.llr_upper - progress.llr_lower;
-        const fraction = span > 0 ? (progress.llr - progress.llr_lower) / span : 0.5;
+        if (!is_number(progress.llr) || !(span > 0)) return null;
         const label = `LLR ${format_fixed(progress.llr)} between ${format_fixed(progress.llr_lower)} and ${format_fixed(progress.llr_upper)}`;
-        return stat_tile({
-            label: 'LLR',
-            value: format_fixed(progress.llr),
-            meta: `bounds ${format_fixed(progress.llr_lower)} to ${format_fixed(progress.llr_upper)}`,
-            gauge: meter(fraction, 'position', label),
-        });
+        return meter((progress.llr - progress.llr_lower) / span, 'position', label);
     }
 
-    function strength_tiles(strength, progress) {
-        const [losses, draws, wins] = progress.trinomial;
+    function games_meter(progress) {
+        if (!is_number(progress.fraction)) return null;
+        const label = `${format_count(progress.games)} of ${format_count(progress.target_games)} games`;
+        return meter(progress.fraction, 'fill', label);
+    }
+
+    function summary_meter(insights) {
+        if (insights.workload.status !== 'active') return null;
+        return llr_meter(insights.progress) ?? games_meter(insights.progress);
+    }
+
+    function time_left_part(eta) {
+        if (is_number(eta.remaining_seconds)) {
+            const estimate = eta.kind === 'sprt_estimate';
+            const part = element('span', 'row-timing-left', `${estimate ? '≈ ' : ''}${format_duration(eta.remaining_seconds)} left`);
+            if (estimate) part.title = ESTIMATE_NOTE;
+            return part;
+        }
+        if (eta.reason && eta.reason !== 'no_target')
+            return element('span', 'row-timing-unavailable', ETA_REASONS[eta.reason] ?? 'not available');
+        return null;
+    }
+
+    function rate_part(timing) {
+        const rate = timing && (timing.recent ?? timing.overall);
+        if (!rate || !(rate.games_per_hour > 0)) return null;
+        const part = element('span', null, `${format_rate(rate.games_per_hour)} games/h`);
+        part.title = `Games per hour, ${timing.recent ? `last ${format_duration(rate.window_seconds)}` : 'overall'}`;
+        return part;
+    }
+
+    function summary_timing(insights) {
+        const parts = [time_left_part(insights.eta), rate_part(insights.timing)].filter(Boolean);
+        if (!parts.length) return null;
+        const line = element('div', 'row-timing');
+        line.append(...parts.flatMap((part, index) => (index ? [' · ', part] : [part])));
+        return line;
+    }
+
+    function render_summary(view, insights) {
+        const active = insights.workload.status === 'active';
+        const meter_node = summary_meter(insights);
+        view.meter.replaceChildren(...(meter_node ? [meter_node] : []));
+        if (!active) {
+            if (view.timing.querySelector('.row-timing-left, .row-timing-unavailable')) view.timing.replaceChildren();
+            return;
+        }
+        const timing = summary_timing(insights);
+        view.timing.replaceChildren(...(timing ? [timing] : []));
+    }
+
+    function render_verdict(view, insights) {
+        const results = insights.progress.games > 0 ? insights.results : null;
+        view.verdict.hidden = !results;
+        if (results) {
+            view.verdict.className = `insights-verdict insights-verdict-${results.verdict.tone}`;
+            view.verdict.textContent = results.verdict.text;
+        }
+
+        const open = view.forecast.querySelector('details')?.open ?? false;
+        const note = results && results.outlook ? outlook_note(results.outlook) : null;
+        if (note) note.open = open;
+        view.forecast.replaceChildren(...(note ? [note] : []));
+    }
+
+    function strength_tiles(strength) {
         return [
-            stat_tile({ label: 'Elo', value: format_interval(strength.elo), meta: format_bounds(strength.elo) }),
             stat_tile({
                 label: 'Normalized Elo', value: format_interval(strength.normalized_elo), meta: format_bounds(strength.normalized_elo),
                 title: 'Elo scaled by the per-pair spread; the scale the pentanomial SPRT uses.',
@@ -242,24 +279,19 @@
                 label: 'LOS', value: format_percent(strength.los), meta: 'chance dev is stronger',
                 title: 'Likelihood of superiority',
             }),
-            stat_tile({
-                label: 'Draw ratio', value: format_percent(strength.draw_ratio),
-                meta: `W ${format_compact(wins)} · D ${format_compact(draws)} · L ${format_compact(losses)}`,
-            }),
+            stat_tile({ label: 'Draw ratio', value: format_percent(strength.draw_ratio), meta: 'of all games' }),
         ];
     }
 
     function render_tiles(container, insights) {
-        const { progress, timing, strength, workload } = insights;
-        const groups = [tile_group('Progress', [elapsed_tile(timing), games_tile(progress), rate_tile(timing), eta_tile(insights)])];
+        const { timing } = insights;
+        container.replaceChildren(...(timing ? [elapsed_tile(timing), rate_tile(timing), eta_tile(insights)] : []));
+    }
 
-        if (strength && progress.games > 0) {
-            const tiles = strength_tiles(strength, progress);
-            if (workload.mode === 'SPRT' && is_number(progress.llr)) tiles.unshift(llr_tile(progress));
-            groups.push(tile_group('Strength', tiles));
-        }
-
-        container.replaceChildren(...groups);
+    function show_section(id, shown) {
+        document.querySelectorAll(`[data-section="${id}"], [data-section-link="${id}"]`).forEach(node => {
+            node.hidden = !shown;
+        });
     }
 
     function share_cell(share) {
@@ -319,28 +351,6 @@
         return wrap;
     }
 
-    function render_contributions(container, insights) {
-        const { cpus, machines } = insights.contributions;
-        const with_elo = insights.strength !== null;
-        const card = element('div', 'insights-contributions');
-        const header = element('div', 'card-header');
-        header.append(element('h3', 'card-title', 'Contributions'),
-            element('span', 'muted insights-note', 'Pairs per hour average over the whole elapsed time'));
-        card.append(header);
-
-        if (!machines.length) {
-            card.append(element('p', 'insights-empty', 'No results have been reported yet.'));
-        } else {
-            const grid = element('div', 'contribution-grid');
-            grid.append(
-                contribution_table('By CPU', 'CPU', cpus, cpu_label, with_elo),
-                contribution_table('By machine', 'Machine', machines, machine_label, with_elo),
-            );
-            card.append(grid);
-        }
-        container.replaceChildren(card);
-    }
-
     const PENTA_OUTCOMES = [
         { label: 'LL', detail: 'lost both', tone: 'loss' },
         { label: 'LD', detail: 'loss and draw', tone: 'loss-soft' },
@@ -376,21 +386,6 @@
 
     function badge(text, variant) {
         return element('span', `badge badge-${variant}`, text);
-    }
-
-    function outlook_tiles(outlook) {
-        if (!outlook) return [];
-        const games = outlook.remaining_games;
-        const chance = format_probability(outlook.pass_probability);
-        const range = `${format_percent(outlook.interval, 0)} range ${format_compact(games.lower)} to ${format_compact(games.upper)}`;
-        return [
-            stat_tile({
-                label: 'Chance to pass (forecast)', value: chance,
-                meta: `prior 0 ± ${format_fixed(outlook.prior.sd_elo, 1)} nElo · not a promise`,
-                gauge: meter(outlook.pass_probability, 'fill', `Forecast chance to pass ${chance}`),
-            }),
-            stat_tile({ label: 'Games to decide (forecast)', value: `≈ ${format_compact(games.median)}`, meta: range }),
-        ];
     }
 
     function outlook_note(outlook) {
@@ -438,8 +433,8 @@
         });
     }
 
-    function result_tiles(results) {
-        const tiles = outlook_tiles(results.outlook);
+    function result_tiles(results, strength) {
+        const tiles = strength_tiles(strength);
         if (results.outcomes.pair_variance) tiles.push(variance_tile(results.outcomes.pair_variance));
         if (is_number(results.outcomes.games_per_decisive)) tiles.push(decisive_tile(results.outcomes));
         if (results.speed) tiles.push(speed_tile(results.speed));
@@ -537,33 +532,39 @@
         return cell;
     }
 
-    function group_cells(stats, reading) {
+    function consistency_cells(stats, reading) {
         return [
-            numeric_cell(format_count(stats.games)), numeric_cell(format_interval(stats.elo)),
+            numeric_cell(format_interval(stats.elo)),
             deviation_cell(stats.deviation), fault_cell(stats.crashes, stats.crash_rate, stats.crash_flagged),
             fault_cell(stats.timelosses, stats.timeloss_rate, stats.timeloss_flagged), speed_cell(stats, reading),
         ];
     }
 
-    function group_table(caption, first_header, rows) {
-        const { wrap, body } = table_shell(caption,
-            [first_header, 'Games', 'Elo', 'Against the rest', 'Crashes', 'Time losses', 'Dev speed'], 1);
-        rows.forEach(({ label, stats, reading }) => {
+    const CONSISTENCY_HEADERS = ['Elo', 'Against the rest', 'Crashes', 'Time losses', 'Dev speed'];
+
+    function cpu_table(results, contributions) {
+        const readings = new Map((results.speed ? results.speed.cpus : []).map(cpu => [cpu.cpu_name, cpu.reading]));
+        const shares = new Map(contributions.map(cpu => [cpu.cpu_name, cpu.stats]));
+        const { wrap, body } = table_shell('By CPU', ['CPU', 'Share', 'Games', 'Pairs / h', ...CONSISTENCY_HEADERS], 2);
+        results.consistency.cpus.forEach(cpu => {
+            const share = shares.get(cpu.cpu_name);
             const tr = element('tr');
-            tr.append(label, ...group_cells(stats, reading));
+            tr.append(cpu_group_label(cpu), share_cell(share ? share.share : null),
+                numeric_cell(format_count(cpu.stats.games)), numeric_cell(share ? format_rate(share.pairs_per_hour) : DASH),
+                ...consistency_cells(cpu.stats, readings.get(cpu.cpu_name)));
             body.append(tr);
         });
         return wrap;
     }
 
-    function cpu_table(results) {
-        const readings = new Map((results.speed ? results.speed.cpus : []).map(cpu => [cpu.cpu_name, cpu.reading]));
-        return group_table('Consistency by CPU', 'CPU', results.consistency.cpus.map(cpu => (
-            { label: cpu_group_label(cpu), stats: cpu.stats, reading: readings.get(cpu.cpu_name) })));
-    }
-
     function flagged_host_table(hosts) {
-        return group_table('Hosts that stand out', 'Host', hosts.map(host => ({ label: host_label(host), stats: host.stats })));
+        const { wrap, body } = table_shell('Hosts that stand out', ['Host', 'Games', ...CONSISTENCY_HEADERS], 1);
+        hosts.forEach(host => {
+            const tr = element('tr');
+            tr.append(host_label(host), numeric_cell(format_count(host.stats.games)), ...consistency_cells(host.stats));
+            body.append(tr);
+        });
+        return wrap;
     }
 
     function heterogeneity_note(consistency) {
@@ -590,50 +591,43 @@
     function games_pointer() {
         const note = element('p', 'insights-note');
         const link = element('a', null, 'Games');
-        link.href = '#games-insights';
+        link.href = '#games';
         note.append('Pair outcomes, with the level bucket split into two draws and a win with a loss, are under ', link, '.');
         return note;
     }
 
-    function results_tables(results, insights) {
+    function render_results(container, insights) {
+        const { results, strength } = insights;
+        if (!results || !strength || !insights.progress.games) return container.replaceChildren();
+
+        const tiles = element('div', 'stat-tiles');
+        tiles.append(...result_tiles(results, strength));
+        if (games_shown()) return container.replaceChildren(tiles, games_pointer());
+
         const grid = element('div', 'results-grid');
-        const outcomes = games_shown() ? null : outcome_table(results, insights);
+        const outcomes = outcome_table(results, insights);
         if (outcomes) grid.append(outcomes);
-        if (results.consistency.cpus.length) {
-            const cpus = cpu_table(results);
-            if (!outcomes) cpus.classList.add('results-wide');
-            grid.append(cpus);
-        }
-        if (results.consistency.hosts.flagged.length) {
-            const hosts = flagged_host_table(results.consistency.hosts.flagged);
-            hosts.classList.add('results-wide');
-            grid.append(hosts);
-        }
-        return grid;
+        container.replaceChildren(tiles, grid);
     }
 
-    function render_results(container, insights) {
+    function workers_note(results) {
+        if (!results || !results.consistency.cpus.length) return '';
+        return `${heterogeneity_note(results.consistency)} · ${host_note(results.consistency.hosts)}`;
+    }
+
+    function render_workers(container, note, insights) {
+        const { cpus, machines } = insights.contributions;
         const { results } = insights;
-        if (!results) return container.replaceChildren();
+        const with_elo = insights.strength !== null;
+        note.textContent = workers_note(results);
+        if (!machines.length) return container.replaceChildren();
 
-        const { consistency } = results;
-        const group = element('div', 'insights-group insights-results');
-        const header = element('div', 'card-header');
-        header.append(element('h3', 'insights-group-title', 'Results'));
-        if (consistency.cpus.length)
-            header.append(element('span', 'muted insights-note', `${heterogeneity_note(consistency)} · ${host_note(consistency.hosts)}`));
-        group.append(header, element('p', `insights-verdict insights-verdict-${results.verdict.tone}`, results.verdict.text));
-
-        const tiles = result_tiles(results);
-        if (tiles.length) {
-            const grid = element('div', 'stat-tiles');
-            grid.append(...tiles);
-            group.append(grid);
-        }
-        if (results.outlook) group.append(outlook_note(results.outlook));
-        if (games_shown()) group.append(games_pointer());
-        group.append(results_tables(results, insights));
-        container.replaceChildren(group);
+        const tables = [results && results.consistency.cpus.length
+            ? cpu_table(results, cpus)
+            : contribution_table('By CPU', 'CPU', cpus, cpu_label, with_elo)];
+        if (results && results.consistency.hosts.flagged.length) tables.push(flagged_host_table(results.consistency.hosts.flagged));
+        tables.push(contribution_table('By machine', 'Machine', machines, machine_label, with_elo));
+        container.replaceChildren(...tables, element('p', 'insights-note', 'Pairs per hour average over the whole elapsed time.'));
     }
 
     function css_palette() {
@@ -1005,6 +999,14 @@
             this.announcer = section.querySelector('[data-insights-announcer]');
             this.announced_status = null;
             this.error = section.querySelector('[data-insights-error]');
+            this.evidence = section.querySelector('[data-insights-evidence]');
+            this.summary = {
+                verdict: section.querySelector('[data-insights-verdict]'),
+                forecast: section.querySelector('[data-insights-forecast]'),
+                meter: section.querySelector('[data-summary-meter]'),
+                timing: section.querySelector('[data-summary-timing]'),
+            };
+            this.workers_note = section.querySelector('[data-insights-workers-note]');
             this.tiles = section.querySelector('[data-insights-tiles]');
             this.charts = section.querySelector('[data-insights-charts]');
             this.results = section.querySelector('[data-insights-results]');
@@ -1029,7 +1031,8 @@
             const section = games_section();
             if (!section) return;
             new MutationObserver(() => {
-                if (this.latest) render_results(this.results, this.latest);
+                show_section('games', games_shown());
+                if (this.latest && this.results) render_results(this.results, this.latest);
             }).observe(section, { attributes: true, attributeFilter: ['hidden'] });
         }
 
@@ -1050,7 +1053,7 @@
         }
 
         async refresh() {
-            this.section.setAttribute('aria-busy', 'true');
+            this.evidence.setAttribute('aria-busy', 'true');
             try {
                 const data = await fetch_json(this.url);
                 this.latest = data.insights;
@@ -1062,7 +1065,7 @@
                 this.client_failures = err instanceof FetchError && err.client ? this.client_failures + 1 : 0;
                 this.show_error(err);
             } finally {
-                this.section.removeAttribute('aria-busy');
+                this.evidence.removeAttribute('aria-busy');
                 this.schedule();
             }
         }
@@ -1083,10 +1086,16 @@
         }
 
         render() {
+            const played = this.latest.progress.games > 0;
+            show_section('results', played && Boolean(this.latest.results));
+            show_section('progress', played && Boolean(this.latest.timing));
+            show_section('workers', this.latest.contributions.machines.length > 0);
+            render_summary(this.summary, this.latest);
+            render_verdict(this.summary, this.latest);
             render_tiles(this.tiles, this.latest);
-            render_results(this.results, this.latest);
+            if (this.results) render_results(this.results, this.latest);
             this.render_history();
-            render_contributions(this.contributions, this.latest);
+            render_workers(this.contributions, this.workers_note, this.latest);
 
             const refreshing = this.polled ? ' · refreshes every minute' : '';
             this.status.textContent = `Updated ${time_format.format(new Date())}${refreshing}`;

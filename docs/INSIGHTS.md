@@ -1040,8 +1040,9 @@ request had to analyse.
 ### On the page
 
 `OpenBench/static/games.js`, loaded only when the Workload uploads PGNs,
-fills a `data-games-insights` container at the end of the Insights section
-and leaves it hidden until a report with games arrives:
+fills the `data-games-insights` container of the page's Games section and
+leaves it hidden until a report with games arrives; `insights.js` shows the
+section and its nav entry with it:
 
 - Tiles: games analysed (pairs and batches), White score with dev's score per
   colour, split pairs (`middle_wl_share`), median length, and book balance
@@ -1058,10 +1059,8 @@ and leaves it hidden until a report with games arrives:
 ## Where it shows
 
 - **Workload page** (`Templates/OpenBench/workload.html`, `OpenBench/static/insights.js`):
-  an Insights section below the configuration and actions and above the
-  SPSA parameters, result summary and individual results. The configuration and
-  stat block say what the workload is and where it stands; the insights explain
-  how it got there; the raw tables stay last. The script fetches
+  the layout, the order of the sections and which number lives where are in
+  [UI.md](UI.md#workload-page). The script fetches
   `/api/workload/<id>/insights/` once on load, then every 60 s while the
   Workload is `pending` or `active` (so a pending one picks up its approval),
   skipping ticks while the tab is hidden and refreshing as soon as it is
@@ -1069,44 +1068,46 @@ and leaves it hidden until a report with games arrives:
   render and retries with the delay doubling up to 8 minutes; after three
   consecutive client errors (a 4xx, or an `error` payload such as an unknown
   id) it stops. `eta.reason` picks the wording under an unavailable time left.
-  - Progress tiles: elapsed, games (with the fraction of `target_games` when
-    there is one), games per hour (recent window and overall), and time left.
-    For SPRT the time left is labelled an estimate and prefixed with `≈`;
-    `completes_at` is shown in local time.
-  - Strength tiles, when `strength` is not null and games were played: LLR
-    position between the bounds (SPRT), Elo and normalized Elo with their 95%
-    intervals, LOS, draw ratio.
-  - Charts from `history.points`: LLR against games with both bounds (SPRT),
-    Elo with its 95% band against games (not SPSA), and cumulative games
-    against elapsed time with the target line where there is one. Fewer than
-    two points show a single notice instead.
-  - Results, between the tiles and the charts, when `results` is not null:
-    the verdict line with its tone on the left edge; tiles for the forecast
-    chance to pass (with a meter) and games to decide (both labelled
-    "forecast", stating the prior, and absent when `outlook` is null), pair
+  - Summary, rendered by the server and refreshed from the payload: the
+    verdict line with its tone on the left edge (hidden until a game was
+    played); an "About the forecast" disclosure under it while `outlook` is
+    not null, holding the caveat in plain text, so it does not depend on
+    hovering; for an active Workload a meter (LLR position between the
+    bounds, or the fraction of `target_games`) and one line with the time
+    left (prefixed with `≈` for an SPRT) and games per hour, worded as on the
+    index row.
+  - Results (`#results`), when `results` is not null and games were played:
+    tiles for normalized Elo with its 95% interval, LOS, draw ratio, pair
     variance against independent games with what one pair is worth in
     independent pairs, decisive games, and dev search speed with whether it is
-    beyond noise; an "About the forecast" disclosure under the tiles holding
-    the caveat in plain text, so it does not depend on hovering; a pair
-    outcome table whose share column carries a bar per bucket, coloured from
-    loss through level to win (game outcomes for a trinomial Workload); a
-    "Consistency by CPU" table with Elo, the z-score against the rest with its adjusted
-    p-value printed under it, crashes, time losses and dev speed with its
-    noise verdict, flags as labelled badges; and a "Hosts that stand out"
-    table that appears only when a host is flagged. The header note states the
-    heterogeneity test's result and how many hosts were flagged.
+    beyond noise; and a pair outcome table whose share column carries a bar
+    per bucket, coloured from loss through level to win (game outcomes for a
+    trinomial Workload).
     When the [Games](#games) section is showing (the Workload uploads PGNs and
     a report has arrived), the pair outcome table is left out and a line links
     to Games instead: its pair table is the same distribution with the level
     bucket split into `DD` and `WL`, and two tables of pair outcomes on one
     page, one over every pair and one over the archived pairs, would read as
     a contradiction. The tiles keep using the Workload's own counters.
-  - Contributions: per-CPU and per-machine tables with a share bar, games,
-    pairs per hour and Elo (not SPSA).
-  - A **Download history (CSV)** link beside the Insights heading.
-  - A Games group when the Workload uploads PGNs, or one line saying how to
-    get it when a test does not; see [Games](#games).
-  - A **Compare with workload** form under the actions: a plain GET form to
+  - Progress over time (`#progress`): tiles for elapsed, games per hour
+    (recent window and overall) and time left with `completes_at` in local
+    time; charts from `history.points`: LLR against games with both bounds
+    (SPRT), Elo with its 95% band against games (not SPSA), and cumulative
+    games against elapsed time with the target line where there is one. Fewer
+    than two points show a single notice instead. A **Download history (CSV)**
+    link sits beside the heading.
+  - Workers (`#workers`): a "By CPU" table joining `contributions.cpus` to
+    `results.consistency.cpus` by CPU name (share bar, games, pairs per hour,
+    Elo, the z-score against the rest with its adjusted p-value printed under
+    it, crashes, time losses and dev speed with its noise verdict, flags as
+    labelled badges); a "Hosts that stand out" table that appears only when a
+    host is flagged; and a "By machine" table with a share bar, games, pairs
+    per hour and Elo. The header note states the heterogeneity test's result
+    and how many hosts were flagged. A tune has no `results`, so its "By CPU"
+    table carries the contribution columns only.
+  - Games (`#games`) when the Workload uploads PGNs, or one line under
+    Results saying how to get it when a test does not; see [Games](#games).
+  - A **Compare with workload** form among the actions: a plain GET form to
     `/compare/` with `a` set to this workload and `b` typed in, so it works
     without JavaScript.
 - **Index** (`Templates/OpenBench/index.html`): a strip of server tiles from
@@ -1241,7 +1242,7 @@ left is forgotten after a quarter of an hour.
 
 ### Where it shows, and what it costs
 
-- **Workload page**: a banner above the configuration for every workload that
+- **Workload page**: a banner at the top of the summary for every workload that
   is not finished, and for one stopped by a worker error
   (`Blocks/diagnosis.html`): quiet with collapsed evidence for
   `ok` and `info`, amber with the evidence open for `warning`.
@@ -1383,7 +1384,8 @@ A log is worker input, so it is treated as hostile
 ### Where else it shows
 
 - The workload page carries a "Worker errors (N)" link to
-  `/errors/?workload=<id>` under the diagnosis banner when N is not zero.
+  `/errors/?workload=<id>` in an Errors section, with "Errors (N)" in its
+  section nav, when N is not zero.
 - `/api/errors/` returns the groups as JSON
   ([API.md](API.md#getpost-apierrorsworkloadkindunresolvedlimit)), which is
   how a script asks "what is failing".

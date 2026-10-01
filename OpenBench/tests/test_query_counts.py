@@ -57,7 +57,7 @@ PAGE_QUERIES = {
 MACHINE_QUERIES = 11
 
 WORKLOAD_QUERIES = {
-    '/test/{}/': 17,
+    '/test/{}/': 18,
     '/api/workload/{}/summary/': 5,
     '/api/workload/{}/results/': 5,
     '/api/workload/{}/insights/': 12,
