@@ -141,8 +141,8 @@ without relying on fill alone.
   (`.log-line-target`); without it the log, the fold and the raw download
   all still work. `Blocks/event_workload.html` renders a workload as
   `#id title` with the commit pair beneath, as the listings do, for the
-  events, errors and event pages. `.workload-errors` is the workload page's
-  "Worker errors (N)" line.
+  events, errors and event pages. `.workload-errors` is the line of the
+  workload page's Errors section that links to its worker errors.
 - **Digest** (`/digest/`; behaviour in [INSIGHTS.md](INSIGHTS.md#digest)):
   reuses the progress page's frame (`.progress-page`, `.progress-heading`,
   `.progress-section` cards, `.stat-tiles`) and the errors table's cells.
@@ -286,6 +286,128 @@ Zebra striping is switched off while a filter is active, because hidden rows
 would break the alternation. Column widths can still change as rows hide,
 since the table sizes its columns to what is visible.
 
+## Workload page
+
+`Templates/OpenBench/workload.html` answers an operator's questions in the
+order they are asked. `OpenBench/workloads/page.py` builds everything the
+server renders above the fold (`WorkloadPage`: header, summary, section list)
+from the `Test` row and one query.
+
+### Before
+
+The page had grown one feature at a time: a diagnosis banner and an errors
+link, then the settings table (thirty rows, first on the page) beside a column
+holding the diff link, eleven buttons in six rows, the live indicator, the
+stat block and the modify form; then an Insights section (progress tiles,
+strength tiles, a Results group with the verdict, charts, contributions,
+games); then three raw tables. The answer to "did it pass, and by how much"
+was the stat block in the right-hand column and a verdict line 900 pixels
+down, drawn only after a fetch. The title was hidden. Elo was printed in the
+stat block, an Elo tile, the verdict, the chart and three per-CPU tables; LLR
+in the stat block, a tile and a chart; the forecast in the verdict and in two
+tiles; games per CPU in "Consistency by CPU", "Contributions by CPU" and the
+raw summary.
+
+### After
+
+1. **What is this, and what is the answer?** A visible `<h1>` (`#id` and the
+   label the listings use: the subject of a commit-pinned test, else the dev
+   branch) with a state badge, and one meta line: the commit pair as the diff
+   link, engine, time class with the time control, mode (`SPRT [0, 3]`,
+   `Fixed 4,000 games`, `SPSA tune`), author, creation. The rest of the info
+   text follows as plain text, so nobody has to open the edit form to read
+   it. Under it the **summary** (`.workload-summary`): the diagnosis banner
+   when there is one, the verdict of
+   [INSIGHTS.md](INSIGHTS.md#verdict) in one line, a meter (the LLR between
+   its bounds, or games over the target, captioned "LLR" or "Games") with the
+   time left and rate of the index row, and the stat block, which stays the one place for the exact
+   counters and the text that Copy Stat Block copies. All of it is rendered by
+   the server; `insights.js` and `live.js` then keep it current.
+2. **What should I do next?** One Actions card (`#actions`) beside the
+   summary: Approve, Restart or Restore, Confirm at LTC or the link to the
+   existing confirmation, Clone; the compare form; the copy and download
+   tools and the notify toggle; the info, priority and throughput form folded
+   into a `<details>` whose summary states the current priority and
+   throughput; and, apart under a rule and right-aligned, Stop and Delete. A
+   button that cannot apply in the current state (Approve on an approved
+   workload) is not drawn; one the viewer lacks the right for is drawn
+   disabled, as before.
+3. **Why?** The evidence, each an `<h2>` section with an anchor, reached from
+   a section nav (`nav[aria-label="Page sections"]`, styled as
+   `.fleet-filter`) that sticks under the header above 1024px and wraps in
+   place below it:
+   `#results` (strength and pair tiles, pair outcomes), `#progress` (elapsed,
+   rate, time left, the charts, the CSV download), `#workers` (one table per
+   CPU, hosts that stand out, one table per machine), `#games` (uploaded
+   PGNs), `#parameters` (a tune), `#errors` (the link to the worker errors,
+   with the count in the nav entry).
+4. **Reference.** `#configuration` (three captioned tables: Dev, Base, Match,
+   side by side when there is room; SPRT bounds or the game target are rows
+   of Match) and `#raw-results` (the summary by user, CPU and ISA, and the
+   per-machine results fetched on demand).
+
+A section that cannot show anything for this workload is not rendered, and
+has no nav entry: Results for a tune, Games without PGN uploads, Parameters
+for anything but a tune, Errors with no error. Results, Progress and Workers
+need games, by one rule on the server and in the script (`games > 0`):
+before the first one they are rendered `hidden`, with their nav entries, and
+`insights.js` reveals section and entry together (`show_section`) when the
+data arrives, as it does for Games when the first report comes in.
+
+The summary never trails the stat block by more than a moment. `live.js`
+rewrites the stat block every 15 seconds and raises
+`openbench:workload-change` whenever games or status moved; `insights.js`
+refreshes on every such event, coalesced: at once when its last refresh is
+more than 10 seconds old and none is in flight, otherwise one trailing
+refresh when that gap has passed, so the latest change is never dropped and
+a burst costs one request. A running workload without games states why there
+is no time left yet ("needs 200 games first") from the first render; the
+server takes the reason from `estimate_eta` without a query.
+
+The state badge is `result_label`'s text for an SPRT. A fixed-games run, a
+datagen or a tune decides nothing, so a finished one reads "Completed" in the
+neutral style, whatever passed or failed flag its score left. `live.js` draws
+the badge from the `workload-states` data island (`state_table` in
+`page.py`: status to label and variant, a null label meaning the payload's
+own outcome text), so the mapping exists once.
+
+### One place per number
+
+A quantity is stated in the summary and at most once more below it.
+
+| Quantity | Where it is now | What went |
+| --- | --- | --- |
+| Elo with its interval | stat block, verdict; the Elo chart | the Elo tile |
+| LLR and its bounds | stat block, summary meter; the LLR chart | the LLR tile |
+| Games, W/L/D | stat block; the games chart | the Games tile, the W/D/L line of the draw-ratio tile |
+| Chance to pass, games to decide | verdict, with "About the forecast" under it | the two forecast tiles |
+| Time left, games per hour | summary line; Progress tiles (with the date and the window) | |
+| Verdict | summary | the copy inside the Results group |
+| Games, Elo, share per CPU | Workers "By CPU" (share, games, pairs/h, Elo, deviation, crashes, time losses, speed) | "Contributions by CPU" beside "Consistency by CPU": now one table. A tune has no consistency, and keeps the contributions table |
+| Author, creation | header | the two configuration rows |
+
+The raw summary keeps its per-CPU penta and KNPS: it is the reference the
+other tables are derived from.
+
+### Hooks
+
+Scripts find their targets by attribute, inside
+`.workload-container[data-workload-id][data-workload-insights]`:
+`data-insights-{evidence,status,error,announcer,verdict,forecast,tiles,charts,results,contributions,workers-note}`,
+`data-summary-{meter,timing}`, `data-section` and `data-section-link`,
+`data-live-{workload,status,games,badge,outcome,indicator,notify,notify-note}`,
+`data-workload-action`, `data-workload-announcer`, `data-games-insights`,
+`#workload-states`,
+`#long-statblock`, `#summary-container`, `#results-container`.
+`OpenBench/tests/test_workload_page.py` pins them, the section order per
+state, and that every state-changing control sits in `#actions`.
+
+### Cost
+
+The header, verdict, meter and state table read the `Test` row only. The time
+left and rate reuse the index row's annotations (`listing_tests`), one query,
+skipped until a game has been played ([PERFORMANCE.md](PERFORMANCE.md)).
+
 ## Live updates
 
 `OpenBench/static/live.js` keeps the index, a user's page and a workload page
@@ -321,11 +443,13 @@ and `createElement`.
   Until then a row that left the payload is marked `.live-stale`: its stat
   block is dimmed, its hidden result reads "Out of date" and its meta line
   "changed since this page loaded", so it no longer claims to be running.
-- **Workload page**: the stat block, its hidden "Result:" text and the
-  diagnosis banner follow the payload. Each change raises
+- **Workload page**: the stat block, its hidden "Result:" text, the state
+  badge beside the title (`data-live-badge`) and the diagnosis banner follow
+  the payload. Each change raises
   `openbench:workload-change` on `document`; `workload_utils.js` reloads the
-  results summary on it, and `insights.js` refreshes at once when the status
-  moved. The index raises `openbench:listing-change`, on which `insights.js`
+  results summary on it, and `insights.js` refreshes on it, coalesced to one
+  request per 10 seconds, so a busy workload asks for its insights about as
+  often as for its live payload (see [Workload page](#workload-page)). The index raises `openbench:listing-change`, on which `insights.js`
   refreshes the server strip at most once a minute.
 - **When the workload finishes**, the title gains a marker (`✓ Passed · …`,
   `✗ Failed · …`), the indicator offers **Reload** for the buttons that only
@@ -423,7 +547,8 @@ both states, so it still works without JavaScript.
 - The mobile drawer moves focus to its first link and makes the page inert
   while open; Escape or a click on the scrim closes it and returns focus to
   the toggle.
-- The layout breakpoints are 1024px (single-column forms and workload view)
+- The layout breakpoints are 1024px (single-column forms and workload view,
+  where the section nav also stops being sticky)
   and 767px (off-canvas sidebar). Check pages at 375px and in both themes.
 
 ## Accessibility
@@ -438,7 +563,7 @@ for contrast and anything dynamic.
   `<main id="content">`. Keep `id="sidebar"` on its `<div>`.
 - **Titles and headings**: every page sets `{% block title %}Name · OpenBench{% endblock %}`
   and `{% block heading %}Name{% endblock %}`, which becomes a visually hidden
-  `<h1>`. A page with a visible title (progress, machine) overrides
+  `<h1>`. A page with a visible title (progress, machine, workload) overrides
   `{% block page_heading %}{% endblock %}` and renders its own `<h1>`.
   Below it, sections are `<h2>` and their subsections `<h3>`, never skipping a
   level; style headings by class, not by level.

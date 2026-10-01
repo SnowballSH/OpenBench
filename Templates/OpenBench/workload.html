@@ -2,7 +2,7 @@
 
 {% block title %}{{ workload }}{% endblock %}
 
-{% block heading %}{{ workload }}{% endblock %}
+{% block page_heading %}{% endblock %}
 
 {% load mytags %}
 {% load static %}
@@ -23,116 +23,83 @@
 
 {% block content %}
 
-    <div class="workload-container" data-workload-id="{{workload.id}}"{% if not workload.finished and not workload.deleted and profile|may_poll %} data-live-workload="/api/live/workload/{{workload.id}}/" data-live-status="{% if workload.approved %}active{% else %}pending{% endif %}" data-live-games="{{workload.games}}"{% endif %}>
+    <div class="workload-container" data-workload-id="{{workload.id}}" data-workload-insights{% if not workload.finished and not workload.deleted and profile|may_poll %} data-live-workload="/api/live/workload/{{workload.id}}/" data-live-status="{% if workload.approved %}active{% else %}pending{% endif %}" data-live-games="{{workload.games}}"{% endif %}>
 
-    {% if diagnosis %}{% include "OpenBench/Blocks/diagnosis.html" %}{% endif %}
-    {% if worker_errors %}<p class="workload-errors"><a href="/errors/?workload={{workload.id}}">Worker errors ({{worker_errors}})</a></p>{% endif %}
+    {% with header=page.header summary=page.summary sections=page.sections %}
 
-    <div id="config" class="table-wrap" data-region-label="Configuration">
-        <table class="test-config wrappable">
+    <header class="workload-header">
+        <div class="workload-heading">
+            <h1><span class="row-id">#{{workload.id}}</span> {{header.title}}</h1>
+            <span class="badge badge-{{header.state.variant}}" data-live-badge>{{header.state.label}}</span>
+        </div>
+        <ul class="workload-meta">
+            <li><a class="mono" href="{{workload|gitDiffLink}}" title="{{workload|git_diff_text:40}}">{{header.pair}}<span class="visually-hidden"> (diff)</span></a></li>
+            <li>{{header.engine}}</li>
+            <li>{% if header.time_class %}{{header.time_class}} {% endif %}<span class="mono">{{header.time_control}}</span></li>
+            <li>{{header.mode}}</li>
+            <li>by <a href="/user/{{workload.author}}">{{workload.author|capfirst}}</a></li>
+            <li>created <span class="timestamp">{{workload.creation|date:'U'}}</span></li>
+        </ul>
+        {% if header.details %}<p class="workload-details">{{header.details}}</p>{% endif %}
+    </header>
 
-            <tr><th scope="row" class="td-label">Author</th><td>{{workload.author|capfirst}}</td></tr>
-            <tr><th scope="row" class="td-label">Creation</th><td class="timestamp">{{workload.creation|date:'U'}}</td></tr>
+    <section class="workload-summary" aria-label="Summary">
+        {% if diagnosis %}{% include "OpenBench/Blocks/diagnosis.html" %}{% endif %}
+        <p class="insights-verdict{% if summary.verdict %} insights-verdict-{{summary.verdict.tone}}{% endif %}" data-insights-verdict{% if not summary.verdict %} hidden{% endif %}>{{summary.verdict.text}}</p>
+        <div class="summary-forecast" data-insights-forecast></div>
+        <div class="summary-progress">
+            <div class="summary-meter" data-summary-meter>{% if summary.meter %}<span class="summary-meter-caption">{{summary.meter.caption}}</span><span class="insight-meter insight-meter-{{summary.meter.kind}}" role="meter" aria-valuemin="0" aria-valuemax="1" aria-valuenow="{{summary.meter.fraction|stringformat:'.3f'}}" aria-valuetext="{{summary.meter.label}}" title="{{summary.meter.label}}" data-fraction="{{summary.meter.fraction|stringformat:'.4f'}}"></span>{% endif %}</div>
+            <div class="summary-timing" data-summary-timing>{% if summary.timing %}{% include "OpenBench/Blocks/row_timing.html" with timing=summary.timing %}{% endif %}</div>
+        </div>
+        <p class="visually-hidden" data-live-outcome>Result: {% include "OpenBench/Blocks/result_text.html" with test=workload %}</p>
+        {% if type == "TUNE" %}
+            <pre class="long-statblock long-statblock-{{workload|testResultColour}}" id="long-statblock">{{workload|shortStatBlock|linebreaksbr}}</pre>
+        {% else %}
+            <pre class="long-statblock long-statblock-{{workload|testResultColour}}" id="long-statblock">{{workload|longStatBlock|linebreaksbr}}</pre>
+        {% endif %}
+        {% if not workload.finished and not workload.deleted and profile|may_poll %}
+            <div class="live-bar">
+                {% include "OpenBench/Blocks/live_status.html" %}
+            </div>
+        {% endif %}
+    </section>
 
-            <!-- All of the Dev Engine ( or Sole Engine ) information -->
-            <tr><th scope="row" class="td-label">{{dev_text}} Source</th><td><a href="{{workload.dev_repo}}">{{workload.dev_repo}}</a></td></tr>
-            <tr><th scope="row" class="td-label">{{dev_text}} Sha</th><td class="mono">{{workload.dev.sha}}</td></tr>
-            <tr><th scope="row" class="td-label">{{dev_text}} Branch</th><td class="branch_name">{{workload.dev.name|prettyName}}</td></tr>
-            <tr><th scope="row" class="td-label">{{dev_text}} Bench</th><td class="mono">{{workload.dev.bench}}</td></tr>
-            <tr><th scope="row" class="td-label">{{dev_text}} Network</th><td><a href="{{workload|network_download_link:'dev'}}">{{workload.dev_netname|default:"None"}}</a></td></tr>
-            <tr><th scope="row" class="td-label">{{dev_text}} Options</th><td class="engine-options mono">{{workload.dev_options}}</td></tr>
-            <tr><th scope="row" class="td-label">{{dev_text}} Time</th><td class="mono">{{workload.dev_time_control}}</td></tr>
-
-            <!-- All of the Base Engine information, which only exists for TESTs -->
-            {% if type == "TEST" or type == "DATAGEN" %}
-                <tr><th scope="row" class="td-label">Base Source</th><td><a href="{{workload.base_repo}}">{{workload.base_repo}}</a></td></tr>
-                <tr><th scope="row" class="td-label">Base Sha</th><td class="mono">{{workload.base.sha}}</td></tr>
-                <tr><th scope="row" class="td-label">Base Branch</th><td class="branch_name">{{workload.base.name|prettyName}}</td></tr>
-                <tr><th scope="row" class="td-label">Base Bench</th><td class="mono">{{workload.base.bench}}</td></tr>
-                <tr><th scope="row" class="td-label">Base Network</th><td><a href="{{workload|network_download_link:'base'}}">{{workload.base_netname|default:"None"}}</a></td></tr>
-                <tr><th scope="row" class="td-label">Base Options</th><td class="engine-options mono">{{workload.base_options}}</td></tr>
-                <tr><th scope="row" class="td-label">Base Time</th><td class="mono">{{workload.base_time_control}}</td></tr>
-            {% endif %}
-
-            {% with book_link=workload|book_download_link %}
-                {% if book_link %}
-                    <tr><th scope="row" class="td-label">Opening Book</th><td><a href="{{book_link}}">{{workload.book_name}}</a></td></tr>
-                {% else %}
-                    <tr><th scope="row" class="td-label">Opening Book</th><td>{{workload.book_name}}</td></tr>
-                {% endif %}
-            {% endwith %}
-
-            <tr><th scope="row" class="td-label">Upload PGNs</th><td>{{workload.upload_pgns}}</td></tr>
-            <tr><th scope="row" class="td-label">Syzygy WDL</th><td>{{workload.syzygy_wdl}}</td></tr>
-            <tr><th scope="row" class="td-label">Syzygy ADJ.</th><td>{{workload.syzygy_adj}}</td></tr>
-            <tr><th scope="row" class="td-label">Win ADJ.</th><td>{{workload.win_adj}}</td></tr>
-            <tr><th scope="row" class="td-label">Draw ADJ.</th><td>{{workload.draw_adj}}</td></tr>
-            <tr><th scope="row" class="td-label">Scaling</th><td>{{workload.scale_method}} {{workload.scale_nps}} NPS</td></tr>
-
-            {% if type == "TUNE" %}
-                <tr><th scope="row" class="td-label">Alpha</th><td>{{workload.spsa_run.alpha}}</td></tr>
-                <tr><th scope="row" class="td-label">Gamma</th><td>{{workload.spsa_run.gamma}}</td></tr>
-                <tr><th scope="row" class="td-label">A-Ratio</th><td>{{workload.spsa_run.a_ratio}}</td></tr>
-                <tr><th scope="row" class="td-label">Reporting</th><td>{{workload.spsa_run.reporting_type}}</td></tr>
-                <tr><th scope="row" class="td-label">Distribution</th><td>{{workload.spsa_run.distribution_type}}</td></tr>
-                <tr><th scope="row" class="td-label">Pairs Per Point</th><td>{{workload.workload_size}}</td></tr>
-            {% elif type == "DATAGEN" %}
-                <tr><th scope="row" class="td-label">Genfens Args</th><td>{{workload.genfens_args}}</td></tr>
-                <tr><th scope="row" class="td-label">Play Reverses</th><td>{{workload.play_reverses}}</td></tr>
-            {% endif %}
-
-        </table>
-    </div>
-
-    <div id="actions">
-
-        <!-- Dev vs Base [Git Diff Link] -->
-        <h2><a href="{{workload|gitDiffLink}}">{{workload|git_diff_text}}</a></h2>
+    <section id="actions" class="card workload-actions" aria-labelledby="actions-title">
+        <h2 id="actions-title" class="card-title">Actions</h2>
 
         <form id="workload-actions" method="post" hidden>{% csrf_token %}</form>
 
-        <div class="anchor-container">
-
-            <!-- Approve Button: For Admins, or Cross-approvers -->
-            {% if not workload.approved and profile.approver and profile.user.username != workload.author %}
-                <button class="anchorbutton btn-blue" form="workload-actions" formaction="/{{type|lower}}/{{workload.id}}/APPROVE/">Approve</button>
-            {% elif not workload.approved and request.user.is_superuser %}
-                <button class="anchorbutton btn-blue" form="workload-actions" formaction="/{{type|lower}}/{{workload.id}}/APPROVE/">Approve</button>
-            {% else %}
-                <a class="anchorbutton btn-disabled">Approve</a>
+        <div class="action-row">
+            {% if not workload.approved %}
+                {% if profile.approver and profile.user.username != workload.author or request.user.is_superuser %}
+                    <button class="anchorbutton btn-start" form="workload-actions" formaction="/{{type|lower}}/{{workload.id}}/APPROVE/">Approve</button>
+                {% else %}
+                    <a class="anchorbutton btn-disabled">Approve</a>
+                {% endif %}
             {% endif %}
 
-            <!-- Restart Button: For Approvers or Workload Authors of finished workloads -->
-            {% if workload.finished and not workload.passed and not workload.failed and profile.approver %}
-                <button class="anchorbutton btn-yellow" form="workload-actions" formaction="/{{type|lower}}/{{workload.id}}/RESTART/">Restart</button>
-            {% elif workload.finished and not workload.passed and not workload.failed and profile.user.username == workload.author %}
-                <button class="anchorbutton btn-yellow" form="workload-actions" formaction="/{{type|lower}}/{{workload.id}}/RESTART/">Restart</button>
-            {% elif workload.finished %}
-                <a class="anchorbutton btn-disabled">Restart</a>
+            {% if workload.finished %}
+                {% if not workload.passed and not workload.failed and profile.approver or not workload.passed and not workload.failed and profile.user.username == workload.author %}
+                    <button class="anchorbutton btn-yellow" form="workload-actions" formaction="/{{type|lower}}/{{workload.id}}/RESTART/">Restart</button>
+                {% else %}
+                    <a class="anchorbutton btn-disabled">Restart</a>
+                {% endif %}
             {% endif %}
 
-            <!-- Stop Button: For Approvers or Workload Authors of active workloads -->
-            {% if not workload.finished and profile.approver %}
-                <button class="anchorbutton btn-yellow" form="workload-actions" formaction="/{{type|lower}}/{{workload.id}}/STOP/">Stop</button>
-            {% elif not workload.finished and profile.user.username == workload.author %}
-                <button class="anchorbutton btn-yellow" form="workload-actions" formaction="/{{type|lower}}/{{workload.id}}/STOP/">Stop</button>
-            {% elif not workload.finished %}
-                <a class="anchorbutton btn-disabled">Stop</a>
-            {% endif %}
-
-            <!-- Delete/Restore Button: For Approvers or Workload Authors -->
-            {% if profile.approver or profile.user.username == workload.author %}
-                {% if workload.deleted %}
+            {% if workload.deleted %}
+                {% if profile.approver or profile.user.username == workload.author %}
                     <button class="anchorbutton btn-preset" form="workload-actions" formaction="/{{type|lower}}/{{workload.id}}/RESTORE/">Restore</button>
                 {% else %}
-                    <button class="anchorbutton btn-red" form="workload-actions" formaction="/{{type|lower}}/{{workload.id}}/DELETE/" data-confirm="Delete this Workload?">Delete</button>
-                {% endif %}
-            {% else %}
-                {% if workload.deleted %}
                     <a class="anchorbutton btn-disabled">Restore</a>
-                {% else %}
-                    <a class="anchorbutton btn-disabled">Delete</a>
                 {% endif %}
+            {% endif %}
+
+            {% if confirmation %}
+                <a class="anchorbutton btn-start" href="{{confirmation.url}}" title="Opens the create form with this dev and base at the {{confirmation.preset}} preset; nothing is created until you submit it">Confirm at LTC ({{confirmation.time_control}})</a>
+            {% endif %}
+
+            {% if confirmed_by %}
+                <a class="anchorbutton btn-blue" href="{{confirmed_by.url}}">LTC confirmation: #{{confirmed_by.id}} ({{confirmed_by.time_control}})</a>
             {% endif %}
 
             {% if profile.enabled %}
@@ -142,18 +109,6 @@
             {% endif %}
         </div>
 
-        {% if confirmation %}
-            <div class="anchor-container">
-                <a class="mt-1 anchorbutton btn-start" href="{{confirmation.url}}" title="Opens the create form with this dev and base at the {{confirmation.preset}} preset; nothing is created until you submit it">Confirm at LTC ({{confirmation.time_control}})</a>
-            </div>
-        {% endif %}
-
-        {% if confirmed_by %}
-            <div class="anchor-container">
-                <a class="mt-1 anchorbutton btn-blue" href="{{confirmed_by.url}}">LTC confirmation: #{{confirmed_by.id}} ({{confirmed_by.time_control}})</a>
-            </div>
-        {% endif %}
-
         <form class="workload-compare-form" method="get" action="/compare/">
             <input type="hidden" name="a" value="{{workload.id}}">
             <label for="compare-with">Compare with workload</label>
@@ -161,171 +116,281 @@
             <button type="submit" class="anchorbutton btn-blue">Compare&hellip;</button>
         </form>
 
-        <!-- Copy Button: Copy the current results statblock -->
-        {% if type == "TEST" or type == "DATAGEN" %}
-            <div class="anchor-container">
-                <button type="button" class="mt-1 anchorbutton btn-blue" data-workload-action="copy-statblock">Copy Stat Block</button>
-            </div>
-        {% endif %}
-
-        <!-- PGN Download Button -->
-        {% if workload.upload_pgns != "FALSE" %}
-            <div class="anchor-container">
-                <a class="mt-1 anchorbutton btn-blue" href="/api/pgns/{{workload.id}}/">Download PGN Archive</a>
-            </div>
-        {% endif %}
-
-        <!-- Copies Raw SPSA Input from /api/spsa/{{workload.id}}/inputs/ -->
-        {% if type == "TUNE" %}
-            <div class="anchor-container">
-                <button type="button" class="mt-1 anchorbutton btn-blue" data-workload-action="copy-spsa-inputs">Copy SPSA Inputs</button>
-            </div>
-        {% endif %}
-
-        <!-- Copies Optimal Values from /api/spsa/{{workload.id}}/outputs/ -->
-        {% if type == "TUNE" %}
-            <div class="anchor-container">
-                <button type="button" class="mt-1 anchorbutton btn-blue" data-workload-action="copy-spsa-outputs">Copy SPSA Outputs</button>
-            </div>
-        {% endif %}
-
-        <!-- Elo, (SPRT/LRR if SPRT, otherwise CONF), Games -->
-        {% if not workload.finished and not workload.deleted and profile|may_poll %}
-            <div class="live-bar">
-                {% include "OpenBench/Blocks/live_status.html" %}
+        <div class="action-row action-tools">
+            {% if type == "TEST" or type == "DATAGEN" %}
+                <button type="button" class="anchorbutton btn-blue" data-workload-action="copy-statblock">Copy Stat Block</button>
+            {% endif %}
+            {% if workload.upload_pgns != "FALSE" %}
+                <a class="anchorbutton btn-blue" href="/api/pgns/{{workload.id}}/">Download PGN Archive</a>
+            {% endif %}
+            {% if type == "TUNE" %}
+                <button type="button" class="anchorbutton btn-blue" data-workload-action="copy-spsa-inputs">Copy SPSA Inputs</button>
+                <button type="button" class="anchorbutton btn-blue" data-workload-action="copy-spsa-outputs">Copy SPSA Outputs</button>
+            {% endif %}
+            {% if not workload.finished and not workload.deleted and profile|may_poll %}
                 <button type="button" class="live-notify" data-live-notify aria-pressed="false" hidden>Notify me when this finishes</button>
-            </div>
+            {% endif %}
+        </div>
+        {% if not workload.finished and not workload.deleted and profile|may_poll %}
             <p class="live-note muted" data-live-notify-note role="status"></p>
         {% endif %}
-        <p class="visually-hidden" data-live-outcome>Result: {% include "OpenBench/Blocks/result_text.html" with test=workload %}</p>
-        {% if type == "TEST" %}
-            <pre class="long-statblock long-statblock-{{workload|testResultColour}}" id="long-statblock">{{workload|longStatBlock|linebreaksbr}}</pre>
-        {% elif type == "TUNE" %}
-            <pre class="long-statblock long-statblock-{{workload|testResultColour}}" id="long-statblock">{{workload|shortStatBlock|linebreaksbr}}</pre>
-        {% elif type == "DATAGEN" %}
-            <pre class="long-statblock long-statblock-{{workload|testResultColour}}" id="long-statblock">{{workload|longStatBlock|linebreaksbr}}</pre>
+
+        <details class="action-modify">
+            <summary>Edit info, priority <span class="mono">{{workload.priority}}</span> and throughput <span class="mono">{{workload.throughput}}</span></summary>
+            <form method="POST" action="/{{type|lower}}/{{workload.id}}/MODIFY/">
+                {% csrf_token %}
+                <div class="form">
+                    <div class="col-full">
+
+                        <div class="row workflow-edit">
+                            <label for="info">Info</label>
+                            <textarea id="info" name="info" rows="4">{{workload.info}}</textarea>
+                        </div>
+
+                        <div class="row workflow-edit">
+                            <label for="priority">Priority</label>
+                            <input value="{{workload.priority}}" id="priority" name="priority">
+                        </div>
+
+                        <div class="row workflow-edit">
+                            <label for="throughput">Throughput</label>
+                            <input value="{{workload.throughput}}" id="throughput" name="throughput">
+                        </div>
+
+                        {% if type == "TEST" or type == "DATAGEN" %}
+                            <div class="row workflow-edit">
+                                <label for="workload_size">Workload Size</label>
+                                <input value="{{workload.workload_size}}" id="workload_size" name="workload_size">
+                            </div>
+                        {% endif %}
+
+                        {% if profile.approver or profile.user.username == workload.author %}
+                            <input class="anchorbutton btn-blue w-100" type="submit" name="submit" value="Modify">
+                        {% else %}
+                            <input class="anchorbutton btn-disabled w-100" type="submit" name="submit" value="Modify">
+                        {% endif %}
+                    </div>
+                </div>
+            </form>
+        </details>
+
+        {% if not workload.finished or not workload.deleted %}
+            <div class="action-row action-danger">
+                {% if not workload.finished %}
+                    {% if profile.approver or profile.user.username == workload.author %}
+                        <button class="anchorbutton btn-yellow" form="workload-actions" formaction="/{{type|lower}}/{{workload.id}}/STOP/">Stop</button>
+                    {% else %}
+                        <a class="anchorbutton btn-disabled">Stop</a>
+                    {% endif %}
+                {% endif %}
+                {% if not workload.deleted %}
+                    {% if profile.approver or profile.user.username == workload.author %}
+                        <button class="anchorbutton btn-red" form="workload-actions" formaction="/{{type|lower}}/{{workload.id}}/DELETE/" data-confirm="Delete this Workload?">Delete</button>
+                    {% else %}
+                        <a class="anchorbutton btn-disabled">Delete</a>
+                    {% endif %}
+                {% endif %}
+            </div>
         {% endif %}
 
-        <!-- Forum to modify the Priority, Throughput, or (Tests only) Workload Size -->
-        <form method="POST" action="/{{type|lower}}/{{workload.id}}/MODIFY/">
-            {% csrf_token %}
-            <div class="form">
-                <div class="col-full">
-
-                    <div class="row workflow-edit">
-                        <label for="info">Info</label>
-                        <textarea id="info" name="info" rows="4">{{workload.info}}</textarea>
-                    </div>
-
-                    <div class="row workflow-edit">
-                        <label for="priority">Priority</label>
-                        <input value="{{workload.priority}}" id="priority" name="priority">
-                    </div>
-
-                    <div class="row workflow-edit">
-                        <label for="throughput">Throughput</label>
-                        <input value="{{workload.throughput}}" id="throughput" name="throughput">
-                    </div>
-
-                    {% if type == "TEST" or type == "DATAGEN" %}
-                        <div class="row workflow-edit">
-                            <label for="workload_size">Workload Size</label>
-                            <input value="{{workload.workload_size}}" id="workload_size" name="workload_size">
-                        </div>
-                    {% endif %}
-
-                    <!-- Edit Button: For Approvers or Test Authors -->
-                    {% if profile.approver or profile.user.username == workload.author %}
-                        <input class="anchorbutton btn-blue w-100" type="submit" name="submit" value="Modify">
-                    {% else %}
-                        <input class="anchorbutton btn-disabled w-100" type="submit" name="submit" value="Modify">
-                    {% endif %}
-                </div>
-            </div>
-        </form>
-
         <p class="visually-hidden" role="status" data-workload-announcer></p>
-    </div>
+    </section>
 
-    <section id="insights" class="insights" data-workload-insights data-workload-id="{{workload.id}}" aria-labelledby="insights-title">
-        <div class="insights-header">
-            <h2 id="insights-title" class="insights-title">Insights</h2>
+    <div class="insights workload-evidence" data-insights-evidence>
+
+        <div class="section-bar">
+            <nav class="fleet-filter section-nav" aria-label="Page sections">
+                {% for section in sections.listed %}
+                    <a class="fleet-filter-option" href="#{{section.id}}" data-section-link="{{section.id}}"{% if not section.shown %} hidden{% endif %}>{{section.label}}</a>
+                {% endfor %}
+            </nav>
             <p class="insights-status" data-insights-status>Loading&hellip;</p>
-            <a class="insights-download" href="/api/workload/{{workload.id}}/history.csv" download>Download history (CSV)</a>
         </div>
         <p class="insights-error" data-insights-error role="alert" hidden></p>
         <p class="visually-hidden" role="status" data-insights-announcer></p>
-        <div class="insights-tiles" data-insights-tiles></div>
-        <div data-insights-results></div>
-        <div class="insights-charts" data-insights-charts></div>
-        <div data-insights-contributions></div>
-        {% if workload.upload_pgns != "FALSE" %}
-            <div id="games-insights" class="games-insights" data-games-insights data-workload-id="{{workload.id}}" hidden></div>
-        {% elif type == "TEST" %}
-            <p class="insights-note games-hint">Per-game insights need PGN uploads (set Upload PGNs to COMPACT when creating the test)</p>
+
+        {% if sections.results %}
+            <section id="results" class="workload-section" data-section="results" aria-labelledby="results-title"{% if not sections.results.shown %} hidden{% endif %}>
+                <h2 id="results-title" class="section-title">Results</h2>
+                <div class="section-body" data-insights-results></div>
+                {% if type == "TEST" and workload.upload_pgns == "FALSE" %}
+                    <p class="insights-note games-hint">Per-game insights need PGN uploads (set Upload PGNs to COMPACT when creating the test)</p>
+                {% endif %}
+            </section>
         {% endif %}
-    </section>
 
-    <!-- SPSA Paramater Summary, for Tunes -->
-    {% if type == "TUNE" %}
-        <div id="parameters" class="table-wrap" data-region-label="SPSA parameters">
-            <table class="stripes wrappable">
-                <thead>
-                    <tr class="table-header">
-                        <th>Name</th>
-                        <th class="numeric">Curr</th>
-                        <th class="numeric">Start</th>
-                        <th class="numeric">Min</th>
-                        <th class="numeric">Max</th>
-                        <th class="numeric">C</th>
-                        <th class="numeric">C_end</th>
-                        <th class="numeric">R</th>
-                        <th class="numeric">R_end</th>
-                    </tr>
-                </thead>
-                <tbody id="spsa-digest-button-container">
-                    <tr>
-                        <td colspan="9">
-                            <button class="w-100 anchorbutton btn-blue" type="button" data-workload-action="show-spsa-digest">Show SPSA Digest</button>
-                        </td>
-                    </tr>
-                </tbody>
-                <tbody id="spsa-digest-body-container" hidden>
-                    <!-- Dynamically created -->
-                </tbody>
-            </table>
-        </div>
-    {% endif %}
+        <section id="progress" class="workload-section" data-section="progress" aria-labelledby="progress-title"{% if not sections.progress.shown %} hidden{% endif %}>
+            <div class="section-header">
+                <h2 id="progress-title" class="section-title">Progress over time</h2>
+                <a class="insights-download" href="/api/workload/{{workload.id}}/history.csv" download>Download history (CSV)</a>
+            </div>
+            <div class="stat-tiles" data-insights-tiles></div>
+            <div class="insights-charts" data-insights-charts></div>
+        </section>
 
-    <!-- Aggregate pentanomial summary; fetched automatically on page load -->
-    <div id="summary-container" class="table-wrap" data-region-label="Results summary"></div>
+        <section id="workers" class="workload-section" data-section="workers" aria-labelledby="workers-title"{% if not sections.workers.shown %} hidden{% endif %}>
+            <div class="section-header">
+                <h2 id="workers-title" class="section-title">Workers</h2>
+                <span class="muted insights-note" data-insights-workers-note></span>
+            </div>
+            <div class="section-body" data-insights-contributions></div>
+        </section>
 
-    <div id="results">
-        <div class="table-wrap">
-        <table class="stripes wrappable">
-            <caption class="visually-hidden">Individual results</caption>
-            <thead>
-                <tr class="table-header">
-                    <th>#</th>
-                    <th>User</th>
-                    <th class="numeric">Games</th>
-                    <th>Penta</th>
-                    <th class="numeric">Pairs</th>
-                    <th class="numeric">Time</th>
-                    <th class="numeric">Crash</th>
-                </tr>
-            </thead>
+        {% if sections.games %}
+            <section id="games" class="workload-section" data-section="games" aria-labelledby="games-title" hidden>
+                <h2 id="games-title" class="section-title">Games</h2>
+                <div id="games-insights" class="games-insights" data-games-insights data-workload-id="{{workload.id}}" hidden></div>
+            </section>
+        {% endif %}
 
-            <tbody id="results-container">
-                <!-- Dynamically created -->
-            </tbody>
-        </table>
-        </div>
+        {% if sections.parameters %}
+            <section id="parameters" class="workload-section" data-section="parameters" aria-labelledby="parameters-title">
+                <h2 id="parameters-title" class="section-title">SPSA parameters</h2>
+                <div class="table-wrap">
+                    <table class="stripes wrappable">
+                        <caption class="visually-hidden">SPSA parameters</caption>
+                        <thead>
+                            <tr class="table-header">
+                                <th>Name</th>
+                                <th class="numeric">Curr</th>
+                                <th class="numeric">Start</th>
+                                <th class="numeric">Min</th>
+                                <th class="numeric">Max</th>
+                                <th class="numeric">C</th>
+                                <th class="numeric">C_end</th>
+                                <th class="numeric">R</th>
+                                <th class="numeric">R_end</th>
+                            </tr>
+                        </thead>
+                        <tbody id="spsa-digest-button-container">
+                            <tr>
+                                <td colspan="9">
+                                    <button class="w-100 anchorbutton btn-blue" type="button" data-workload-action="show-spsa-digest">Show SPSA Digest</button>
+                                </td>
+                            </tr>
+                        </tbody>
+                        <tbody id="spsa-digest-body-container" hidden>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        {% endif %}
 
-        <!-- Individual per-machine results are only ever fetched on demand -->
-        <button class="w-100 anchorbutton btn-blue" type="button" data-workload-action="fetch-results">Fetch Individual Results</button>
+        {% if sections.errors %}
+            <section id="errors" class="workload-section" data-section="errors" aria-labelledby="errors-title">
+                <h2 id="errors-title" class="section-title">Errors</h2>
+                <p class="workload-errors">Workers reported errors while building or playing this workload: <a href="/errors/?workload={{workload.id}}">Worker errors ({{worker_errors}})</a></p>
+            </section>
+        {% endif %}
+
+        <section id="configuration" class="workload-section" data-section="configuration" aria-labelledby="configuration-title">
+            <h2 id="configuration-title" class="section-title">Configuration</h2>
+            <div class="config-grid">
+
+                <div class="table-wrap">
+                    <table class="test-config wrappable">
+                        <caption class="contribution-caption">{% if type == "TUNE" %}Engine{% else %}Dev{% endif %}</caption>
+                        <tr><th scope="row" class="td-label">Engine</th><td>{{workload.dev_engine}}</td></tr>
+                        <tr><th scope="row" class="td-label">Source</th><td><a href="{{workload.dev_repo}}">{{workload.dev_repo}}</a></td></tr>
+                        <tr><th scope="row" class="td-label">Sha</th><td class="mono">{{workload.dev.sha}}</td></tr>
+                        <tr><th scope="row" class="td-label">Branch</th><td class="branch_name">{{workload.dev.name|prettyName}}</td></tr>
+                        <tr><th scope="row" class="td-label">Bench</th><td class="mono">{{workload.dev.bench}}</td></tr>
+                        <tr><th scope="row" class="td-label">Network</th><td><a href="{{workload|network_download_link:'dev'}}">{{workload.dev_netname|default:"None"}}</a></td></tr>
+                        <tr><th scope="row" class="td-label">Options</th><td class="engine-options mono">{{workload.dev_options}}</td></tr>
+                        <tr><th scope="row" class="td-label">Time</th><td class="mono">{{workload.dev_time_control}}</td></tr>
+                    </table>
+                </div>
+
+                {% if type == "TEST" or type == "DATAGEN" %}
+                    <div class="table-wrap">
+                        <table class="test-config wrappable">
+                            <caption class="contribution-caption">Base</caption>
+                            <tr><th scope="row" class="td-label">Engine</th><td>{{workload.base_engine}}</td></tr>
+                            <tr><th scope="row" class="td-label">Source</th><td><a href="{{workload.base_repo}}">{{workload.base_repo}}</a></td></tr>
+                            <tr><th scope="row" class="td-label">Sha</th><td class="mono">{{workload.base.sha}}</td></tr>
+                            <tr><th scope="row" class="td-label">Branch</th><td class="branch_name">{{workload.base.name|prettyName}}</td></tr>
+                            <tr><th scope="row" class="td-label">Bench</th><td class="mono">{{workload.base.bench}}</td></tr>
+                            <tr><th scope="row" class="td-label">Network</th><td><a href="{{workload|network_download_link:'base'}}">{{workload.base_netname|default:"None"}}</a></td></tr>
+                            <tr><th scope="row" class="td-label">Options</th><td class="engine-options mono">{{workload.base_options}}</td></tr>
+                            <tr><th scope="row" class="td-label">Time</th><td class="mono">{{workload.base_time_control}}</td></tr>
+                        </table>
+                    </div>
+                {% endif %}
+
+                <div class="table-wrap">
+                    <table class="test-config wrappable">
+                        <caption class="contribution-caption">Match</caption>
+                        {% if workload.test_mode == "SPRT" %}
+                            <tr><th scope="row" class="td-label">SPRT bounds</th><td class="mono">[{{workload.elolower|floatformat:2}}, {{workload.eloupper|floatformat:2}}]</td></tr>
+                        {% elif workload.test_mode == "GAMES" or workload.test_mode == "DATAGEN" %}
+                            <tr><th scope="row" class="td-label">Max games</th><td class="mono">{{workload.max_games}}</td></tr>
+                        {% endif %}
+                        {% with book_link=workload|book_download_link %}
+                            {% if book_link %}
+                                <tr><th scope="row" class="td-label">Opening Book</th><td><a href="{{book_link}}">{{workload.book_name}}</a></td></tr>
+                            {% else %}
+                                <tr><th scope="row" class="td-label">Opening Book</th><td>{{workload.book_name}}</td></tr>
+                            {% endif %}
+                        {% endwith %}
+                        <tr><th scope="row" class="td-label">Upload PGNs</th><td>{{workload.upload_pgns}}</td></tr>
+                        <tr><th scope="row" class="td-label">Syzygy WDL</th><td>{{workload.syzygy_wdl}}</td></tr>
+                        <tr><th scope="row" class="td-label">Syzygy ADJ.</th><td>{{workload.syzygy_adj}}</td></tr>
+                        <tr><th scope="row" class="td-label">Win ADJ.</th><td>{{workload.win_adj}}</td></tr>
+                        <tr><th scope="row" class="td-label">Draw ADJ.</th><td>{{workload.draw_adj}}</td></tr>
+                        <tr><th scope="row" class="td-label">Scaling</th><td>{{workload.scale_method}} {{workload.scale_nps}} NPS</td></tr>
+                        {% if type == "TUNE" %}
+                            <tr><th scope="row" class="td-label">Alpha</th><td>{{workload.spsa_run.alpha}}</td></tr>
+                            <tr><th scope="row" class="td-label">Gamma</th><td>{{workload.spsa_run.gamma}}</td></tr>
+                            <tr><th scope="row" class="td-label">A-Ratio</th><td>{{workload.spsa_run.a_ratio}}</td></tr>
+                            <tr><th scope="row" class="td-label">Reporting</th><td>{{workload.spsa_run.reporting_type}}</td></tr>
+                            <tr><th scope="row" class="td-label">Distribution</th><td>{{workload.spsa_run.distribution_type}}</td></tr>
+                            <tr><th scope="row" class="td-label">Pairs Per Point</th><td>{{workload.workload_size}}</td></tr>
+                        {% elif type == "DATAGEN" %}
+                            <tr><th scope="row" class="td-label">Genfens Args</th><td>{{workload.genfens_args}}</td></tr>
+                            <tr><th scope="row" class="td-label">Play Reverses</th><td>{{workload.play_reverses}}</td></tr>
+                        {% endif %}
+                    </table>
+                </div>
+
+            </div>
+        </section>
+
+        <section id="raw-results" class="workload-section" data-section="raw-results" aria-labelledby="raw-results-title">
+            <h2 id="raw-results-title" class="section-title">Raw results</h2>
+
+            <div id="summary-container" class="table-wrap" data-region-label="Results by user, CPU and ISA"></div>
+
+            <div class="individual-results">
+                <div class="table-wrap">
+                <table class="stripes wrappable">
+                    <caption class="visually-hidden">Individual results</caption>
+                    <thead>
+                        <tr class="table-header">
+                            <th>#</th>
+                            <th>User</th>
+                            <th class="numeric">Games</th>
+                            <th>Penta</th>
+                            <th class="numeric">Pairs</th>
+                            <th class="numeric">Time</th>
+                            <th class="numeric">Crash</th>
+                        </tr>
+                    </thead>
+
+                    <tbody id="results-container">
+                    </tbody>
+                </table>
+                </div>
+
+                <button class="w-100 anchorbutton btn-blue" type="button" data-workload-action="fetch-results">Fetch Individual Results</button>
+            </div>
+        </section>
+
     </div>
 
+    {% endwith %}
+
     </div>
+
+    {{ page.states|json_script:"workload-states" }}
 
 {% endblock %}

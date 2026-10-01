@@ -494,7 +494,7 @@
             const group = element('div', 'insights-group');
             const tiles = element('div', 'stat-tiles');
             tiles.append(...summary_tiles(report));
-            group.append(element('h3', 'insights-group-title', 'Games'), tiles);
+            group.append(tiles);
 
             const note = limits_note(report.limits);
             if (note) group.append(element('p', 'insights-note', note));

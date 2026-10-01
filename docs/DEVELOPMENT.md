@@ -133,13 +133,13 @@ and upstream changes are merged in periodically.
   `OpenBench/diagnosis/`, `OpenBench/digest/`, `OpenBench/triage/`,
   `OpenBench/machine_info.py`, `OpenBench/navigation/`, `OpenBench/progress/`, `OpenBench/security/`, `OpenBench/storage/`,
   `OpenBench/page_queries.py`, `OpenBench/upstream.py`, `OpenBench/workload_names.py`,
-  `OpenBench/workloads/clone.py`, `OpenBench/workloads/confirmation.py`, `OpenBench/workloads/presets.py`,
+  `OpenBench/workloads/clone.py`, `OpenBench/workloads/confirmation.py`, `OpenBench/workloads/page.py`, `OpenBench/workloads/presets.py`,
   `OpenBench/management/commands/prune_machines.py`,
   `OpenBench/management/commands/seed_demo.py` and `OpenBench/tests/`. These
   are held to the full rule set in `pyproject.toml`, to `ruff format` and to
   mypy's strict profile.
 - **Upstream-owned**: everything else, including `OpenBench/views.py`,
-  `OpenBench/utils.py`, `OpenBench/workloads/` apart from `clone.py`, `confirmation.py` and `presets.py`,
+  `OpenBench/utils.py`, `OpenBench/workloads/` apart from `clone.py`, `confirmation.py`, `page.py` and `presets.py`,
   `OpenBench/templatetags/`, `Client/` and `Scripts/`. Restyling these would
   turn every upstream merge into a conflict, so they keep upstream's style and
   receive only the edits a feature needs. They are checked by the

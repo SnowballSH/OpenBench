@@ -18,7 +18,7 @@ there first.
 | `/api/errors/` | 8 |
 | `/event/<id>/` | 8 |
 | `/networks/` | 5 |
-| `/test/<id>/` | 11, 12 for a stopped workload, 17 for an active one |
+| `/test/<id>/` | 11, 12 for a stopped workload, 17 for an active one; plus 1 once a game was played, for the summary's time left and rate ([UI.md](UI.md#workload-page)) |
 | `/api/workload/<id>/summary/`, `/results/` | 5 |
 | `/api/workload/<id>/insights/` | 6, or 12 for an active workload |
 | `/api/workload/<id>/history.csv` | 5 |

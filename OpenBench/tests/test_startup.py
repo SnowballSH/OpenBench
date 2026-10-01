@@ -40,6 +40,7 @@ FIRST_IMPORTS = (
     'OpenBench.progress.report',
     'OpenBench.workloads.clone',
     'OpenBench.workloads.confirmation',
+    'OpenBench.workloads.page',
     'OpenBench.workloads.presets',
     'OpenBench.live.display',
     'OpenBench.live.domain',
