@@ -20,6 +20,7 @@ from OpenBench.management.commands.seed_demo import (
     PGN_BATCHES,
     PGN_PAIRS_PER_RUNNER,
     PGN_RUNNERS_PER_BATCH,
+    SPEED_HOST_NOISE,
     STC,
     TUNES,
     WORKLOADS,
@@ -323,3 +324,21 @@ class SeededLineageTests(TestCase):
         self.assertEqual((check.time_class, check.first_index, check.last_index), (TimeClass.LTC, 1, 2))
         self.assertEqual((check.measured, check.steps), (2, 2))
         self.assertTrue(lineage.detached)
+
+    @override_settings(DEBUG=True)
+    def test_the_commit_chain_slows_down_as_seeded(self):
+        call_command('seed_demo', stdout=io.StringIO())
+
+        report = progress_report(Window.ALL, 'Avalanche')
+        economics = present(report.economics)
+        on_trunk = [COMMIT_CHAIN[0], COMMIT_CHAIN[2], COMMIT_CHAIN[3]]
+        for point, commit in zip(economics.speed.points, on_trunk, strict=True):
+            speed = present(point.step)
+            self.assertAlmostEqual(speed.ratio, commit.speed, delta=SPEED_HOST_NOISE)
+            self.assertGreater(speed.hosts, 1)
+        total = present(economics.speed.total)
+        self.assertLess(present(total.upper), 1.0)
+        self.assertEqual(economics.counter_coverage, 1.0)
+        self.assertEqual((economics.trunk.steps, economics.failed.steps, economics.other.steps), (3, 1, 1))
+        stc, ltc = economics.classes
+        self.assertGreater(ltc.core_hours / ltc.games, 4 * stc.core_hours / stc.games)

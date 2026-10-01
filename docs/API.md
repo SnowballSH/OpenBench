@@ -978,7 +978,11 @@ Schema in [INSIGHTS.md](INSIGHTS.md#getpost-apiinsightsserver).
 
 The engine's commit lineage (trunk steps with one pooled Elo measurement per
 time-control class, candidates that branched off, chained estimates per class
-and direct checks), weekly SPRT outcomes, games per day and top contributors
+and direct checks), its economics (per-step bench, search-speed ratio and
+cost; search speed chained along the trunk; games and search core-hours spent
+on trunk steps, failed candidates and other candidates; pass rate, median
+games to pass and to fail and games per Elo by class; trunk steps per week and
+acceptance latencies), weekly SPRT outcomes, games per day and top contributors
 over a window. `window` is `30d`, `90d` (default), `1y` or `all`,
 ignoring case and surrounding whitespace; `engine` filters by the workloads'
 dev engine. Authentication is the same as `api/insights/server/`: a failed
@@ -986,7 +990,8 @@ login is 401, an unknown `window` is 400 `{"error": ...}`, and an `engine`
 with no Engine configuration is 404 `{"error": ...}`. Reports are cached
 for 60 seconds per window and configured engine. `progress.lineage` is `null`
 when there is nothing to chain, or when no engine is chosen and several have
-steps (`progress.lineage_engines` names them). The earlier `greens`,
+steps (`progress.lineage_engines` names them); `progress.economics` is `null`
+in the same cases. The earlier `greens`,
 `elo_steps` and `summary.elo_gained` fields are gone. The JSON schema, the
 model, formulas and caveats are
 in [INSIGHTS.md](INSIGHTS.md#engine-progress).
