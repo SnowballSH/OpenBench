@@ -246,8 +246,104 @@
         });
     }
 
+    const ROW_CONTROLS = 'a, button, input, select, textarea, label, summary, [contenteditable], [data-row-ignore]';
+
+    function navigable_row(event) {
+        if (!(event.target instanceof Element)) return null;
+        const row = event.target.closest('[data-row-href]');
+        if (!row) return null;
+        const control = event.target.closest(ROW_CONTROLS);
+        return control && row.contains(control) ? null : row;
+    }
+
+    function row_destination(row) {
+        const url = new URL(row.dataset.rowHref, window.location.href);
+        return url.origin === window.location.origin ? url.href : null;
+    }
+
+    function selecting_text_in(row) {
+        const selection = window.getSelection();
+        return selection !== null
+            && !selection.isCollapsed
+            && selection.toString().trim() !== ''
+            && selection.containsNode(row, true);
+    }
+
+    function open_in_new_tab(url) {
+        window.open(url, '_blank', 'noopener');
+    }
+
+    function init_row_navigation() {
+        document.addEventListener('click', event => {
+            if (event.defaultPrevented || event.button !== 0 || event.shiftKey || event.altKey) return;
+            const row = navigable_row(event);
+            if (!row || selecting_text_in(row)) return;
+            const url = row_destination(row);
+            if (!url) return;
+            if (event.metaKey || event.ctrlKey) open_in_new_tab(url);
+            else window.location.assign(url);
+        });
+
+        // A middle button press on anything but a link starts autoscroll where the platform has it
+        document.addEventListener('mousedown', event => {
+            if (event.button === 1 && navigable_row(event)) event.preventDefault();
+        });
+
+        document.addEventListener('auxclick', event => {
+            if (event.button !== 1) return;
+            const row = navigable_row(event);
+            const url = row && row_destination(row);
+            if (!url) return;
+            event.preventDefault();
+            open_in_new_tab(url);
+        });
+    }
+
+    function hide_empty_groups(table, filtering) {
+        let subgroup_shown = false;
+        let group_shown = false;
+        [...table.rows].reverse().forEach(row => {
+            if ('rowHref' in row.dataset) {
+                if (!row.hidden) subgroup_shown = group_shown = true;
+            }
+            else if (row.classList.contains('table-small-header')) {
+                row.hidden = filtering && !subgroup_shown;
+                subgroup_shown = false;
+            }
+            else if (row.classList.contains('table-header')) {
+                row.hidden = filtering && !group_shown;
+                subgroup_shown = group_shown = false;
+            }
+        });
+    }
+
+    function init_row_filter(input) {
+        const table = document.getElementById(input.dataset.rowFilter);
+        const count = document.getElementById(input.dataset.rowFilterCount);
+        if (!table) return;
+
+        function apply() {
+            const terms = input.value.toLowerCase().split(/\s+/).filter(Boolean);
+            const rows = [...table.querySelectorAll('tr[data-row-href]')];
+            let shown = 0;
+            rows.forEach(row => {
+                const text = row.textContent.toLowerCase();
+                row.hidden = !terms.every(term => text.includes(term));
+                if (!row.hidden) shown += 1;
+            });
+            hide_empty_groups(table, terms.length > 0);
+            table.classList.toggle('row-filtered', terms.length > 0);
+            if (count)
+                count.textContent = terms.length ? `${shown} of ${rows.length} shown` : `${rows.length} on this page`;
+        }
+
+        input.addEventListener('input', apply);
+        apply();
+    }
+
     guard_duplicate_submissions();
     init_delegated_actions();
+    init_row_navigation();
 
     document.addEventListener('DOMContentLoaded', () => {
         init_theme_toggle();
@@ -262,6 +358,7 @@
         summarise_engine_options();
         apply_css_fractions();
         init_scroll_regions();
+        document.querySelectorAll('input[data-row-filter]').forEach(init_row_filter);
     });
 
 })();

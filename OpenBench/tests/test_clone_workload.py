@@ -35,6 +35,14 @@ from OpenBench.workloads.clone import (
 )
 
 REPO = 'https://github.com/SnowballSH/Avalanche'
+
+
+def github_branch_or_commit(url, **kwargs):
+    # GitHub nests a branch's head under "commit"; a lookup by SHA answers with the commit itself
+    answer = github_commit(url, **kwargs).json()
+    return mock.Mock(**{'json.return_value': answer['commit'] if '/commits/' in url else answer})
+
+
 SPSA_INPUTS = 'Knight, int, 300, 200, 400, 10, 0.002\nBishop, float, 3.5, 3.0, 4.0, 0.1, 0.002'
 
 GENERAL = {
@@ -317,7 +325,7 @@ class CloneRoundTripTests(TestCase):
             fields = engine_preset | clone_fields(workload)
             request = RequestFactory().post(f'/{kind.lower()}/new/', fields)
             with (
-                mock.patch('requests.get', side_effect=github_commit),
+                mock.patch('requests.get', side_effect=github_branch_or_commit),
                 self.subTest(workload.dev.name),
             ):
                 self.assertEqual(verify_workload(request, kind)[0], [])

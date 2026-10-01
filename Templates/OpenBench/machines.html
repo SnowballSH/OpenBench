@@ -75,9 +75,9 @@
                     <tbody>
                         {% for row in page.rows %}
                             {% if row.is_pool %}
-                            <tr class="fleet-offline fleet-pool">
+                            <tr data-row-href="?show={{page.window.value}}&amp;pool={{row.key}}" class="fleet-offline fleet-pool">
                                 <td>
-                                    <a href="?show={{page.window.value}}&amp;pool={{row.key}}" title="List these machines">{{row.name}}</a>
+                                    <a class="row-link" href="?show={{page.window.value}}&amp;pool={{row.key}}" title="List these machines">{{row.name}}</a>
                                     <span class="muted">{{row.hosts|insertCommas}} machines</span>
                                 </td>
                                 <td><a href="/user/{{row.owner|urlencode:''}}/">{{row.owner}}</a></td>
@@ -96,8 +96,8 @@
                                 <td class="numeric" data-sort-value="{{row.lifetime_games}}">{{row.lifetime_games|insertCommas}}</td>
                             </tr>
                             {% else %}
-                            <tr{% if not row.online %} class="fleet-offline"{% endif %}>
-                                <td><a href="/machines/{{row.machine_id}}/"{% if row.label != row.name %} title="{{row.name}}"{% endif %}>{{row.label|default:"Unnamed"}}</a></td>
+                            <tr data-row-href="/machines/{{row.machine_id}}/"{% if not row.online %} class="fleet-offline"{% endif %}>
+                                <td><a class="row-link" href="/machines/{{row.machine_id}}/"{% if row.label != row.name %} title="{{row.name}}"{% endif %}>{{row.label|default:"Unnamed"}}</a></td>
                                 <td><a href="/user/{{row.owner|urlencode:''}}/">{{row.owner}}</a></td>
                                 <td class="fleet-cpu" title="{{row.cpu_name}}">{{row.cpu_name}}</td>
                                 <td class="mono">{{row.isa_name|default:"—"}}</td>

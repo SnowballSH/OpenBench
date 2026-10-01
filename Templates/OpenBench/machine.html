@@ -107,8 +107,8 @@
                         </thead>
                         <tbody>
                             {% for item in detail.contributions %}
-                                <tr>
-                                    <td><a href="{{item.test|workload_url}}">{{item.test|workload_pretty_name}}</a></td>
+                                <tr data-row-href="{{item.test|workload_url}}">
+                                    <td><a class="row-link" href="{{item.test|workload_url}}"><span class="row-id">#{{item.test.id}}</span> {{item.test|workload_pretty_name}}</a></td>
                                     <td class="mono">{{item.test.test_mode}}</td>
                                     <td class="numeric">{{item.games|insertCommas}}</td>
                                     <td class="numeric">{{item.sessions|insertCommas}}</td>
@@ -144,8 +144,8 @@
                     </thead>
                     <tbody>
                         {% for session in detail.sessions %}
-                            <tr{% if session.selected %} class="fleet-selected" aria-current="true"{% endif %}>
-                                <td class="mono"><a href="/machines/{{session.machine_id}}/">#{{session.machine_id}}</a></td>
+                            <tr data-row-href="/machines/{{session.machine_id}}/"{% if session.selected %} class="fleet-selected" aria-current="true"{% endif %}>
+                                <td class="mono"><a class="row-link" href="/machines/{{session.machine_id}}/">#{{session.machine_id}}</a></td>
                                 <td>
                                     {% if session.online %}<span class="badge badge-pass">Online</span>{% endif %}
                                     <time class="muted" datetime="{{session.last_seen|date:'c'}}" title="{{session.last_seen|date:'c'}}">{{session.last_seen_ago}}</time>

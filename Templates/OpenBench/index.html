@@ -46,8 +46,14 @@
         </section>
     {% endif %}
 
+    <div class="row-filter">
+        <label for="row-filter" class="visually-hidden">Filter the workloads on this page</label>
+        <input type="search" id="row-filter" data-row-filter="workload-list" data-row-filter-count="row-filter-count" placeholder="Filter this page by name, author, info or result" autocomplete="off">
+        <span id="row-filter-count" class="row-filter-count muted" role="status"></span>
+    </div>
+
     <div class="table-wrap w-100">
-    <table class="test-list stripes hoverable">
+    <table id="workload-list" class="test-list stripes hoverable">
 
         <!-- Only show Pending tests for the front page of the Index -->
         {% if paging.page == 1 %}
@@ -56,7 +62,7 @@
             {% if pending %}
                 <tr class="table-header"><th colspan='7'>Pending</th></tr>
                 {% for test in pending %}
-                    <tr>
+                    <tr data-row-href="{{test|workload_url}}">
                         {% include "OpenBench/Blocks/testsummary.html" %}
                     </tr>
                 {% endfor %}
@@ -69,7 +75,7 @@
                 {% for group in active %}
                     <tr class="table-small-header"><th colspan='7'>Priority {{group.priority}}</th></tr>
                     {% for test in group.tests %}
-                        <tr>
+                        <tr data-row-href="{{test|workload_url}}">
                             {% include "OpenBench/Blocks/testsummary.html" with show_progress=True %}
                         </tr>
                     {% endfor %}
@@ -82,7 +88,7 @@
         <!-- Tests which have already finished -->
         <tr class="table-header"><th colspan='7'>Finished</th></tr>
         {% for test in completed %}
-            <tr>
+            <tr data-row-href="{{test|workload_url}}">
                 {% include "OpenBench/Blocks/testsummary.html" %}
             </tr>
         {% endfor %}

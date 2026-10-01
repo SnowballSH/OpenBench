@@ -20,10 +20,10 @@
         </tr>
 
         {% for event in events %}
-            <tr>
+            <tr{% if event.workload %} data-row-href="{{event.workload|workload_url}}"{% endif %}>
                 <td class="timestamp muted">{{event.created|date:'U'}}</td>
                 <td>{{event.author|capfirst}}</td>
-                <td>{% if event.workload %}<a href="{{event.workload|workload_url}}">{{event.workload.dev.name|prettyName}}</a>{% endif %}</td>
+                <td>{% if event.workload %}<a class="row-link" href="{{event.workload|workload_url}}"><span class="row-id">#{{event.workload.id}}</span> {{event.workload.dev.name|short_name}}</a>{% endif %}</td>
                 <td class="mono">{{event.workload.dev_time_control}}</td>
                 <td>{{event.summary}}</td>
             </tr>

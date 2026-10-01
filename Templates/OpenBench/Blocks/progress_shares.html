@@ -10,8 +10,8 @@
             </thead>
             <tbody>
                 {% for row in rows %}
-                    <tr>
-                        <td>{% if row.url %}<a href="{{row.url}}">{{row.name}}</a>{% else %}{{row.name}}{% endif %}</td>
+                    <tr{% if row.url %} data-row-href="{{row.url}}"{% endif %}>
+                        <td>{% if row.url %}<a class="row-link" href="{{row.url}}">{{row.name}}</a>{% else %}{{row.name}}{% endif %}</td>
                         <td class="share-cell"><span class="share-bar" data-share="{{row.share}}" aria-hidden="true"></span>{{row.percent}}</td>
                         <td class="numeric">{{row.value}}</td>
                     </tr>

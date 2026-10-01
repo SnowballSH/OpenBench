@@ -64,6 +64,7 @@ from OpenBench.tests.fixtures import (
     register_payload,
     system_info,
 )
+from OpenBench.tests.test_listing_rows import row_audit
 from OpenBench.utils import getMachineStatus
 
 NOW = datetime(2026, 9, 30, 12, tzinfo=UTC)
@@ -748,6 +749,12 @@ class HostGroupingTests(TestCase):
         self.assertEqual(expanded.context['page'].expanded, Pool('lab-worker', 'batch-*', 'AMD EPYC 9R14'))
         self.assertContains(expanded, 'Group them again')
         self.assertContains(expanded, f'title="batch-{JOB_IDS[0]}:0"')
+
+        host_page = self.client.get(f'/machines/{self.earlier.id}/')
+        for page_response in (response, expanded, host_page):
+            audit = row_audit(page_response.content.decode())
+            self.assertEqual(audit.defects(), [])
+            self.assertGreaterEqual(len(audit.rows), 3)
 
         ignored = self.client.get('/machines/?show=24h&pool=not-a-key').context['page']
         self.assertEqual(len(ignored.rows), 3)

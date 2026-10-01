@@ -24,8 +24,13 @@ OPENBENCH_DEBUG=1 python manage.py runserver
 
 `seed_demo` fills an empty development database with accounts, Machines (one
 of them a supervised host with a registration per workload and idle ones in
-between, and a few ephemeral `batch-<uuid>` cloud jobs) and Workloads of every mode (SPRT, fixed games, SPSA tunes, datagen) in every
-state, so pages can be seen with realistic data. It refuses
+between, and a few ephemeral `batch-<uuid>` cloud jobs) and
+Workloads of every mode (SPRT, fixed games, SPSA tunes, datagen) in every
+state, so pages can be seen with realistic data. Its `COMMIT_CHAIN` also seeds
+commit-pinned SPRT tests the way the lab agent creates them: both branch names
+are 40-hex SHAs, each commit is tested at STC and then LTC, an accepted commit
+becomes the next base, and rejected or still-running candidates share a base.
+`chain_workloads` turns any list of `DemoCommit` into those tests. It refuses
 to run without `OPENBENCH_DEBUG`, and prints the demo login it created.
 
 The PGN watcher is started by the WSGI entrypoint (`OpenSite/wsgi.py`), which

@@ -23,6 +23,7 @@ import django
 import re
 
 import OpenBench.config
+import OpenBench.listing_rows
 import OpenBench.models
 import OpenBench.page_queries
 import OpenBench.spsa_utils
@@ -187,6 +188,9 @@ def prettyDevName(test):
 
     return prettyName(test.dev.name)
 
+def workload_label(test):
+    return OpenBench.listing_rows.workload_label(test, prettyDevName(test))
+
 def testIdToPrettyName(test_id):
     return prettyName(OpenBench.models.Test.objects.get(id=test_id).dev.name)
 
@@ -349,6 +353,9 @@ register.filter('test_is_fischer'   , test_is_fischer   )
 
 register.filter('workload_progress', workload_progress)
 register.filter('listing_timing', OpenBench.page_queries.listing_row_timing)
+register.filter('listing_moment', OpenBench.listing_rows.listing_moment)
+register.filter('workload_label', workload_label)
+register.filter('short_name', OpenBench.listing_rows.short_name)
 
 
 @register.filter
