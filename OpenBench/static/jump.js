@@ -62,8 +62,11 @@
         let active = -1;
         let timer = null;
         let pending = null;
+        let listed_for = null;
 
+        const current_text = () => input.value.trim();
         const options = () => [...list.children];
+        const has_current_options = () => list.children.length > 0 && listed_for === current_text();
         const is_open = () => !list.hidden;
 
         function set_active(index) {
@@ -97,7 +100,15 @@
             set_open(false);
         }
 
-        function show(suggestions) {
+        function clear() {
+            list.replaceChildren();
+            listed_for = null;
+            set_open(false);
+        }
+
+        function show(text, suggestions) {
+            if (text !== current_text()) return;
+            listed_for = text;
             list.replaceChildren(...suggestions.filter(suggestion => same_origin(suggestion.url)).map(build_option));
             set_active(-1);
             set_open(list.children.length > 0 && document.activeElement === input);
@@ -113,26 +124,26 @@
             })
                 .then(response => response.ok ? response.json() : Promise.reject(new Error(response.status)))
                 .then(data => {
-                    if (pending === controller) show(data.suggestions || []);
+                    if (pending === controller) show(text, data.suggestions || []);
                 })
                 .catch(() => {
-                    if (pending === controller) set_open(false);
+                    if (pending === controller) clear();
                 });
         }
 
         function schedule() {
             cancel_pending();
-            const text = input.value.trim();
+            const text = current_text();
             if (!text) {
-                set_open(false);
+                clear();
                 return;
             }
+            set_active(-1);
             timer = window.setTimeout(() => request(text), SUGGEST_DELAY_MS);
         }
 
         function move(step) {
             const count = list.children.length;
-            if (!count) return;
             if (!is_open()) set_open(true);
             const next = active < 0 ? (step > 0 ? 0 : count - 1) : active + step;
             set_active(next < 0 || next >= count ? -1 : next);
@@ -149,6 +160,7 @@
 
         input.addEventListener('keydown', event => {
             if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+                if (!has_current_options()) return;
                 event.preventDefault();
                 move(event.key === 'ArrowDown' ? 1 : -1);
             }
@@ -157,6 +169,8 @@
                 follow(list.children[active]);
             }
             else if (event.key === 'Escape' && is_open()) {
+                // A search input would otherwise clear its text on Escape
+                event.preventDefault();
                 event.stopImmediatePropagation();
                 close();
             }

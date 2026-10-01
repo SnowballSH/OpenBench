@@ -683,7 +683,10 @@ body.standalone {
     }
 
     .quick-jump-field > input {
-        padding-right: 0;
+        box-sizing: border-box;
+        height: var(--control-height);
+        min-height: 0;
+        padding: 0 0 0 calc(var(--control-height) - 2px);
         font-size: 1rem;
         cursor: pointer;
     }
@@ -702,7 +705,7 @@ body.standalone {
     }
 
     .quick-jump-field:focus-within > input {
-        padding-right: 0.625rem;
+        padding: 0 0.625rem 0 var(--control-height);
         cursor: text;
     }
 }
