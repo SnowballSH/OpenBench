@@ -3,10 +3,8 @@ from collections.abc import Iterable, Mapping
 from datetime import UTC, date, datetime, time, timedelta
 from itertools import groupby
 
-from OpenBench.insights.strength import elo_interval
 from OpenBench.progress.domain import (
     DEFAULT_WINDOW,
-    ELO_STEPS_LIMIT,
     ENGINE_NAME_LIMIT,
     NO_OUTCOMES,
     TOP_LIMIT,
@@ -14,9 +12,7 @@ from OpenBench.progress.domain import (
     Contributor,
     DailyGames,
     DayMaximum,
-    EloStep,
-    GreenRow,
-    GreenTest,
+    LineageSummary,
     OutcomeCounts,
     Scope,
     Summary,
@@ -56,32 +52,6 @@ def make_scope(window: Window, engine: str | None, now: datetime) -> Scope:
 
 def week_start(day: date) -> date:
     return day - timedelta(days=day.weekday())
-
-
-def green_tests(rows: Iterable[GreenRow]) -> list[GreenTest]:
-    greens: list[GreenTest] = []
-    total = 0.0
-    for row in sorted(rows, key=lambda row: (row.finished_at, row.id)):
-        interval = elo_interval(row.outcomes.primary())
-        total += interval.value if interval else 0.0
-        greens.append(
-            GreenTest(
-                id=row.id,
-                name=row.name,
-                finished_at=row.finished_at,
-                games=row.games,
-                elo_bounds=row.elo_bounds,
-                elo=interval,
-                cumulative_elo=total,
-            )
-        )
-    return greens
-
-
-def elo_steps(greens: list[GreenTest], limit: int = ELO_STEPS_LIMIT) -> list[EloStep]:
-    count = len(greens)
-    kept = range(count) if count <= limit else sorted({round(i * (count - 1) / (limit - 1)) for i in range(limit)})
-    return [EloStep(greens[index].finished_at, greens[index].cumulative_elo, index + 1) for index in kept]
 
 
 def games_by_day(maxima: Iterable[DayMaximum], baselines: Mapping[int, int]) -> dict[date, int]:
@@ -135,7 +105,7 @@ def top_authors(tests_by_author: Mapping[str, int]) -> list[Author]:
 
 
 def summarize(
-    greens: list[GreenTest],
+    lineage: LineageSummary,
     outcomes: Iterable[OutcomeCounts],
     daily: list[DailyGames],
     tests_by_author: Mapping[str, int],
@@ -144,9 +114,7 @@ def summarize(
     sprt = sum(outcomes, NO_OUTCOMES)
     games = sum(day.games for day in daily)
     return Summary(
-        elo_gained=greens[-1].cumulative_elo if greens else 0.0,
-        greens=len(greens),
-        greens_without_elo=sum(green.elo is None for green in greens),
+        lineage=lineage,
         sprt=sprt,
         sprt_pass_rate=sprt.pass_rate,
         games=games,
