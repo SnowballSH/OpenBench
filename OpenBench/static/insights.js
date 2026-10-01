@@ -459,7 +459,7 @@
     }
 
     function outcome_cell(outcome) {
-        const cell = element('td', 'contribution-name outcome-name');
+        const cell = element('td', 'contribution-name results-outcome-name');
         cell.append(element('span', null, outcome.label));
         if (outcome.detail) cell.append(element('span', 'contribution-sub', outcome.detail));
         return cell;
@@ -467,7 +467,7 @@
 
     function outcome_share_cell(fraction, widest, tone) {
         const cell = element('td', 'share-cell');
-        const bar = element('span', `share-bar outcome-bar outcome-bar-${tone}`);
+        const bar = element('span', `share-bar results-outcome-bar results-outcome-bar-${tone}`);
         bar.setAttribute('aria-hidden', 'true');
         bar.style.setProperty('--share', widest > 0 ? (fraction / widest).toFixed(4) : '0');
         cell.append(bar, element('span', 'share-value', format_percent(fraction)));
@@ -556,7 +556,7 @@
 
     function cpu_table(results) {
         const readings = new Map((results.speed ? results.speed.cpus : []).map(cpu => [cpu.cpu_name, cpu.reading]));
-        return group_table('By CPU', 'CPU', results.consistency.cpus.map(cpu => (
+        return group_table('Consistency by CPU', 'CPU', results.consistency.cpus.map(cpu => (
             { label: cpu_group_label(cpu), stats: cpu.stats, reading: readings.get(cpu.cpu_name) })));
     }
 
@@ -576,11 +576,32 @@
         return hosts.flagged.length ? `${format_count(hosts.flagged.length)} of ${total} flagged` : `${total}, none stands out`;
     }
 
+    function games_section() {
+        return document.querySelector('[data-games-insights]');
+    }
+
+    function games_shown() {
+        const section = games_section();
+        return Boolean(section) && !section.hidden;
+    }
+
+    function games_pointer() {
+        const note = element('p', 'insights-note');
+        const link = element('a', null, 'Games');
+        link.href = '#games-insights';
+        note.append('Pair outcomes, with the level bucket split into two draws and a win with a loss, are under ', link, '.');
+        return note;
+    }
+
     function results_tables(results, insights) {
         const grid = element('div', 'results-grid');
-        const outcomes = outcome_table(results, insights);
+        const outcomes = games_shown() ? null : outcome_table(results, insights);
         if (outcomes) grid.append(outcomes);
-        if (results.consistency.cpus.length) grid.append(cpu_table(results));
+        if (results.consistency.cpus.length) {
+            const cpus = cpu_table(results);
+            if (!outcomes) cpus.classList.add('results-wide');
+            grid.append(cpus);
+        }
         if (results.consistency.hosts.flagged.length) {
             const hosts = flagged_host_table(results.consistency.hosts.flagged);
             hosts.classList.add('results-wide');
@@ -608,6 +629,7 @@
             group.append(grid);
         }
         if (results.outlook) group.append(outlook_note(results.outlook));
+        if (games_shown()) group.append(games_pointer());
         group.append(results_tables(results, insights));
         container.replaceChildren(group);
     }
@@ -997,6 +1019,15 @@
             this.refresh();
             document.addEventListener('visibilitychange', () => this.on_visibility());
             watch_theme(() => this.render_charts(true));
+            this.watch_games();
+        }
+
+        watch_games() {
+            const section = games_section();
+            if (!section) return;
+            new MutationObserver(() => {
+                if (this.latest) render_results(this.results, this.latest);
+            }).observe(section, { attributes: true, attributeFilter: ['hidden'] });
         }
 
         get polled() {

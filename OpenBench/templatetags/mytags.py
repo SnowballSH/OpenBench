@@ -23,6 +23,7 @@ import django
 import re
 
 import OpenBench.config
+import OpenBench.diagnosis.listing
 import OpenBench.listing_rows
 import OpenBench.models
 import OpenBench.page_queries
@@ -353,6 +354,7 @@ register.filter('test_is_fischer'   , test_is_fischer   )
 
 register.filter('workload_progress', workload_progress)
 register.filter('listing_timing', OpenBench.page_queries.listing_row_timing)
+register.filter('row_reason', OpenBench.diagnosis.listing.row_reason)
 register.filter('listing_moment', OpenBench.listing_rows.listing_moment)
 register.filter('workload_label', workload_label)
 register.filter('short_name', OpenBench.workload_names.short_name)

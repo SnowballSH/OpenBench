@@ -97,7 +97,7 @@ without relying on fill alone.
   is the one-paragraph verdict with a toned left edge; `.insights-details`
   a small `<details>` note under the tiles; `.results-grid` lays
   the outcome table beside the By CPU table, `.results-wide` spans it; and
-  `.outcome-bar-{loss,loss-soft,level,win-soft,win}` recolour a `.share-bar`
+  `.results-outcome-bar-{loss,loss-soft,level,win-soft,win}` recolour a `.share-bar`
   along the loss-to-win scale, always beside its text label.
 - **Server strip**: `.server-stats` is the compact tile grid at the top of the
   index. `.row-progress` (`-games` fill or `-llr` marker, `--fraction`) is the
@@ -122,6 +122,13 @@ without relying on fill alone.
   the page's `scripts` block. Never put a click handler on a bare `<th>`.
 - **Banners**: `.error-message`, `.warning-message`, `.status-message` render
   the session messages in `base.html`.
+- **Diagnosis**: `.diagnosis` with `.diagnosis-{ok,info,warning}` is the
+  workload page's "what is this waiting for" (or "what stopped this") banner (`Blocks/diagnosis.html`):
+  a `<section>` with a hidden `<h2>`, the headline, and the evidence in a
+  `<details>` that starts open only for a warning. `.row-reason` is the same
+  verdict in a few words on a listing row's `.row-meta` line,
+  `.row-reason-warning` in `--warn-text`; its hidden "Status:" prefix and its
+  `title` carry the meaning without the colour.
 - **Error pages**: `OpenBench/security/error_pages.py` serves `404.html` and
   `403.html` in the site layout with an empty Engines list, so they run no
   query and show an anonymous visitor nothing about the server. `500.html`
@@ -411,6 +418,11 @@ Rules the charts follow:
   fitted to the interval from 10% of the games onwards, so the very wide first
   points are clipped rather than flattening the rest; the tooltip still shows
   their values.
+- The game-length histogram (`games.js`) stacks two series, decisive in
+  `--series-1` and drawn in `--series-2`, so it carries a legend above the
+  plot and its tooltip names both; the win/draw/loss bars in the colour table
+  use `--pass`, `--neutral-edge` and `--fail` with a legend and the counts
+  beside them.
 - Every canvas has `role="img"` and an `aria-label` stating the latest value.
 - The `--series-1` to `--series-4` values were re-stepped for this feature and
   pass the categorical palette checks (lightness band, chroma, colour-vision

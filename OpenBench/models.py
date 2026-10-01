@@ -353,7 +353,10 @@ class LogEvent(Model):
         return "{0} {1} {2}".format(self.author, str(self.test_id), self.summary)
 
     class Meta:
-        indexes = [Index(fields=['machine_id'], name='logevent_machine')]
+        indexes = [
+            Index(fields=['machine_id'], name='logevent_machine'),
+            Index(fields=['test_id', 'machine_id'], name='logevent_test_machine'),
+        ]
 
 class Network(Model):
 
@@ -386,6 +389,22 @@ class PGN(Model):
 
     class Meta:
         indexes = [Index(fields=['test_id'], condition=Q(processed=False), name='pgn_unprocessed')]
+
+class GameAnalysis(Model):
+
+    # Counters folded from a Test's PGN archive, with the archive offset they
+    # cover so later batches are added without re-reading; see docs/INSIGHTS.md
+    test           = OneToOneField('Test', CASCADE, related_name='game_analysis')
+    version        = IntegerField(default=0)
+    state          = JSONField(default=dict)
+    games          = IntegerField(default=0)
+    members        = IntegerField(default=0)
+    analysed_bytes = BigIntegerField(default=0)
+    complete       = BooleanField(default=False)
+    updated        = DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return '{0} ({1} games)'.format(self.test_id, self.games)
 
 class SPSARun(Model):
 

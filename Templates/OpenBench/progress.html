@@ -90,7 +90,7 @@
                             {% for line in page.lineage.lines %}
                                 <tr class="{% if line.on_trunk %}lineage-trunk{% else %}lineage-candidate lineage-depth-{{line.depth}}{% endif %}"{% if line.row_url %} data-row-href="{{line.row_url}}"{% endif %}>
                                     <td class="numeric">{% if line.on_trunk %}{{line.position}}{% else %}<span class="muted">candidate</span>{% endif %}</td>
-                                    <td class="lineage-step"><span class="lineage-commits mono">{% if line.base.url %}<a href="{{line.base.url}}">{{line.base.label}}</a>{% else %}{{line.base.label}}{% endif %} → {% if line.dev.url %}<a href="{{line.dev.url}}">{{line.dev.label}}</a>{% else %}{{line.dev.label}}{% endif %}{% if line.compare_url %} <a class="lineage-diff" href="{{line.compare_url}}">diff<span class="visually-hidden"> {{line.base.label}} to {{line.dev.label}}</span></a>{% endif %}</span>{% if line.subject %}<span class="lineage-subject">{{line.subject}}</span>{% endif %}<span class="lineage-detail muted">{{line.tested_on|date:"M j, Y"}} · {{line.author}}</span></td>
+                                    <td class="lineage-step"><span class="lineage-commits mono">{% if line.base.url %}<a href="{{line.base.url}}">{{line.base.label}}</a>{% else %}{{line.base.label}}{% endif %} → {% if line.dev.url %}<a href="{{line.dev.url}}">{{line.dev.label}}</a>{% else %}{{line.dev.label}}{% endif %}{% if line.compare_url %} <a class="lineage-diff" href="{{line.compare_url}}">diff<span class="visually-hidden"> {{line.base.label}} to {{line.dev.label}}</span></a>{% endif %}</span>{% if line.subject %}<span class="lineage-subject">{{line.subject}}</span>{% endif %}<span class="lineage-detail muted">{{line.tested_on|date:"M j, Y"}} · {{line.author}}{% if line.bench %} · {{line.bench}}{% endif %}</span>{% if line.economics %}<span class="lineage-detail muted">{{line.economics}}</span>{% endif %}</td>
                                     {% for cell in line.cells %}
                                         <td class="lineage-cell">{% if cell %}<span class="mono{% if cell.provisional %} lineage-provisional{% endif %}">{{cell.elo}}</span>{% if cell.provisional %} <span class="muted">so far</span>{% endif %} <span class="badge{% if cell.tone %} badge-{{cell.tone}}{% endif %}">{{cell.verdict}}</span><span class="lineage-detail muted">{{cell.detail}} ·{% for run in cell.runs %} <a{% if run.primary %} class="row-link"{% endif %} href="{{run.url}}"><span class="visually-hidden">Workload </span>{{run.label}}</a>{% endfor %}</span>{% else %}<span class="muted">not measured</span>{% endif %}</td>
                                     {% endfor %}
@@ -148,7 +148,7 @@
                                 <tbody>
                                     {% for line in page.lineage.detached %}
                                         <tr{% if line.row_url %} data-row-href="{{line.row_url}}"{% endif %}>
-                                            <td class="lineage-step"><span class="lineage-commits mono">{% if line.base.url %}<a href="{{line.base.url}}">{{line.base.label}}</a>{% else %}{{line.base.label}}{% endif %} → {% if line.dev.url %}<a href="{{line.dev.url}}">{{line.dev.label}}</a>{% else %}{{line.dev.label}}{% endif %}{% if line.compare_url %} <a class="lineage-diff" href="{{line.compare_url}}">diff<span class="visually-hidden"> {{line.base.label}} to {{line.dev.label}}</span></a>{% endif %}</span>{% if line.subject %}<span class="lineage-subject">{{line.subject}}</span>{% endif %}<span class="lineage-detail muted">{{line.tested_on|date:"M j, Y"}} · {{line.author}}</span></td>
+                                            <td class="lineage-step"><span class="lineage-commits mono">{% if line.base.url %}<a href="{{line.base.url}}">{{line.base.label}}</a>{% else %}{{line.base.label}}{% endif %} → {% if line.dev.url %}<a href="{{line.dev.url}}">{{line.dev.label}}</a>{% else %}{{line.dev.label}}{% endif %}{% if line.compare_url %} <a class="lineage-diff" href="{{line.compare_url}}">diff<span class="visually-hidden"> {{line.base.label}} to {{line.dev.label}}</span></a>{% endif %}</span>{% if line.subject %}<span class="lineage-subject">{{line.subject}}</span>{% endif %}<span class="lineage-detail muted">{{line.tested_on|date:"M j, Y"}} · {{line.author}}{% if line.bench %} · {{line.bench}}{% endif %}</span>{% if line.economics %}<span class="lineage-detail muted">{{line.economics}}</span>{% endif %}</td>
                                             <td class="lineage-cell">{% for cell in line.cells %}<span class="lineage-measurement"><span class="muted">{{cell.label}}</span> {% if cell %}<span class="mono{% if cell.provisional %} lineage-provisional{% endif %}">{{cell.elo}}</span>{% if cell.provisional %} <span class="muted">so far</span>{% endif %} <span class="badge{% if cell.tone %} badge-{{cell.tone}}{% endif %}">{{cell.verdict}}</span><span class="lineage-detail muted">{{cell.detail}} ·{% for run in cell.runs %} <a{% if run.primary %} class="row-link"{% endif %} href="{{run.url}}"><span class="visually-hidden">Workload </span>{{run.label}}</a>{% endfor %}</span>{% else %}<span class="muted">not measured</span>{% endif %}</span>{% endfor %}</td>
                                         </tr>
                                     {% endfor %}
@@ -163,6 +163,139 @@
                 <p class="insights-empty">No test of one commit against another yet.</p>
             {% endif %}
         </section>
+
+        {% if page.economics %}
+        <section class="progress-economics" id="progress-economics" aria-labelledby="progress-economics-title">
+            <div class="progress-economics-heading">
+                <h2 id="progress-economics-title" class="card-title">Economics &amp; speed</h2>
+                <span class="muted">What the window's trunk steps and their candidates cost to test, and whether the engine searched slower as it got stronger</span>
+            </div>
+
+            <div class="stat-tiles">
+                {% for tile in page.economics.tiles %}
+                    <div class="stat-tile{% if tile.tone %} stat-tile-{{tile.tone}}{% endif %}">
+                        <span class="stat-label">{{tile.label}}</span>
+                        <span class="stat-value">{{tile.value}}</span>
+                        <span class="stat-meta">{{tile.meta}}</span>
+                    </div>
+                {% endfor %}
+            </div>
+
+            <div class="progress-charts progress-charts-small">
+                <figure class="card chart-card">
+                    <figcaption class="chart-caption">
+                        <span class="card-title">Speed along the trunk</span>
+                        <span class="chart-subtitle" id="progress-speed-description">Nodes per second of dev over base on the same machines, chained step by step: the engine's search speed relative to the commit the window starts from. The band is a rough 95% interval from host-to-host scatter, drawn while every step so far has an interval of its own (at least two hosts, none dominating). A step without node counters leaves a gap and adds nothing.</span>
+                    </figcaption>
+                    <div class="chart-box" data-progress-chart="speed">
+                        <canvas role="img" aria-label="Speed along the trunk chart" aria-describedby="progress-speed-description" aria-details="progress-speed-table"></canvas>
+                    </div>
+                    <p class="chart-empty" hidden></p>
+                    <details class="progress-data-table">
+                        <summary>Data table</summary>
+                        <div class="table-wrap w-100">
+                            <table class="stripes w-100" id="progress-speed-table">
+                                <caption class="visually-hidden">Search speed of each trunk step, dev against base, and chained since the window's start</caption>
+                                <thead>
+                                    <tr class="table-header">
+                                        <th scope="col" class="numeric">Step</th>
+                                        <th scope="col">Dev vs base (95%)</th>
+                                        <th scope="col" class="numeric">Hosts</th>
+                                        <th scope="col">Chained (95%)</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for row in page.economics.speed %}
+                                        <tr>
+                                            <td class="numeric">{{row.position}}</td>
+                                            <td class="mono">{{row.step}}</td>
+                                            <td class="numeric">{{row.hosts}}</td>
+                                            <td class="mono">{{row.cumulative}}</td>
+                                        </tr>
+                                    {% empty %}
+                                        <tr><td colspan="4" class="muted">No trunk step in this window.</td></tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </details>
+                </figure>
+
+                <figure class="card chart-card">
+                    <figcaption class="chart-caption">
+                        <span class="card-title">Trunk steps per week</span>
+                        <span class="chart-subtitle" id="progress-cadence-description">Settled steps of the window's trunk (no test still running) by the UTC week (from Monday) their last passing test finished in; a step that was built on without a pass counts when its last test finished.</span>
+                    </figcaption>
+                    <div class="chart-box" data-progress-chart="cadence">
+                        <canvas role="img" aria-label="Trunk steps per week chart" aria-describedby="progress-cadence-description" aria-details="progress-cadence-table"></canvas>
+                    </div>
+                    <p class="chart-empty" hidden></p>
+                    <details class="progress-data-table">
+                        <summary>Data table</summary>
+                        <div class="table-wrap w-100">
+                            <table class="stripes w-100" id="progress-cadence-table">
+                                <caption class="visually-hidden">Trunk steps per week</caption>
+                                <thead>
+                                    <tr class="table-header">
+                                        <th scope="col">Week of</th>
+                                        <th scope="col" class="numeric">Steps</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for week in page.economics.weeks %}
+                                        <tr>
+                                            <td>{{week.week_start|date:"M j, Y"}}</td>
+                                            <td class="numeric">{{week.steps}}</td>
+                                        </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </details>
+                </figure>
+            </div>
+
+            <div class="card progress-section">
+                <div class="card-header">
+                    <h3 id="progress-classes-title" class="card-title">Testing economics by class</h3>
+                    <span class="muted">Every run of the window's trunk steps and candidates; pass rate and medians count decided SPRT runs</span>
+                </div>
+                <div class="table-wrap w-100">
+                    <table class="stripes w-100" aria-labelledby="progress-classes-title">
+                        <thead>
+                            <tr class="table-header">
+                                <th scope="col">Class</th>
+                                <th scope="col" class="numeric">Passed</th>
+                                <th scope="col" class="numeric">Failed</th>
+                                <th scope="col" class="numeric">Pass rate</th>
+                                <th scope="col" class="numeric">Median games to pass</th>
+                                <th scope="col" class="numeric">Median games to fail</th>
+                                <th scope="col" class="numeric">Games</th>
+                                <th scope="col" class="numeric">Core-hours</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for row in page.economics.classes %}
+                                <tr>
+                                    <th scope="row">{{row.label}}</th>
+                                    <td class="numeric">{{row.passed}}</td>
+                                    <td class="numeric">{{row.failed}}</td>
+                                    <td class="numeric">{{row.pass_rate}}</td>
+                                    <td class="numeric">{{row.games_to_pass}}</td>
+                                    <td class="numeric">{{row.games_to_fail}}</td>
+                                    <td class="numeric">{{row.games}}</td>
+                                    <td class="numeric">{{row.core_hours}}</td>
+                                </tr>
+                            {% empty %}
+                                <tr><td colspan="8" class="muted">No test on the trunk or off it in this window.</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                <p class="muted progress-note progress-spending">{{page.economics.spending}} Core-hours are the engines' own move times from the workers' node counters, times each side's thread count: search time, not machine uptime.</p>
+            </div>
+        </section>
+        {% endif %}
 
         <div class="progress-charts">
 

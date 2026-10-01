@@ -4,14 +4,18 @@
 #
 # Creates accounts, an Engine, a Book, a fleet of Machines, and Workloads of
 # every mode (SPRT, GAMES, SPSA, DATAGEN) in every state, each with per-Machine
-# Results and a WorkloadSnapshot history. COMMIT_CHAIN adds commit-pinned
+# Results and a WorkloadSnapshot history. Two tests that upload PGNs get a small
+# synthetic archive, formatted by the Client's own code. COMMIT_CHAIN adds commit-pinned
 # tests like a lab agent creates: both branch names are 40-hex SHAs, each
 # commit is tested at STC then LTC, and an accepted commit is the next base. Refuses to run without DEBUG, or
 # against a database that already holds Workloads.
 
 import datetime
 import hashlib
+import io
+import math
 import random
+import tarfile
 import uuid
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
@@ -25,7 +29,11 @@ from django.db.models import Q, Sum
 from django.utils import timezone
 
 from OpenBench.fleet.hosts import host_key
+from OpenBench.games.archive import Budget
+from OpenBench.games.service import archive_path, refresh
+from OpenBench.games.synthetic import MatchSetup, raw_runner_file, upload_batch
 from OpenBench.models import (
+    PGN,
     Book,
     Engine,
     EngineConfig,
@@ -84,11 +92,21 @@ SPRT_MAX_PAIRS = 40_000
 
 DEFAULT_INFO = 'Seeded demonstration workload'
 
+DEFAULT_SPEED = 1.02
+
 STC = '8.0+0.08'
 
 LTC = '40.0+0.4'
 
 LTC_HASH_MB = 64
+
+PGN_BATCHES = 5
+
+PGN_RUNNERS_PER_BATCH = 2
+
+PGN_PAIRS_PER_RUNNER = 12
+
+PGN_SEED_BUDGET = Budget(compressed_bytes=1 << 30, games=1 << 30, seconds=600.0)
 
 
 @dataclass(frozen=True)
@@ -115,6 +133,7 @@ class DemoWorkload:
     base_sha: str = ''
     info: str = DEFAULT_INFO
     hash_mb: int = 0
+    speed: float = DEFAULT_SPEED
 
 
 @dataclass(frozen=True)
@@ -132,6 +151,7 @@ class DemoCommit:
     stages: tuple[DemoStage, ...]
     accepted: bool = False
     author: int = 1
+    speed: float = 1.0
 
 
 @dataclass(frozen=True)
@@ -164,9 +184,9 @@ class DemoTune:
 
 
 WORKLOADS = [
-    DemoWorkload('lmr-tweak', 'SPRT', 2.5, 5200, 'active', priority=1),
+    DemoWorkload('lmr-tweak', 'SPRT', 2.5, 5200, 'active', priority=1, upload_pgns='VERBOSE'),
     DemoWorkload('history-bonus', 'SPRT', -1.0, 2600, 'active'),
-    DemoWorkload('nezha-v2', 'SPRT', 6.0, 3100, 'passed', bounds=(0.0, 5.0)),
+    DemoWorkload('nezha-v2', 'SPRT', 6.0, 3100, 'passed', bounds=(0.0, 5.0), upload_pgns='COMPACT'),
     DemoWorkload('aspiration-width', 'SPRT', -6.0, 1800, 'failed'),
     DemoWorkload('smp-scaling', 'GAMES', 12.0, 400, 'active', max_games=4000, tc='20.0+0.2', threads=4),
     DemoWorkload('qsearch-see', 'SPRT', 1.0, 0, 'pending'),
@@ -227,23 +247,34 @@ COMMIT_CHAIN = (
         9.0,
         (DemoStage(STC, 'passed'), DemoStage(LTC, 'passed', hash_mb=LTC_HASH_MB)),
         accepted=True,
+        speed=0.994,
     ),
-    DemoCommit('Prune quiet moves with negative static exchange', -7.0, (DemoStage(STC, 'failed'),)),
+    DemoCommit('Prune quiet moves with negative static exchange', -7.0, (DemoStage(STC, 'failed'),), speed=1.006),
     DemoCommit(
         'Extend the singular move search at high depth',
         8.0,
         (DemoStage(STC, 'passed'), DemoStage(STC, 'passed'), DemoStage(LTC, 'passed', hash_mb=LTC_HASH_MB)),
         accepted=True,
+        speed=0.981,
     ),
     DemoCommit(
         'Pawn static-eval correction history (corrhist-pawn), indexed by pawn structure and side',
         8.0,
         (DemoStage(STC, 'passed'), DemoStage(LTC, 'active', pairs=1400, hash_mb=LTC_HASH_MB)),
+        speed=0.968,
     ),
     DemoCommit('Widen aspiration windows after a fail high', 1.5, (DemoStage(STC, 'active', pairs=900),)),
 )
 
 CHAIN_ROOT = 'Seeded chain root'
+
+SHARE_OF_BASE_USED = 0.9
+
+MOVES_PER_SIDE = 70
+
+UNTIMED_SECONDS_PER_SIDE = 10.0
+
+SPEED_HOST_NOISE = 0.004
 
 CHAIN_SPAN_DAYS = 5.0
 
@@ -318,12 +349,40 @@ class Command(BaseCommand):
             create_batch_hosts(machines[SUPERVISED_HOST])
             assign_online_machines(machines)
             age_offline_machines(machines)
+            create_game_archives(options['seed'])
 
         self.stdout.write(
             f'Seeded {len(seeded_workloads()) + len(TUNES)} workloads on {len(machines)} machines '
             f'({Machine.objects.count()} registrations). '
             f'Log in as admin / {DEMO_PASSWORD}'
         )
+
+
+def create_game_archives(seed: int) -> None:
+    for test in Test.objects.filter(test_mode__in=('SPRT', 'GAMES'), games__gt=0).exclude(upload_pgns='FALSE'):
+        create_game_archive(test, random.Random(f'{seed}-pgn-{test.id}'))
+
+
+def create_game_archive(test: Test, rng: random.Random) -> None:
+
+    result = Result.objects.filter(test=test).order_by('id').first()
+    if result is None:
+        return
+
+    setup = MatchSetup(engine=test.dev_engine, time_control=test.dev_time_control)
+    path = archive_path(test.id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    with tarfile.open(path, 'w') as tar:
+        for batch in range(PGN_BATCHES):
+            runners = [raw_runner_file(setup, PGN_PAIRS_PER_RUNNER, rng) for _ in range(PGN_RUNNERS_PER_BATCH)]
+            content = upload_batch(runners, 1.0, compact=test.upload_pgns == 'COMPACT')
+            pgn = PGN.objects.create(test_id=test.id, result_id=result.id, book_index=batch, processed=True)
+            member = tarfile.TarInfo(pgn.filename())
+            member.size = len(content)
+            tar.addfile(member, io.BytesIO(content))
+
+    refresh(test, PGN_SEED_BUDGET)
 
 
 def commit_sha(subject: str) -> str:
@@ -361,6 +420,7 @@ def chain_workloads(
                     base_sha=base,
                     info=f'{commit.subject}\n{COMMIT_TAG}:{dev[:COMMIT_TAG_LENGTH]}',
                     hash_mb=stage.hash_mb,
+                    speed=commit.speed,
                 )
             )
         if commit.accepted:
@@ -389,6 +449,7 @@ def progress_checks(commits: Sequence[DemoCommit], root: str = CHAIN_ROOT) -> li
             base_sha=commit_sha(root),
             info=f'Progress since the chain root, up to: {newest.subject}',
             hash_mb=LTC_HASH_MB,
+            speed=math.prod(commit.speed for commit in commits if commit.accepted),
         )
     ]
 
@@ -678,7 +739,7 @@ def create_workload(spec: DemoWorkload, author: User, machines: list[Machine], r
     finished = spec.state in FINISHED_STATES
     decided = is_sprt and spec.state in ('passed', 'failed')
     outcomes = sprt_to_verdict(spec, rng) if decided else simulate_pairs(spec.elo, spec.pairs, rng)
-    record_outcomes(test, outcomes, finished, bounds, times, machines, rng)
+    record_outcomes(test, outcomes, finished, bounds, times, machines, rng, spec.speed)
 
     test.refresh_from_db()
     reached = 'passed' if test.passed else 'failed' if test.failed else 'stopped'
@@ -811,6 +872,7 @@ def record_outcomes(
     times: Schedule,
     machines: list[Machine],
     rng: random.Random,
+    speed: float = DEFAULT_SPEED,
 ) -> None:
 
     now = timezone.now()
@@ -824,12 +886,12 @@ def record_outcomes(
         if not sum(share):
             continue
         if machine is not machines[SUPERVISED_HOST]:
-            create_result(test, machine, share, rng)
+            create_result(test, machine, share, rng, speed)
             continue
         first, *later = session_shares(share)
-        create_result(test, register_session(machine), first, rng)
+        create_result(test, register_session(machine), first, rng, speed)
         for session_share in later:
-            create_result(test, register_session(machine), session_share, random.Random(test.id))
+            create_result(test, register_session(machine), session_share, random.Random(test.id), speed)
 
     wins, losses, draws = trinomial(penta)
     llr = PentanomialSPRT(penta, *bounds) if bounds and outcomes else 0.0
@@ -923,11 +985,22 @@ def trinomial(penta: Sequence[int]) -> tuple[int, int, int]:
     return wins, losses, 2 * sum(penta) - wins - losses
 
 
-def create_result(test: Test, machine: Machine, penta: Sequence[int], rng: random.Random) -> None:
+def seconds_per_side(time_control: str) -> float:
+    base, _, increment = time_control.partition('+')
+    try:
+        return SHARE_OF_BASE_USED * float(base) + MOVES_PER_SIDE * float(increment or 0)
+    except ValueError:
+        return UNTIMED_SECONDS_PER_SIDE
+
+
+def create_result(test: Test, machine: Machine, penta: Sequence[int], rng: random.Random, speed: float) -> None:
     pairs = sum(penta)
     wins, losses, draws = trinomial(penta)
-    time = pairs * rng.randint(9_000, 11_000)
+    draw = rng.randint(9_000, 11_000)
+    jitter = (draw - 10_000) / 1_000
+    time = int(2 * pairs * seconds_per_side(test.dev_time_control) * draw / 10)
     nodes = int(time * machine.mnps * 1000)
+    host_speed = speed * (1 + SPEED_HOST_NOISE * jitter)
     Result.objects.create(
         test=test,
         machine=machine,
@@ -943,7 +1016,7 @@ def create_result(test: Test, machine: Machine, penta: Sequence[int], rng: rando
         dev_nodes=nodes,
         dev_time=time,
         dev_time_scaled=time,
-        base_nodes=int(nodes * 0.98),
+        base_nodes=int(nodes / host_speed),
         base_time=time,
         base_time_scaled=time,
     )

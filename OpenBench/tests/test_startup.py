@@ -23,6 +23,19 @@ FIRST_IMPORTS = (
     'OpenBench.page_queries',
     'OpenBench.listing_rows',
     'OpenBench.navigation.catalogue',
+    'OpenBench.insights.api',
+    'OpenBench.diagnosis.api',
+    'OpenBench.diagnosis.domain',
+    'OpenBench.diagnosis.eligibility',
+    'OpenBench.diagnosis.engine_support',
+    'OpenBench.diagnosis.fleet',
+    'OpenBench.diagnosis.listing',
+    'OpenBench.diagnosis.reasoning',
+    'OpenBench.diagnosis.report',
+    'OpenBench.diagnosis.scheduler',
+    'OpenBench.diagnosis.sources',
+    'OpenBench.diagnosis.standing',
+    'OpenBench.diagnosis.views',
 )
 
 

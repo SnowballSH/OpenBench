@@ -108,7 +108,9 @@ in `pyproject.toml`:
   `api_authenticate`) and read `OPENBENCH_CONFIG` through
   [`OpenBench/upstream.py`](../OpenBench/upstream.py), which gives each one a
   typed signature instead of the `Any` it returns. Add a wrapper there rather
-  than calling a new upstream helper directly from a typed module.
+  than calling a new upstream helper directly from a typed module. The
+  scheduler's functions in `workloads/get_workload.py` are wrapped the same
+  way, in [`OpenBench/diagnosis/scheduler.py`](../OpenBench/diagnosis/scheduler.py).
 
 Fix a finding with a real annotation or narrowing. A `# type: ignore` must
 name its error code and give its reason on the same line; the only one today
@@ -120,7 +122,8 @@ is where `page_queries.attach_event_workloads` attaches a workload to each
 This is a fork of [AndyGrant/OpenBench](https://github.com/AndyGrant/OpenBench),
 and upstream changes are merged in periodically.
 
-- **Fork-owned**: `OpenBench/compare/`, `OpenBench/converters.py`, `OpenBench/fleet/`, `OpenBench/insights/`, `OpenBench/listing_rows.py`,
+- **Fork-owned**: `OpenBench/compare/`, `OpenBench/converters.py`, `OpenBench/fleet/`, `OpenBench/games/`, `OpenBench/insights/`, `OpenBench/listing_rows.py`,
+  `OpenBench/diagnosis/`,
   `OpenBench/machine_info.py`, `OpenBench/navigation/`, `OpenBench/progress/`, `OpenBench/security/`, `OpenBench/storage/`,
   `OpenBench/page_queries.py`, `OpenBench/upstream.py`, `OpenBench/workload_names.py`,
   `OpenBench/workloads/clone.py`,

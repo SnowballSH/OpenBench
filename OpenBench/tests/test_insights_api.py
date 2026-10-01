@@ -121,6 +121,7 @@ class InsightsApiTests(TestCase):
                 'history',
                 'contributions',
                 'results',
+                'diagnosis',
             },
         )
         self.assertEqual(insights['workload']['id'], self.test.id)

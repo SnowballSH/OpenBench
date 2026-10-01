@@ -63,14 +63,8 @@ def select_workload(request, machine):
     # Step 2: Count relevant threads on each candidate test
     worker_dist, engine_freq = compute_resource_distribution(candidates, machine, has_focus)
 
-    # Step 3: Determine the effective-throughput for each workload
-    if OPENBENCH_CONFIG['balance_engine_throughputs']:
-        for id, data in worker_dist.items():
-            data['throughput'] = data['throughput'] / engine_freq[data['engine']]
-
-    # Step 4: Compute the Resource Ratios for each of the workloads, if we were assigned
-    for id, data in worker_dist.items():
-        data['ratio'] = (data['threads'] + machine.info['concurrency']) / data['throughput']
+    # Steps 3 and 4: Compute the Resource Ratios for each of the workloads
+    apply_resource_ratios(worker_dist, engine_freq, machine)
 
     # Step 5: Compute the idealized "Fair-Ratio" once our machine is added
     min_ratio      = min(x['ratio'] for x in worker_dist.values())
@@ -92,6 +86,17 @@ def select_workload(request, machine):
     weights = [data['throughput'] for id, data in worker_dist.items() if data['ratio'] == min_ratio]
     return by_id[random.choices(choices, weights=weights)[0]]
 
+def apply_resource_ratios(worker_dist, engine_freq, machine):
+
+    # Step 3: Determine the effective-throughput for each workload
+    if OPENBENCH_CONFIG['balance_engine_throughputs']:
+        for id, data in worker_dist.items():
+            data['throughput'] = data['throughput'] / engine_freq[data['engine']]
+
+    # Step 4: Compute the Resource Ratios for each of the workloads, if we were assigned
+    for id, data in worker_dist.items():
+        data['ratio'] = (data['threads'] + machine.info['concurrency']) / data['throughput']
+
 def filter_valid_workloads(request, machine):
 
     # The ordering of get_active_tests() is for the GUI. It costs a sort that we
@@ -112,7 +117,7 @@ def filter_valid_workloads(request, machine):
         workloads = workloads.exclude(id__in=blacklisted)
 
     # Skip workloads with unmet Syzygy requirements
-    if unmet := ['%d-MAN' % (K) for K in range(machine.info['syzygy_max'] + 1, 10)]:
+    if unmet := unmet_syzygy_requirements(machine):
         workloads = workloads.exclude(syzygy_adj__in=unmet)
         workloads = workloads.exclude(syzygy_wdl__in=unmet)
 
@@ -122,6 +127,13 @@ def filter_valid_workloads(request, machine):
 
     # Skip workloads that we have insufficient threads to play
     options = [x for x in workloads if valid_hardware_assignment(x, machine)]
+
+    return refine_candidates(options, machine)
+
+def unmet_syzygy_requirements(machine):
+    return ['%d-MAN' % (K) for K in range(machine.info['syzygy_max'] + 1, 10)]
+
+def refine_candidates(options, machine):
 
     # Possible that no work exists for the machine
     if not options:
@@ -174,6 +186,19 @@ def valid_hardware_assignment(workload, machine):
 
 def compute_resource_distribution(workloads, machine, has_focus):
 
+    # Ignore our own machine;
+    # Ignore machines working on non-candidates;
+
+    # Both are done in the database, so that we never pay to deserialize
+    # the info blob of a machine that cannot contribute to any of the candidates
+
+    others = OpenBench.utils.getRecentMachines() \
+        .filter(workload__in=[workload.id for workload in workloads]).exclude(id=machine.id)
+
+    return distribute_resources(workloads, has_focus, others)
+
+def distribute_resources(workloads, has_focus, others):
+
     # Return a thread count, and engine name for each workload, as well as the throughput.
     # The throughput may be scaled down later, due to balance_engine_throughputs
 
@@ -182,15 +207,7 @@ def compute_resource_distribution(workloads, machine, has_focus):
             for workload in workloads
     }
 
-    # Ignore our own machine;
-    # Ignore machines working on non-candidates;
     # Ignore focus-assigned and only-assigned machines when has_focus is false
-
-    # The first two are done in the database, so that we never pay to deserialize
-    # the info blob of a machine that cannot contribute to any of the candidates
-
-    others = OpenBench.utils.getRecentMachines() \
-        .filter(workload__in=list(worker_dist.keys())).exclude(id=machine.id)
 
     for x in others:
         if has_focus or worker_dist[x.workload]['engine'] not in machine_focuses(x):

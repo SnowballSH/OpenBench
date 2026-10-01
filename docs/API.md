@@ -16,7 +16,7 @@ The examples below were captured from a local server filled by
 - [Endpoint summary](#endpoint-summary)
 - [Configuration](#configuration): `api/config/`, `api/config/<engine>/`, `api/buildinfo/`
 - [Networks](#networks): list, download, delete
-- [Workloads](#workloads): `api/workload/<id>/<query>/`, `api/spsa/<id>/<query>/`, `api/pgns/<id>/`
+- [Workloads](#workloads): `api/workloads/`, `api/workload/<id>/<query>/`, `api/spsa/<id>/<query>/`, `api/pgns/<id>/`
 - [Server](#server): `api/insights/server/`, `api/progress/`, `api/jump/`, `api/storage/`, `api/active/`
 - [`/scripts/`](#scripts): upload a network, create a test
 - [`/health/`](#health)
@@ -157,11 +157,13 @@ The read endpoints and `POST api/active/` change nothing and do not check CSRF.
 | GET, POST | `/api/networks/<engine>/` | view | An engine's networks |
 | GET, POST | `/api/networks/<engine>/<sha-or-name>/` | user | The network file |
 | POST | `/api/networks/<engine>/<name-or-sha>/delete/` | Approver | Deletes a network |
+| GET, POST | `/api/workloads/?status=&engine=&since_id=&limit=` | view | Compact workload rows, with what each is waiting for |
 | GET, POST | `/api/workload/<id>/results/` | view | Per-machine results |
 | GET, POST | `/api/workload/<id>/info/` | view | The workload's fields |
 | GET, POST | `/api/workload/<id>/summary/` | view | Results grouped by user, CPU, ISA |
-| GET, POST | `/api/workload/<id>/insights/` | view | Progress, ETA, strength, history, results analysis |
+| GET, POST | `/api/workload/<id>/insights/` | view | Progress, ETA, strength, history, diagnosis, results analysis |
 | GET, POST | `/api/workload/<id>/history.csv` | view | The insights history as CSV |
+| GET, POST | `/api/workload/<id>/games/` | view | Per-game statistics from the PGN archive |
 | GET, POST | `/api/spsa/<id>/<inputs\|outputs\|digest\|perturbation>/` | view | SPSA tune parameters |
 | GET, POST | `/api/pgns/<id>/` | view | The workload's PGN archive |
 | GET, POST | `/api/insights/server/` | view | Fleet and workload counters |
@@ -402,6 +404,84 @@ Errors shared by every workload endpoint:
 | No workload with that id | 404 | `{"error": "Requested Workload Id does not exist"}` |
 | Throttled | 429 | `{"error": "Too many failed logins"}` |
 
+### `GET|POST /api/workloads/`
+
+Lists workloads as compact rows, so a script need not walk ids until one
+answers 404. Each row says what the workload is waiting for.
+
+| Parameter | Values | Default |
+|---|---|---|
+| `status` | `active` (approved, unfinished), `pending` (awaiting approval), `finished` (passed, failed, completed or stopped; not deleted), `all` (everything, deleted included) | `all` |
+| `engine` | A dev engine name, matched exactly | every engine |
+| `since_id` | Only workloads with a larger id, oldest first | newest first |
+| `limit` | 1 to 200 | 50 |
+
+Parameters are read from the query string, or from the POST body beside the
+credentials. Without `since_id` the newest workloads come first. With it the
+rows ascend from that id, and `next_since_id` is the value to pass next; it is
+`null` once a page comes back short, and whenever `since_id` was not given.
+Start a full walk with `since_id=0`.
+
+```bash
+curl -s https://openbench.example.org/api/workloads/?status=active \
+    --data-urlencode username="$OPENBENCH_USERNAME" \
+    --data-urlencode password="$OPENBENCH_PASSWORD"
+```
+
+```json
+{
+    "workloads": [
+        {
+            "id": 38,
+            "mode": "SPRT",
+            "status": "active",
+            "engine": "Avalanche",
+            "dev": { "name": "2ac6a70d4bb394fe1ab3db3e893a99f0f69ec381", "sha": "2ac6a70d4bb394fe1ab3db3e893a99f0f69ec381" },
+            "base": { "name": "60637f88df729611fb53231be2aed4ac3d028e6d", "sha": "60637f88df729611fb53231be2aed4ac3d028e6d" },
+            "time_control": "8.0+0.08",
+            "games": 0,
+            "llr": 0.0,
+            "llr_lower": -2.94,
+            "llr_upper": 2.94,
+            "elo": null,
+            "created_at": "2026-10-01T05:08:54.377769+00:00",
+            "updated_at": "2026-10-01T05:08:54.379537+00:00",
+            "info": "Quiet-move history bonus scaling, STC",
+            "diagnosis": {
+                "state": "outranked",
+                "headline": "Outranked: workers take the highest priority first, and 3 workloads at priority 1 are ahead of this one at priority 0."
+            }
+        }
+    ],
+    "count": 1,
+    "next_since_id": null
+}
+```
+
+- `mode` is `SPRT`, `GAMES`, `SPSA` or `DATAGEN`; `status` is `pending`,
+  `active`, `passed`, `failed`, `completed`, `stopped` or `deleted`, as in the
+  insights.
+- `engine` and `time_control` are the dev side's.
+- `llr`, `llr_lower` and `llr_upper` are `null` unless `mode` is `SPRT`.
+- `elo` is `{ "lower", "value", "upper" }` with a 95% interval, `null` for a
+  tune and before two games (or pairs) are in.
+- `info` is the first line of the workload's info.
+- `diagnosis.state` and `diagnosis.headline` are the verdict of
+  [INSIGHTS.md](INSIGHTS.md#workload-diagnosis); the evidence behind it is in
+  `/api/workload/<id>/insights/`. A finished workload reads `finished`, one
+  that a worker's bench mismatch stopped `stopped_by_error` with the error in
+  its headline, a pending one `awaiting_approval`.
+
+| Error | Status | Body |
+|---|---|---|
+| Unknown `status` | 400 | `{"error": "status must be one of active, pending, finished, all"}` |
+| `limit` not a whole number from 1 to 200 | 400 | `{"error": "limit must be a whole number from 1 to 200"}` |
+| `since_id` not a whole number | 400 | `{"error": "since_id must be a whole number"}` |
+
+The response costs a fixed number of queries whatever the `limit`: the rows,
+plus the six of the diagnosis when a row is active and one more when a row is
+stopped.
+
 ### `GET|POST /api/workload/<id>/<query>/`
 
 `<query>` is one of `results`, `info`, `summary`, `insights`. Any other value
@@ -561,9 +641,12 @@ shows formatted text (`penta`, `elo`, `percent`).
 
 #### `insights`
 
-Progress, throughput, ETA, strength, history, contributions and the results
-analysis (verdict, outcome breakdown, SPRT outlook, search speed, consistency),
-all as JSON numbers. The full schema, including every `eta.kind` and `reason`, is in
+Progress, throughput, ETA, strength, history and contributions, all as JSON
+numbers; `diagnosis`: what the workload is waiting for, as a state, a
+headline and the evidence behind it
+([INSIGHTS.md](INSIGHTS.md#workload-diagnosis)); and `results`: the results
+analysis (verdict, outcome breakdown, SPRT outlook, search speed,
+consistency; [INSIGHTS.md](INSIGHTS.md#results)). The full schema, including every `eta.kind` and `reason`, is in
 [INSIGHTS.md](INSIGHTS.md#api).
 
 ```json
@@ -655,6 +738,13 @@ all as JSON numbers. The full schema, including every `eta.kind` and `reason`, i
                     }
                 }
             ]
+        },
+        "diagnosis": {
+            "state": "finished",
+            "severity": "ok",
+            "headline": "Not applicable: this workload has finished, so no worker will take it.",
+            "brief": "finished",
+            "evidence": []
         }
     }
 }
@@ -780,6 +870,29 @@ signs. It is computed only; nothing is stored or assigned.
 line. This tune uses the `SINGLE` distribution, so all four runners share one
 perturbation.)
 
+### `GET|POST /api/workload/<id>/games/`
+
+Statistics over the games in the workload's PGN archive: results by colour,
+pair outcomes, how games ended, game length, openings and evaluations.
+
+```json
+{ "games": { "status": "disabled", "upload_pgns": "FALSE", "active": true, "report": null } }
+```
+
+`status` is `disabled` for a workload created without PGN uploads, `empty`
+until its first batch is archived, and `ready` with a `report` after that.
+`report.limits.complete` is `false` while the archive is still being read;
+ask again to advance it. The full schema, every definition and the limits are
+in [INSIGHTS.md](INSIGHTS.md#getpost-apiworkloadidgames).
+
+| Error | Status | Body |
+|---|---|---|
+| Authentication failed | 401 | `{"error": "API requires authentication for this server"}` |
+| No workload with that id | 404 | `{"error": "Requested Workload Id does not exist"}` |
+
+The path is routed before `api/workload/<id>/<query>/`, so `games` is not in
+the list of endpoints that route's 404 names.
+
 ### `GET|POST /api/pgns/<id>/`
 
 Downloads `Media/PGNs/<id>.pgn.tar`, the archive the PGN watcher builds for a
@@ -868,7 +981,11 @@ Schema in [INSIGHTS.md](INSIGHTS.md#getpost-apiinsightsserver).
 
 The engine's commit lineage (trunk steps with one pooled Elo measurement per
 time-control class, candidates that branched off, chained estimates per class
-and direct checks), weekly SPRT outcomes, games per day and top contributors
+and direct checks), its economics (per-step bench, search-speed ratio and
+cost; search speed chained along the trunk; games and search core-hours spent
+on trunk steps, failed candidates and other candidates; pass rate, median
+games to pass and to fail and games per Elo by class; trunk steps per week and
+acceptance latencies), weekly SPRT outcomes, games per day and top contributors
 over a window. `window` is `30d`, `90d` (default), `1y` or `all`,
 ignoring case and surrounding whitespace; `engine` filters by the workloads'
 dev engine. Authentication is the same as `api/insights/server/`: a failed
@@ -876,7 +993,8 @@ login is 401, an unknown `window` is 400 `{"error": ...}`, and an `engine`
 with no Engine configuration is 404 `{"error": ...}`. Reports are cached
 for 60 seconds per window and configured engine. `progress.lineage` is `null`
 when there is nothing to chain, or when no engine is chosen and several have
-steps (`progress.lineage_engines` names them). The earlier `greens`,
+steps (`progress.lineage_engines` names them); `progress.economics` is `null`
+in the same cases. The earlier `greens`,
 `elo_steps` and `summary.elo_gained` fields are gone. The JSON schema, the
 model, formulas and caveats are
 in [INSIGHTS.md](INSIGHTS.md#engine-progress).
