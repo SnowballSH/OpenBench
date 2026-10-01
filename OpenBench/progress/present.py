@@ -4,7 +4,6 @@ from datetime import date
 from urllib.parse import quote, urlencode
 
 from OpenBench.insights.strength import EloInterval
-from OpenBench.listing_rows import short_name
 from OpenBench.progress.analysis import utc_day
 from OpenBench.progress.domain import (
     Author,
@@ -36,6 +35,7 @@ from OpenBench.progress.domain import (
     Window,
 )
 from OpenBench.progress.lineage import half_width
+from OpenBench.workload_names import short_name
 
 STEPS_LISTED = 100
 HEADLINE_CLASSES = (TimeClass.STC, TimeClass.LTC)

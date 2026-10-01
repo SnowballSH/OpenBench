@@ -11,6 +11,8 @@ there first.
 | `/index/` (page 1), `/user/<name>/` | 9 |
 | `/index/<n>/`, `/greens/` | 6 |
 | `/search/` | 7 |
+| `/go/?q=` (the header's quick jump; the header itself adds none) | 3 to 6 |
+| `/api/jump/?q=` | at most 7 |
 | `/events/`, `/errors/` | 7 |
 | `/networks/` | 5 |
 | `/test/<id>/` | 11 |
