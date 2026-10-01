@@ -1,4 +1,5 @@
-from collections.abc import Callable
+from collections import defaultdict
+from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, date, timedelta
 from typing import Any
 
@@ -24,16 +25,35 @@ from OpenBench.insights.sources import (
     outcomes_of_row,
 )
 from OpenBench.models import Result, Test, WorkloadSnapshot
-from OpenBench.progress.domain import Commit, DayMaximum, OutcomeCounts, RunMode, RunRow, RunStatus, Scope, TimeClass
+from OpenBench.progress.domain import (
+    Commit,
+    DayMaximum,
+    HostCounters,
+    OutcomeCounts,
+    RunMode,
+    RunRow,
+    RunStatus,
+    Scope,
+    TimeClass,
+)
+from OpenBench.progress.options import thread_count
 
 FINISH_SLACK = timedelta(hours=1)
 
+COUNTED = Q(dev_nodes__gt=0, dev_time__gt=0, base_nodes__gt=0, base_time__gt=0)
+
 type Classifier = Callable[[str, str, str, str], TimeClass]
+type Usage = Mapping[int, Sequence[HostCounters]]
 
 
 def finish_time() -> Coalesce:
     last_report = WorkloadSnapshot.objects.filter(test=OuterRef('pk')).order_by('-created').values('created')[:1]
     return Coalesce(Subquery(last_report), F('updated'), output_field=DateTimeField())
+
+
+def start_time() -> Coalesce:
+    first_report = WorkloadSnapshot.objects.filter(test=OuterRef('pk')).order_by('created').values('created')[:1]
+    return Coalesce(Subquery(first_report), F('creation'), output_field=DateTimeField())
 
 
 def finished_sprts(scope: Scope) -> QuerySet[Test]:
@@ -59,7 +79,7 @@ def run_status(row: dict[str, Any], mode: RunMode) -> RunStatus:
     return next((status for flag, status in flags if flag), RunStatus.RUNNING)
 
 
-def run_row(row: dict[str, Any], classify: Classifier) -> RunRow:
+def run_row(row: dict[str, Any], classify: Classifier, usage: Usage) -> RunRow:
     mode = RunMode(row['test_mode'])
     return RunRow(
         id=row['id'],
@@ -77,15 +97,56 @@ def run_row(row: dict[str, Any], classify: Classifier) -> RunRow:
         finished_at=row['finished_at'] if row['finished'] else None,
         games=row['games'],
         outcomes=outcomes_of_row(row, not row['use_tri']),
+        dev_threads=thread_count(row['dev_options']) or 1,
+        base_threads=thread_count(row['base_options']) or 1,
+        started_at=row['started_at'],
+        dev_bench=row['dev__bench'],
+        base_bench=row['base__bench'],
+        hosts=tuple(usage.get(row['id'], ())),
     )
 
 
-def load_runs(engine: str | None, classify: Classifier) -> list[RunRow]:
+def load_usage(engine: str | None) -> dict[int, list[HostCounters]]:
+    results = Result.objects.order_by().filter(
+        COUNTED,
+        games__gt=0,
+        test__deleted=False,
+        test__test_mode__in=list(RunMode),
+        test__dev_engine=F('test__base_engine'),
+    )
+    if engine is not None:
+        results = results.filter(test__dev_engine=engine)
+    rows = (
+        results.values('test_id', 'machine__host_key')
+        .annotate(
+            counted_games=Sum('games'),
+            total_dev_nodes=Sum('dev_nodes'),
+            total_dev_time=Sum('dev_time'),
+            total_base_nodes=Sum('base_nodes'),
+            total_base_time=Sum('base_time'),
+        )
+        .values_list(
+            'test_id',
+            'machine__host_key',
+            'counted_games',
+            'total_dev_nodes',
+            'total_dev_time',
+            'total_base_nodes',
+            'total_base_time',
+        )
+    )
+    usage: defaultdict[int, list[HostCounters]] = defaultdict(list)
+    for test_id, *counters in rows.iterator():
+        usage[test_id].append(HostCounters(*counters))
+    return dict(usage)
+
+
+def load_runs(engine: str | None, classify: Classifier, usage: Usage | None = None) -> list[RunRow]:
     tests = Test.objects.filter(deleted=False, test_mode__in=list(RunMode), dev_engine=F('base_engine'))
     if engine is not None:
         tests = tests.filter(dev_engine=engine)
     rows = (
-        tests.annotate(finished_at=finish_time())
+        tests.annotate(finished_at=finish_time(), started_at=start_time())
         .order_by('id')
         .values(
             'id',
@@ -93,6 +154,8 @@ def load_runs(engine: str | None, classify: Classifier) -> list[RunRow]:
             'dev_repo',
             'dev__sha',
             'base__sha',
+            'dev__bench',
+            'base__bench',
             'dev_network',
             'base_network',
             'info',
@@ -108,13 +171,14 @@ def load_runs(engine: str | None, classify: Classifier) -> list[RunRow]:
             'base_options',
             'creation',
             'finished_at',
+            'started_at',
             'games',
             'use_tri',
             *TRINOMIAL_FIELDS,
             *PENTANOMIAL_FIELDS,
         )
     )
-    return [run_row(row, classify) for row in rows]
+    return [run_row(row, classify, usage or {}) for row in rows]
 
 
 def load_weekly_outcomes(scope: Scope) -> dict[date, OutcomeCounts]:

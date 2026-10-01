@@ -1,18 +1,9 @@
-import re
-
 from OpenBench.progress.domain import TimeClass
+from OpenBench.progress.options import thread_count
 from OpenBench.utils import TimeControl
 
 LTC_BASE_SECONDS = 20.0
 VLTC_BASE_SECONDS = 120.0
-
-
-THREADS_OPTION = re.compile(r'(?:^|\s)Threads=(\d+)(?=\s|$)')
-
-
-def thread_count(options: str) -> int | None:
-    found = THREADS_OPTION.search(options)
-    return int(found.group(1)) if found else None
 
 
 def base_seconds(time_control: str) -> float | None:

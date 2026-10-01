@@ -11,6 +11,7 @@
 
 import datetime
 import hashlib
+import math
 import random
 import uuid
 from collections.abc import Iterable, Sequence
@@ -93,6 +94,8 @@ SPRT_MAX_PAIRS = 40_000
 
 DEFAULT_INFO = 'Seeded demonstration workload'
 
+DEFAULT_SPEED = 1.02
+
 STC = '8.0+0.08'
 
 LTC = '40.0+0.4'
@@ -141,6 +144,7 @@ class DemoWorkload:
     base_sha: str = ''
     info: str = DEFAULT_INFO
     hash_mb: int = 0
+    speed: float = DEFAULT_SPEED
 
 
 @dataclass(frozen=True)
@@ -158,6 +162,7 @@ class DemoCommit:
     stages: tuple[DemoStage, ...]
     accepted: bool = False
     author: int = 1
+    speed: float = 1.0
 
 
 @dataclass(frozen=True)
@@ -255,23 +260,34 @@ COMMIT_CHAIN = (
         9.0,
         (DemoStage(STC, 'passed'), DemoStage(LTC, 'passed', hash_mb=LTC_HASH_MB)),
         accepted=True,
+        speed=0.994,
     ),
-    DemoCommit('Prune quiet moves with negative static exchange', -7.0, (DemoStage(STC, 'failed'),)),
+    DemoCommit('Prune quiet moves with negative static exchange', -7.0, (DemoStage(STC, 'failed'),), speed=1.006),
     DemoCommit(
         'Extend the singular move search at high depth',
         8.0,
         (DemoStage(STC, 'passed'), DemoStage(STC, 'passed'), DemoStage(LTC, 'passed', hash_mb=LTC_HASH_MB)),
         accepted=True,
+        speed=0.981,
     ),
     DemoCommit(
         'Pawn static-eval correction history (corrhist-pawn), indexed by pawn structure and side',
         8.0,
         (DemoStage(STC, 'passed'), DemoStage(LTC, 'active', pairs=1400, hash_mb=LTC_HASH_MB)),
+        speed=0.968,
     ),
     DemoCommit('Widen aspiration windows after a fail high', 1.5, (DemoStage(STC, 'active', pairs=900),)),
 )
 
 CHAIN_ROOT = 'Seeded chain root'
+
+SHARE_OF_BASE_USED = 0.9
+
+MOVES_PER_SIDE = 70
+
+UNTIMED_SECONDS_PER_SIDE = 10.0
+
+SPEED_HOST_NOISE = 0.004
 
 CHAIN_SPAN_DAYS = 5.0
 
@@ -391,6 +407,7 @@ def chain_workloads(
                     base_sha=base,
                     info=f'{commit.subject}\n{COMMIT_TAG}:{dev[:COMMIT_TAG_LENGTH]}',
                     hash_mb=stage.hash_mb,
+                    speed=commit.speed,
                 )
             )
         if commit.accepted:
@@ -419,6 +436,7 @@ def progress_checks(commits: Sequence[DemoCommit], root: str = CHAIN_ROOT) -> li
             base_sha=commit_sha(root),
             info=f'Progress since the chain root, up to: {newest.subject}',
             hash_mb=LTC_HASH_MB,
+            speed=math.prod(commit.speed for commit in commits if commit.accepted),
         )
     ]
 
@@ -756,7 +774,7 @@ def create_workload(spec: DemoWorkload, author: User, machines: list[Machine], r
     finished = spec.state in FINISHED_STATES
     decided = is_sprt and spec.state in ('passed', 'failed')
     outcomes = sprt_to_verdict(spec, rng) if decided else simulate_pairs(spec.elo, spec.pairs, rng)
-    record_outcomes(test, outcomes, finished, bounds, times, machines, rng)
+    record_outcomes(test, outcomes, finished, bounds, times, machines, rng, spec.speed)
 
     test.refresh_from_db()
     reached = 'passed' if test.passed else 'failed' if test.failed else 'stopped'
@@ -889,6 +907,7 @@ def record_outcomes(
     times: Schedule,
     machines: list[Machine],
     rng: random.Random,
+    speed: float = DEFAULT_SPEED,
 ) -> None:
 
     now = timezone.now()
@@ -902,12 +921,12 @@ def record_outcomes(
         if not sum(share):
             continue
         if machine is not machines[SUPERVISED_HOST]:
-            create_result(test, machine, share, rng)
+            create_result(test, machine, share, rng, speed)
             continue
         first, *later = session_shares(share)
-        create_result(test, register_session(machine), first, rng)
+        create_result(test, register_session(machine), first, rng, speed)
         for session_share in later:
-            create_result(test, register_session(machine), session_share, random.Random(test.id))
+            create_result(test, register_session(machine), session_share, random.Random(test.id), speed)
 
     wins, losses, draws = trinomial(penta)
     llr = PentanomialSPRT(penta, *bounds) if bounds and outcomes else 0.0
@@ -1001,11 +1020,22 @@ def trinomial(penta: Sequence[int]) -> tuple[int, int, int]:
     return wins, losses, 2 * sum(penta) - wins - losses
 
 
-def create_result(test: Test, machine: Machine, penta: Sequence[int], rng: random.Random) -> None:
+def seconds_per_side(time_control: str) -> float:
+    base, _, increment = time_control.partition('+')
+    try:
+        return SHARE_OF_BASE_USED * float(base) + MOVES_PER_SIDE * float(increment or 0)
+    except ValueError:
+        return UNTIMED_SECONDS_PER_SIDE
+
+
+def create_result(test: Test, machine: Machine, penta: Sequence[int], rng: random.Random, speed: float) -> None:
     pairs = sum(penta)
     wins, losses, draws = trinomial(penta)
-    time = pairs * rng.randint(9_000, 11_000)
+    draw = rng.randint(9_000, 11_000)
+    jitter = (draw - 10_000) / 1_000
+    time = int(2 * pairs * seconds_per_side(test.dev_time_control) * draw / 10)
     nodes = int(time * machine.mnps * 1000)
+    host_speed = speed * (1 + SPEED_HOST_NOISE * jitter)
     Result.objects.create(
         test=test,
         machine=machine,
@@ -1021,7 +1051,7 @@ def create_result(test: Test, machine: Machine, penta: Sequence[int], rng: rando
         dev_nodes=nodes,
         dev_time=time,
         dev_time_scaled=time,
-        base_nodes=int(nodes * 0.98),
+        base_nodes=int(nodes / host_speed),
         base_time=time,
         base_time_scaled=time,
     )

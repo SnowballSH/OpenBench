@@ -26,9 +26,11 @@ from OpenBench.progress.domain import (
     RunRow,
     RunStatus,
     Step,
+    StepCost,
     TimeClass,
     TrunkStep,
 )
+from OpenBench.progress.speed import run_usage, step_speed
 from OpenBench.workload_names import split_info
 
 type Edge = tuple[Commit, Commit]
@@ -47,6 +49,7 @@ def estimate(results: Sequence[int]) -> EloInterval | None:
 
 
 def run_of(row: RunRow) -> Run:
+    usage = run_usage(row)
     return Run(
         id=row.id,
         mode=row.mode,
@@ -56,6 +59,9 @@ def run_of(row: RunRow) -> Run:
         finished_at=row.finished_at,
         games=row.games,
         elo=estimate(row.outcomes.primary()),
+        started_at=row.started_at,
+        counted_games=usage.counted_games,
+        core_hours=usage.core_hours,
     )
 
 
@@ -88,12 +94,32 @@ def last_activity(row: RunRow) -> datetime:
     return row.finished_at or row.created_at
 
 
+def decision_seconds(run: Run) -> float | None:
+    if run.finished_at is None:
+        return None
+    return max(0.0, (run.finished_at - (run.started_at or run.created_at)).total_seconds())
+
+
+def step_cost(measurements: Sequence[Measurement]) -> StepCost:
+    runs = [run for measurement in measurements for run in measurement.runs]
+    durations = [found for run in runs if (found := decision_seconds(run)) is not None]
+    spent = [run.core_hours for run in runs if run.core_hours is not None]
+    return StepCost(
+        runs=len(runs),
+        games=sum(run.games for run in runs),
+        decision_seconds=sum(durations) if durations else None,
+        core_hours=sum(spent) if spent else None,
+        counted_games=sum(run.counted_games for run in runs),
+    )
+
+
 def step_of(rows: Sequence[RunRow]) -> Step:
     first = min(rows, key=lambda row: row.id)
     subjects = (split_info(row.subject)[0] for row in sorted(rows, key=lambda row: row.id))
     by_class: defaultdict[TimeClass, list[RunRow]] = defaultdict(list)
     for row in rows:
         by_class[row.time_class].append(row)
+    measurements = [pool(time_class, by_class[time_class]) for time_class in TimeClass if time_class in by_class]
     return Step(
         base=first.base,
         dev=first.dev,
@@ -104,7 +130,11 @@ def step_of(rows: Sequence[RunRow]) -> Step:
         first_tested_at=min(row.created_at for row in rows),
         last_tested_at=max(row.created_at for row in rows),
         measured_at=max(last_activity(row) for row in rows),
-        measurements=[pool(time_class, by_class[time_class]) for time_class in TimeClass if time_class in by_class],
+        measurements=measurements,
+        base_bench=first.base_bench or None,
+        dev_bench=first.dev_bench or None,
+        speed=step_speed(rows),
+        cost=step_cost(measurements),
     )
 
 
