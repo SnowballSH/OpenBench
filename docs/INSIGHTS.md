@@ -517,9 +517,9 @@ All of it is from dev's point of view unless it says White.
   | `draw_by_rule` | Any other draw: repetition, the fifty-move rule, stalemate, insufficient material or a tablebase adjudication. |
 
   The draw split is an estimate. Captures and pawn moves are read off the
-  move text, and a repetition or a bare-kings draw that happens on the very
-  ply the counter fills is counted as an adjudication; a review sample of 88
-  real drawn games suggests about one in twenty lands in the wrong row. The decisive split has no such ambiguity between
+  move text, and a repetition, stalemate or fifty-move draw that happens on the very
+  ply the counter fills is counted as an adjudication; a review sample of 199
+  real drawn games had 2 (about one in a hundred) in the wrong row, both repetitions. The decisive split has no such ambiguity between
   mate and adjudication, but cannot separate the causes inside
   `unexplained_win`.
 
