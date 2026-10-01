@@ -408,6 +408,11 @@ class SearchTextTests(PinnedWorkloads):
         self.assertIn('href="/search/2/?q=pawn"', content)
         self.assertEqual(len(self.shown('q=pawn')), 25)
 
+    def test_control_characters_separate_terms_and_match_nothing_alone(self) -> None:
+        self.assertEqual(self.shown('q=%00'), self.shown('q='))
+        self.assertEqual(self.shown('q=%00nothing'), [])
+        self.assertEqual(self.shown('q=pawn%00ltc'), [self.second.id])
+
     def test_oversized_text_is_refused(self) -> None:
         response = self.client.get('/search/', {'q': 'x' * (MAX_QUERY_LENGTH + 1)})
         self.assertContains(response, f'Search at most {MAX_QUERY_LENGTH} characters of text')

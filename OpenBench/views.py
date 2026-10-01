@@ -346,7 +346,7 @@ def search(request, page=1):
     # Echo the submitted values back so the form stays populated for tweaking
 
     form = {
-        'q'             : params.get('q', ''),
+        'q'             : OpenBench.navigation.query.normalise(params.get('q', '')),
         'keywords'      : params.get('keywords', ''),
         'info'          : params.get('info-contains', ''),
         'authors'       : params.get('authors', ''),
