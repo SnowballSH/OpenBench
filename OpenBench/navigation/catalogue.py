@@ -1,11 +1,12 @@
 from django.contrib.auth.models import User
 from django.db.models import Q, QuerySet
 
-from OpenBench.listing_rows import commit_pair, split_info
+from OpenBench.listing_rows import COMMIT_NAME, commit_pair, split_info
 from OpenBench.models import EngineConfig, Machine, Test
 from OpenBench.navigation.resolve import WorkloadRef
 
-TEXT_FIELDS = ('info__icontains', 'dev__name__icontains', 'base__name__icontains')
+NAME_FIELDS = ('dev__name', 'base__name')
+COMMIT_NAME_PATTERN = f'^(?:{COMMIT_NAME.pattern})$'
 COMMIT_FIELDS = ('dev__sha__istartswith', 'base__sha__istartswith')
 COMMIT_NAME_FIELDS = ('dev__name__istartswith', 'base__name__istartswith')
 
@@ -17,10 +18,18 @@ def any_field(fields: tuple[str, ...], value: str) -> Q:
     return query
 
 
+def branch_name_contains(term: str) -> Q:
+    # A commit-pinned name is forty hex digits, where any short term would match by accident
+    query = Q()
+    for field in NAME_FIELDS:
+        query |= Q(**{f'{field}__icontains': term}) & ~Q(**{f'{field}__iregex': COMMIT_NAME_PATTERN})
+    return query
+
+
 def text_filter(text: str) -> Q:
     query = Q()
     for term in text.split():
-        query &= any_field(TEXT_FIELDS + COMMIT_FIELDS, term)
+        query &= Q(info__icontains=term) | any_field(COMMIT_FIELDS, term) | branch_name_contains(term)
     return query
 
 
@@ -32,11 +41,13 @@ def workload_ref(test: Test) -> WorkloadRef:
     subject, _ = split_info(test.info)
     commits = commit_pair(test)
     detail = f'{commits} · {test.dev_time_control}' if subject else test.dev_time_control
-    return WorkloadRef(id=test.id, kind=test.workload_type_str(), title=subject or commits, detail=detail)
+    return WorkloadRef(
+        id=test.id, kind=test.workload_type_str(), title=subject or commits, detail=detail, deleted=test.deleted
+    )
 
 
 def labelled_tests() -> QuerySet[Test]:
-    fields = ('id', 'test_mode', 'info', 'dev_time_control', 'dev__name', 'base__name')
+    fields = ('id', 'test_mode', 'info', 'dev_time_control', 'deleted', 'dev__name', 'base__name')
     return Test.objects.select_related('dev', 'base').only(*fields)
 
 

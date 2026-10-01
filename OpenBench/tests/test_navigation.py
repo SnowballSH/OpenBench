@@ -120,9 +120,25 @@ class ResolveTests(TestCase):
         self.assertEqual(self.jump('stock/fish'), Jump('/progress/?engine=Stock%2FFish&window=90d'))
 
     def test_machines(self) -> None:
-        for raw in ('machine 12', 'm12', 'M 12', 'machine:12', 'machine #12'):
+        for raw in ('machine 12', 'Machine12', 'm:12', 'M#12', 'machine:12', 'machine #12'):
             self.assertEqual(self.jump(raw), Jump('/machines/12/'), raw)
-        self.assertEqual(self.jump('m13'), Jump('/machines/', notice='No machine 13'))
+
+    def test_a_cpu_model_is_not_a_machine_id(self) -> None:
+        self.assertEqual(self.jump('m12'), Jump('/search/?q=m12'))
+        self.assertEqual(self.jump('M 12'), Jump('/search/?q=M+12'))
+        self.assertNotIn('machine', self.catalogue.calls)
+
+    def test_an_unknown_machine_searches_text(self) -> None:
+        self.assertEqual(self.jump('machine 13'), Jump('/search/?q=machine+13'))
+        self.assertEqual(self.jump('m:13'), Jump('/search/?q=m%3A13'))
+
+    def test_dot_names_never_become_a_user_path(self) -> None:
+        catalogue = FakeCatalogue(users=('.', '..', '...'))
+        for name in ('.', '..', '...'):
+            self.assertEqual(resolve(name, catalogue), Jump(f'/search/?q={name}'))
+            self.assertEqual(resolve(f'user:{name}', catalogue), Jump('/users/', notice=f'No user named {name}'))
+            self.assertEqual([entry.url for entry in suggestions(name, catalogue)][0][:8], '/search/')
+        self.assertNotIn('username', catalogue.calls)
 
     def test_anything_else_searches_text(self) -> None:
         self.assertEqual(self.jump('pawn  corrhist'), Jump('/search/?q=pawn+corrhist'))
@@ -135,7 +151,7 @@ class ResolveTests(TestCase):
         self.assertEqual(self.jump('x' * MAX_QUERY_LENGTH).notice, None)
 
     def test_every_destination_is_an_internal_path(self) -> None:
-        hostile = ('//evil.example', 'https://evil.example/', '/\\evil.example', 'user://evil.example', '..', '\\')
+        hostile = ('//evil.example', 'https://evil.example/', '/\\evil.example', 'user://evil.example', '..', '.', '\\')
         catalogue = FakeCatalogue(users=hostile, engines=hostile)
         for raw in (*hostile, *(f'user:{name}' for name in hostile)):
             path = resolve(raw, catalogue).path
@@ -156,6 +172,12 @@ class SuggestionTests(TestCase):
         self.assertEqual(len(found), MAX_SUGGESTIONS)
         self.assertEqual(found[-1].url, '/search/?q=title')
         self.assertEqual(len({entry.url for entry in found}), len(found))
+
+    def test_deleted_workloads_are_not_suggested(self) -> None:
+        gone = WorkloadRef(id=12, kind='test', title='gone', detail='', deleted=True)
+        catalogue = FakeCatalogue(workloads={12: gone})
+        self.assertEqual([entry.url for entry in suggestions('#12', catalogue)], ['/search/?q=%2312'])
+        self.assertEqual(resolve('#12', catalogue), Jump('/test/12/'))
 
     def test_one_character_runs_no_text_search(self) -> None:
         catalogue = FakeCatalogue()
@@ -267,7 +289,8 @@ class GoViewTests(PinnedWorkloads):
         self.assert_goes('user:Reader', '/user/reader/')
         self.assert_goes('reader', '/user/reader/')
         self.assert_goes('avalanche', '/progress/Avalanche/?window=90d')
-        self.assert_goes(f'm{machine.id}', f'/machines/{machine.id}/')
+        self.assert_goes(f'm:{machine.id}', f'/machines/{machine.id}/')
+        self.assert_goes(f'm{machine.id}', f'/search/?q=m{machine.id}')
         self.assert_goes('corrhist', '/search/?q=corrhist')
         self.assert_goes('', '/search/')
 
@@ -283,7 +306,6 @@ class GoViewTests(PinnedWorkloads):
         for query, notice in (
             ('#999', 'No workload #999'),
             ('user:nobody', 'No user named nobody'),
-            ('m999', 'No machine 999'),
             ('x' * (MAX_QUERY_LENGTH + 1), TOO_LONG),
             ('zzzz-nothing', 'No matching tests found'),
         ):
@@ -332,6 +354,15 @@ class HeaderTests(PinnedWorkloads):
             response = self.client.get('/go/', {'q': f'#{self.first.id}'})
         self.assertRedirects(response, f'/test/{self.first.id}/', fetch_redirect_response=False)
 
+    def test_a_notice_opens_no_session_for_an_anonymous_viewer(self) -> None:
+        self.client.logout()
+        Session.objects.all().delete()
+        with mock.patch.dict(OPENBENCH_CONFIG, {'require_login_to_view': False}):
+            response = self.client.get('/go/', {'q': '#999'})
+        self.assertRedirects(response, '/search/', fetch_redirect_response=False)
+        self.assertFalse(Session.objects.exists())
+        self.assertNotIn('sessionid', response.cookies)
+
 
 class SearchTextTests(PinnedWorkloads):
     def shown(self, query: str) -> list[int]:
@@ -346,6 +377,19 @@ class SearchTextTests(PinnedWorkloads):
         self.assertEqual(self.shown('q=6b10ec947ac0'), [self.first.id])
         self.assertEqual(self.shown('q=dddd'), [self.datagen.id])
 
+    def test_short_terms_do_not_match_inside_commit_names(self) -> None:
+        for term in ('3c', 'da3', 'aaa', 'f2', '26d'):
+            self.assertEqual(self.shown(f'q={term}'), [], term)
+            urls = [entry['url'] for entry in self.client.get('/api/jump/', {'q': term}).json()['suggestions']]
+            self.assertEqual(urls, [f'/search/?q={term}'], term)
+
+    def test_terms_still_match_inside_branch_names(self) -> None:
+        for engine, name in ((self.datagen.dev, 'corrhist-add'), (self.datagen.base, 'deadbeef')):
+            engine.name = name
+            engine.save()
+        self.assertEqual(self.shown('q=add'), [self.datagen.id])
+        self.assertEqual(self.shown('q=ADBE'), [self.datagen.id])
+
     def test_every_term_must_match(self) -> None:
         self.assertEqual(self.shown('q=pawn+ltc'), [self.second.id])
         self.assertEqual(self.shown('q=pawn+76f2da3cb'), [self.second.id])
@@ -353,7 +397,7 @@ class SearchTextTests(PinnedWorkloads):
 
     def test_text_combines_with_the_other_filters(self) -> None:
         self.assertEqual(self.shown('q=pawn&info-contains=STC'), [self.first.id])
-        self.assertEqual(self.shown('keywords=76f2da3ca'), [self.first.id])
+        self.assertEqual(self.shown('keywords=da3ca'), [self.first.id])
         self.assertEqual(self.shown('q=pawn&workload-type=SPSA'), [])
 
     def test_text_is_echoed_and_paged(self) -> None:
@@ -406,6 +450,18 @@ class ApiJumpTests(PinnedWorkloads):
         with self.assertNumQueries(6):
             payload = self.client.get('/api/jump/', {'q': 'pawn'}).json()
         self.assertEqual(len(payload['suggestions']), MAX_SUGGESTIONS)
+
+    def test_deleted_workloads_are_left_out(self) -> None:
+        Test.objects.filter(id=self.first.id).update(deleted=True)
+        urls = [
+            entry['url'] for entry in self.client.get('/api/jump/', {'q': f'#{self.first.id}'}).json()['suggestions']
+        ]
+        self.assertNotIn(f'/test/{self.first.id}/', urls)
+        self.assertRedirects(
+            self.client.get('/go/', {'q': f'#{self.first.id}'}),
+            f'/test/{self.first.id}/',
+            fetch_redirect_response=False,
+        )
 
     def test_empty_query(self) -> None:
         self.assertEqual(self.client.get('/api/jump/').json(), {'suggestions': []})

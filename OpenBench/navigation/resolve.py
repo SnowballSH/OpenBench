@@ -4,7 +4,6 @@ from typing import Protocol
 
 from OpenBench.navigation.query import (
     MACHINE_ID,
-    MACHINES_PATH,
     MAX_QUERY_LENGTH,
     SEARCH_PATH,
     USER_PREFIX,
@@ -30,6 +29,7 @@ class WorkloadRef:
     kind: str
     title: str
     detail: str
+    deleted: bool = False
 
     @property
     def path(self) -> str:
@@ -105,10 +105,7 @@ def machine_rule(text: str, catalogue: Catalogue) -> Jump | None:
         return None
 
     machine_id = int(match[1])
-    if catalogue.machine_exists(machine_id):
-        return Jump(machine_path(machine_id))
-
-    return Jump(MACHINES_PATH, notice=f'No machine {machine_id}')
+    return Jump(machine_path(machine_id)) if catalogue.machine_exists(machine_id) else None
 
 
 RULES: tuple[Rule, ...] = (workload_rule, commit_rule, user_rule, engine_rule, machine_rule)

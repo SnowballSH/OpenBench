@@ -33,7 +33,8 @@ def workload_suggestion(workload: WorkloadRef) -> Suggestion:
 def direct_hits(text: str, catalogue: Catalogue) -> list[Suggestion]:
     hits: list[Suggestion] = []
 
-    if (match := WORKLOAD_ID.fullmatch(text)) and (workload := catalogue.workload(int(match[2]))):
+    workload = catalogue.workload(int(match[2])) if (match := WORKLOAD_ID.fullmatch(text)) else None
+    if workload and not workload.deleted:
         hits.append(workload_suggestion(workload))
 
     name = match[1] if (match := USER_PREFIX.fullmatch(text)) else text

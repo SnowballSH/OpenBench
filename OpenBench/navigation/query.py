@@ -6,9 +6,9 @@ MIN_COMMIT_PREFIX = 7
 
 WORKLOAD_ID = re.compile(r'(#?)([0-9]{1,18})')
 COMMIT_PREFIX = re.compile(rf'[0-9a-f]{{{MIN_COMMIT_PREFIX},40}}', re.IGNORECASE)
-MACHINE_ID = re.compile(r'(?:machine|m)[ :#]*([0-9]{1,18})', re.IGNORECASE)
+MACHINE_ID = re.compile(r'(?:machine[ :#]*|m[:#])([0-9]{1,18})', re.IGNORECASE)
 USER_PREFIX = re.compile(r'user:\s*(\S+)', re.IGNORECASE)
-USERNAME = re.compile(r'[\w.@+-]{1,150}', re.ASCII)
+USERNAME = re.compile(r'(?!\.+$)[\w.@+-]{1,150}', re.ASCII)
 
 SEARCH_PATH = '/search/'
 USERS_PATH = '/users/'

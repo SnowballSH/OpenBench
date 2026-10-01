@@ -14,7 +14,9 @@ AUTHENTICATION_ERROR = 'API requires authentication for this server'
 @require_safe
 def go(request: HttpRequest) -> HttpResponse:
     jump = resolve(request.GET.get(QUERY_PARAMETER, ''), DatabaseCatalogue())
-    return upstream.redirect(request, jump.path, error=jump.notice)
+    # A flash message needs a session, which an anonymous viewer of a public server does not have yet
+    notice = jump.notice if request.user.is_authenticated else None
+    return upstream.redirect(request, jump.path, error=notice)
 
 
 @csrf_exempt
