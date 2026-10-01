@@ -23,6 +23,7 @@ import OpenBench.compare.views
 import OpenBench.diagnosis.views
 import OpenBench.live.views
 import OpenBench.navigation.views
+import OpenBench.games.views
 import OpenBench.security.robots
 
 urlpatterns = [
@@ -115,6 +116,7 @@ urlpatterns = [
     django.urls.path(r'api/live/workloads/', OpenBench.live.views.api_live_workloads),
     django.urls.path(r'api/live/workload/<id:workload_id>/', OpenBench.live.views.api_live_workload),
     django.urls.re_path(r'^api/workload/(?P<workload_id>[0-9]{1,18})/history\.csv$', OpenBench.insights.views.api_workload_history_csv),
+    django.urls.path(r'api/workload/<id:workload_id>/games/', OpenBench.games.views.api_workload_games),
     django.urls.path(r'api/workload/<id:workload_id>/<str:query>/', OpenBench.views.api_workload),
     django.urls.path(r'api/insights/server/', OpenBench.insights.views.api_server_insights),
     django.urls.path(r'api/storage/', OpenBench.storage.views.api_storage),

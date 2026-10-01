@@ -1,8 +1,10 @@
 import json
+import tempfile
 from collections.abc import Iterable
 from typing import Any
 
 from django.contrib.auth.models import User
+from django.test import SimpleTestCase, override_settings
 
 from OpenBench.models import Book, Engine, EngineConfig, Profile, Test
 from OpenBench.upstream import openbench_config
@@ -14,6 +16,13 @@ def present[T](value: T | None) -> T:
     if value is None:
         raise AssertionError('expected a value, got None')
     return value
+
+
+def use_temporary_media(case: SimpleTestCase) -> str:
+    media = tempfile.TemporaryDirectory()
+    case.addCleanup(media.cleanup)
+    case.enterContext(override_settings(MEDIA_ROOT=media.name))
+    return media.name
 
 
 def create_user(username: str, enabled: bool = True, approver: bool = False) -> User:

@@ -165,6 +165,7 @@ The read endpoints and `POST api/active/` change nothing and do not check CSRF.
 | GET, POST | `/api/workload/<id>/summary/` | view | Results grouped by user, CPU, ISA |
 | GET, POST | `/api/workload/<id>/insights/` | view | Progress, ETA, strength, history, diagnosis |
 | GET, POST | `/api/workload/<id>/history.csv` | view | The insights history as CSV |
+| GET, POST | `/api/workload/<id>/games/` | view | Per-game statistics from the PGN archive |
 | GET, POST | `/api/spsa/<id>/<inputs\|outputs\|digest\|perturbation>/` | view | SPSA tune parameters |
 | GET, POST | `/api/pgns/<id>/` | view | The workload's PGN archive |
 | GET, POST | `/api/insights/server/` | view | Fleet and workload counters |
@@ -984,6 +985,29 @@ signs. It is computed only; nothing is stored or assigned.
 (Trimmed to the first two of six parameters; arrays reformatted onto one
 line. This tune uses the `SINGLE` distribution, so all four runners share one
 perturbation.)
+
+### `GET|POST /api/workload/<id>/games/`
+
+Statistics over the games in the workload's PGN archive: results by colour,
+pair outcomes, how games ended, game length, openings and evaluations.
+
+```json
+{ "games": { "status": "disabled", "upload_pgns": "FALSE", "active": true, "report": null } }
+```
+
+`status` is `disabled` for a workload created without PGN uploads, `empty`
+until its first batch is archived, and `ready` with a `report` after that.
+`report.limits.complete` is `false` while the archive is still being read;
+ask again to advance it. The full schema, every definition and the limits are
+in [INSIGHTS.md](INSIGHTS.md#getpost-apiworkloadidgames).
+
+| Error | Status | Body |
+|---|---|---|
+| Authentication failed | 401 | `{"error": "API requires authentication for this server"}` |
+| No workload with that id | 404 | `{"error": "Requested Workload Id does not exist"}` |
+
+The path is routed before `api/workload/<id>/<query>/`, so `games` is not in
+the list of endpoints that route's 404 names.
 
 ### `GET|POST /api/pgns/<id>/`
 

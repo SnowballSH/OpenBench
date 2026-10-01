@@ -470,6 +470,11 @@ Rules the charts follow:
   fitted to the interval from 10% of the games onwards, so the very wide first
   points are clipped rather than flattening the rest; the tooltip still shows
   their values.
+- The game-length histogram (`games.js`) stacks two series, decisive in
+  `--series-1` and drawn in `--series-2`, so it carries a legend above the
+  plot and its tooltip names both; the win/draw/loss bars in the colour table
+  use `--pass`, `--neutral-edge` and `--fail` with a legend and the counts
+  beside them.
 - Every canvas has `role="img"` and an `aria-label` stating the latest value.
 - The `--series-1` to `--series-4` values were re-stepped for this feature and
   pass the categorical palette checks (lightness band, chroma, colour-vision

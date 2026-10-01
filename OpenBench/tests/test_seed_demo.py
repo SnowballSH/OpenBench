@@ -8,6 +8,7 @@ from django.utils import timezone
 
 from OpenBench.fleet.pools import pool_label
 from OpenBench.fleet.sessions import never_used
+from OpenBench.games.service import archive_path
 from OpenBench.management.commands.seed_demo import (
     BATCH_CPU,
     BATCH_IDLE_HOSTS_HOURS_AGO,
@@ -16,6 +17,9 @@ from OpenBench.management.commands.seed_demo import (
     COMMIT_CHAIN,
     LTC,
     PAST_SPRTS,
+    PGN_BATCHES,
+    PGN_PAIRS_PER_RUNNER,
+    PGN_RUNNERS_PER_BATCH,
     SPEED_HOST_NOISE,
     STC,
     TUNES,
@@ -26,13 +30,16 @@ from OpenBench.management.commands.seed_demo import (
     commit_sha,
     progress_checks,
 )
-from OpenBench.models import Engine, Machine, Profile, Result, Test, WorkloadSnapshot
+from OpenBench.models import PGN, Engine, GameAnalysis, Machine, Profile, Result, Test, WorkloadSnapshot
 from OpenBench.progress.domain import TimeClass, Window
 from OpenBench.progress.report import progress_report
-from OpenBench.tests.fixtures import present
+from OpenBench.tests.fixtures import present, use_temporary_media
 
 
 class SeedDemoTests(TestCase):
+    def setUp(self):
+        use_temporary_media(self)
+
     def test_refuses_without_debug(self):
         with self.assertRaises(CommandError):
             call_command('seed_demo')
@@ -59,6 +66,23 @@ class SeedDemoTests(TestCase):
             sum(Profile.objects.values_list('games', flat=True)), sum(Result.objects.values_list('games', flat=True))
         )
         self.assertEqual(sum(Profile.objects.values_list('tests', flat=True)), Test.objects.count())
+
+    @override_settings(DEBUG=True)
+    def test_a_finished_and_an_active_test_carry_analysed_pgn_archives(self):
+        call_command('seed_demo', stdout=io.StringIO())
+
+        analysed = GameAnalysis.objects.select_related('test').order_by('test_id')
+        self.assertEqual(
+            {(row.test.upload_pgns, row.test.finished) for row in analysed}, {('VERBOSE', False), ('COMPACT', True)}
+        )
+        for row in analysed:
+            self.assertTrue(archive_path(row.test_id).exists())
+            self.assertTrue(row.complete)
+            self.assertEqual(row.games, 2 * PGN_BATCHES * PGN_RUNNERS_PER_BATCH * PGN_PAIRS_PER_RUNNER)
+            self.assertEqual(row.members, PGN.objects.filter(test_id=row.test_id, processed=True).count())
+            self.assertEqual(row.state['totals'].get('malformed', 0), 0)
+            self.assertEqual(row.state['totals']['unpaired'], 0)
+            self.assertEqual(bool(row.state['usage'].get('dev.early.timed_moves')), row.test.upload_pgns == 'VERBOSE')
 
     @override_settings(DEBUG=True)
     def test_every_mode_is_seeded_active_and_finished(self):
@@ -274,6 +298,9 @@ class ChainWorkloadTests(SimpleTestCase):
 
 
 class SeededLineageTests(TestCase):
+    def setUp(self):
+        use_temporary_media(self)
+
     @override_settings(DEBUG=True)
     def test_the_commit_chain_gives_the_progress_page_a_lineage(self):
         call_command('seed_demo', stdout=io.StringIO())
