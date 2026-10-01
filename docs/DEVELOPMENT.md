@@ -110,7 +110,9 @@ in `pyproject.toml`:
   typed signature instead of the `Any` it returns. Add a wrapper there rather
   than calling a new upstream helper directly from a typed module. The
   scheduler's functions in `workloads/get_workload.py` are wrapped the same
-  way, in [`OpenBench/diagnosis/scheduler.py`](../OpenBench/diagnosis/scheduler.py).
+  way, in [`OpenBench/diagnosis/scheduler.py`](../OpenBench/diagnosis/scheduler.py),
+  and the stat-block template filters in
+  [`OpenBench/live/display.py`](../OpenBench/live/display.py).
 
 Fix a finding with a real annotation or narrowing. A `# type: ignore` must
 name its error code and give its reason on the same line; the only one today
@@ -122,17 +124,17 @@ is where `page_queries.attach_event_workloads` attaches a workload to each
 This is a fork of [AndyGrant/OpenBench](https://github.com/AndyGrant/OpenBench),
 and upstream changes are merged in periodically.
 
-- **Fork-owned**: `OpenBench/compare/`, `OpenBench/converters.py`, `OpenBench/fleet/`, `OpenBench/insights/`, `OpenBench/listing_rows.py`,
+- **Fork-owned**: `OpenBench/compare/`, `OpenBench/converters.py`, `OpenBench/fleet/`, `OpenBench/insights/`, `OpenBench/listing_rows.py`, `OpenBench/live/`,
   `OpenBench/diagnosis/`,
   `OpenBench/machine_info.py`, `OpenBench/navigation/`, `OpenBench/progress/`, `OpenBench/security/`, `OpenBench/storage/`,
   `OpenBench/page_queries.py`, `OpenBench/upstream.py`, `OpenBench/workload_names.py`,
-  `OpenBench/workloads/clone.py`,
+  `OpenBench/workloads/clone.py`, `OpenBench/workloads/confirmation.py`, `OpenBench/workloads/presets.py`,
   `OpenBench/management/commands/prune_machines.py`,
   `OpenBench/management/commands/seed_demo.py` and `OpenBench/tests/`. These
   are held to the full rule set in `pyproject.toml`, to `ruff format` and to
   mypy's strict profile.
 - **Upstream-owned**: everything else, including `OpenBench/views.py`,
-  `OpenBench/utils.py`, `OpenBench/workloads/` apart from `clone.py`,
+  `OpenBench/utils.py`, `OpenBench/workloads/` apart from `clone.py`, `confirmation.py` and `presets.py`,
   `OpenBench/templatetags/`, `Client/` and `Scripts/`. Restyling these would
   turn every upstream merge into a conflict, so they keep upstream's style and
   receive only the edits a feature needs. They are checked by the

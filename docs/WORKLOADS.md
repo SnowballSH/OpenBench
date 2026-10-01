@@ -55,3 +55,29 @@ workload, after the engine presets have run, so the clone wins over them.
 Everything else (engines, repos, options, time controls, book, PGN upload,
 priority, throughput, workload size, Syzygy, adjudication, scale method,
 tune and datagen info, SPSA and datagen settings) is copied as stored.
+
+## Confirming at LTC
+
+A finished, passed STC SPRT shows a **Confirm at LTC** button on its page. It
+is a link to `/test/new/?clone=<id>&preset=<name>`: the create form opens
+filled in, and nothing exists until the operator submits it.
+
+- `OpenBench/workloads/presets.py` reads the engine's `test_presets`. A named
+  preset is the `default` preset overlaid by its own keys, with each `both_`
+  key spread to the dev and base side and a side's own key outranking it.
+- The preset is chosen by what it runs, not by a hard-coded value: the first
+  preset whose time control and options class as LTC under
+  `OpenBench/progress/conditions.py`, preferring one named `LTC`.
+- `OpenBench/workloads/confirmation.py` decides who sees the button: the test
+  is an SPRT, finished, passed, not deleted, dev and base are the same engine,
+  it classes as STC (so not LTC, VLTC, SMP or time odds), the engine is
+  enabled and has such a preset, and the viewer's account may create tests.
+- With `preset=`, `load_clone_source` overlays the preset on the clone. What
+  the test *is* stays the clone's: both branches, benches and networks, the
+  repositories and the info. How it *runs* comes from the preset: time
+  control, options, bounds and confidence, book, priority, throughput,
+  workload size and adjudication. The clone keeps its test mode, so an SPRT
+  ignores the preset's `test_max_games` and a fixed-games test its bounds.
+- The form's note reads "Cloned from #id name, with the LTC preset …". An
+  unknown preset name, or a preset on a tune or datagen, clones nothing and
+  says so in the warning banner.

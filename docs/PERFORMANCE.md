@@ -25,6 +25,7 @@ there first.
 | `/machines/<id>/` | 11 |
 | `/users/` | 8 |
 | `/api/workloads/` | 4, plus 6 with an active row, plus 1 with a stopped one |
+| `/api/live/workloads/`, `/api/live/workload/<id>/` | 4 while the caller's token still matches; otherwise 13 and 10 |
 
 Budgets include the session, user and Profile lookups every logged-in page
 pays. The six extra queries are the workload diagnosis
