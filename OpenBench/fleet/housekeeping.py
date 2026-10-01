@@ -1,13 +1,14 @@
+import logging
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from itertools import batched
 
-from django.db import transaction
+from django.db import DatabaseError, transaction
 from django.db.models import Exists, OuterRef, Q, QuerySet
-from django.db.models.deletion import ProtectedError
 from django.db.models.fields.json import KT
 
+from OpenBench.fleet.hosts import host_key
 from OpenBench.fleet.sessions import never_used
 from OpenBench.models import Machine, Result
 
@@ -16,12 +17,16 @@ EXITED_AFTER = timedelta(minutes=15)
 ABANDONED_AFTER = timedelta(days=7)
 REGISTRATION_PRUNE_WINDOW = 500
 DELETE_BATCH = 500
+REKEY_BATCH = 200
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
 class PrunePlan:
     registrations: int
     in_use: int
+    unkeyed: int
     exited: list[int]
     abandoned: list[int]
 
@@ -52,13 +57,9 @@ def exited_sessions(machines: QuerySet[Machine], now: datetime, limit: int | Non
 
 
 def delete_registrations(ids: Iterable[int]) -> int:
-    # Result.machine is PROTECT: a registration that gains a Result mid-delete keeps its whole batch
-    try:
-        with transaction.atomic():
-            unused = never_used(Machine.objects.filter(id__in=list(ids)))
-            return unused.only('id').delete()[1].get(Machine._meta.label, 0)
-    except ProtectedError:
-        return 0
+    # Result.machine is PROTECT, and the filter is re-applied here: a registration that gained a Result is kept
+    unused = never_used(Machine.objects.filter(id__in=list(ids)))
+    return unused.only('id').delete()[1].get(Machine._meta.label, 0)
 
 
 def stale_exited_sessions(owner_id: int, now: datetime, window: int) -> list[int]:
@@ -75,16 +76,48 @@ def prune_exited_sessions(owner_id: int, now: datetime, window: int = REGISTRATI
     return delete_registrations(stale) if stale else 0
 
 
-def plan_prune(now: datetime, abandoned_after: timedelta = ABANDONED_AFTER) -> PrunePlan:
+def unkeyed() -> QuerySet[Machine]:
+    return Machine.objects.filter(host_key='')
+
+
+def rekey_unkeyed(limit: int = REKEY_BATCH) -> int:
+    rows = unkeyed().order_by('-id').values_list('id', 'user__username', 'info')[:limit]
+    keyed = [Machine(id=machine_id, host_key=host_key(owner, info)) for machine_id, owner, info in rows]
+    return Machine.objects.bulk_update(keyed, ['host_key']) if keyed else 0
+
+
+def rekey_all_unkeyed() -> int:
+    total = 0
+    while keyed := rekey_unkeyed():
+        total += keyed
+    return total
+
+
+def registration_housekeeping(owner_id: int, now: datetime) -> None:
+    # Best effort, in its own transaction: a registration never fails because tidying up did
+    try:
+        with transaction.atomic():
+            rekey_unkeyed()
+            prune_exited_sessions(owner_id, now)
+    except DatabaseError:
+        logger.exception('Machine housekeeping failed; the registration is unaffected')
+
+
+def plan_prune(now: datetime, abandoned_after: timedelta | None = None) -> PrunePlan:
     exited = exited_sessions(Machine.objects.all(), now)
-    idle = idle_candidates(Machine.objects.all(), now - max(abandoned_after, EXITED_AFTER))
     registrations = Machine.objects.count()
     return PrunePlan(
         registrations=registrations,
         in_use=registrations - never_used(Machine.objects.all()).count(),
+        unkeyed=unkeyed().count(),
         exited=exited,
-        abandoned=sorted(set(idle.values_list('id', flat=True)) - set(exited)),
+        abandoned=abandoned_sessions(now, abandoned_after, exited) if abandoned_after else [],
     )
+
+
+def abandoned_sessions(now: datetime, after: timedelta, exited: Iterable[int]) -> list[int]:
+    idle = idle_candidates(Machine.objects.all(), now - max(after, EXITED_AFTER))
+    return sorted(set(idle.values_list('id', flat=True)) - set(exited))
 
 
 def apply_prune(plan: PrunePlan) -> int:

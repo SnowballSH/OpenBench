@@ -146,14 +146,17 @@ class Machine(Model):
     workload  = IntegerField(default=0)
 
     # Digest of the physical machine behind this registration; see docs/INSIGHTS.md
-    host_key  = CharField(max_length=HOST_KEY_LENGTH, default='', editable=False)
+    host_key  = CharField(max_length=HOST_KEY_LENGTH, default='', db_default='', editable=False)
 
     def __str__(self):
         return '[%d] %s' % (self.id, self.user.username)
 
     def save(self, *args, **kwargs):
+        # Rows written by a rolled-back image have no key; the next write of any kind adds it
         if not self.host_key:
             self.host_key = host_key(self.user.username, self.info)
+            if kwargs.get('update_fields') is not None:
+                kwargs['update_fields'] = [*kwargs['update_fields'], 'host_key']
         super().save(*args, **kwargs)
 
     class Meta:

@@ -6,7 +6,8 @@ from django.db.models import Case, Count, IntegerField, Max, Min, OuterRef, Subq
 from django.db.models.fields.json import KT
 from django.db.models.functions import Coalesce
 
-from OpenBench.fleet.hosts import HostKey
+from OpenBench.fleet.hosts import HostKey, host_key
+from OpenBench.fleet.housekeeping import rekey_unkeyed
 from OpenBench.fleet.machines import load_workloads
 from OpenBench.fleet.sessions import threads_of
 from OpenBench.fleet.status import UNKNOWN, Presence, presence, relative_age
@@ -196,6 +197,10 @@ def load_host_detail(
 ) -> HostDetail | None:
     if not (selected := Machine.objects.select_related('user').filter(id=machine_id).first()):
         return None
+
+    if not selected.host_key:
+        rekey_unkeyed()
+        selected.host_key = host_key(selected.user.username, selected.info)
 
     registrations = Machine.objects.filter(host_key=selected.host_key)
     current = registrations.select_related('user').order_by('-updated', '-id')[0]

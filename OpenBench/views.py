@@ -36,7 +36,7 @@ from OpenBench.workloads.modify_workload import modify_workload
 from OpenBench.workloads.verify_workload import verify_workload
 from OpenBench.workloads.view_workload import view_workload, fetch_results, fetch_result_summaries
 from OpenBench.insights.api import workload_payload
-from OpenBench.fleet.housekeeping import prune_exited_sessions
+from OpenBench.fleet.housekeeping import registration_housekeeping
 from OpenBench.fleet.machine_detail import load_host_detail
 from OpenBench.fleet.machines import load_machines_page
 from OpenBench.fleet.pools import parse_pool_key
@@ -860,9 +860,8 @@ def client_worker_info(request):
     machine.info['supported'] = supported_engines(machine.info)
 
     # Finish up, and drop this user's registrations that exited without being used
-    with transaction.atomic():
-        machine.save()
-        prune_exited_sessions(user.id, timezone.now())
+    machine.save()
+    registration_housekeeping(user.id, timezone.now())
 
     # Pass back the Machine Id, and Secret Token for this session
     return JsonResponse({ 'machine_id' : machine.id, 'secret' : machine.secret })

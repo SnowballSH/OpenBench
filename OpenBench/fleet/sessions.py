@@ -21,7 +21,8 @@ def superseded() -> Q:
     same_host = Machine.objects.filter(host_key=OuterRef('host_key'))
     later = same_host.filter(updated__gt=OuterRef('updated'))
     tied = same_host.filter(updated=OuterRef('updated'), id__gt=OuterRef('id'))
-    return Q(Exists(later)) | Q(Exists(tied))
+    # An unkeyed row (written by a rolled-back image) is its own host until it is keyed
+    return Q(host_key__gt='') & (Q(Exists(later)) | Q(Exists(tied)))
 
 
 def current_sessions(machines: QuerySet[Machine]) -> QuerySet[Machine]:

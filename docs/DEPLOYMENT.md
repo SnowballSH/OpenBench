@@ -218,28 +218,51 @@ one by its heartbeat. If its row is deleted, its next request is answered
 `Bad Client Version: Bad Machine Id`; the Client re-downloads itself and
 registers again, but one started with `--no-client-downloads` exits instead.
 
-**On demand**, `prune_machines` reports, and with `--apply` deletes, both
-kinds across the whole server:
+The tidy-up runs after the new registration is saved, in its own transaction,
+and is best effort: a database error in it is logged
+(`OpenBench.fleet.housekeeping`) and the Client still gets its id and secret.
+
+**On demand**, `prune_machines` reports, and with `--apply` deletes, across
+the whole server:
 
 ```bash
-python manage.py prune_machines               # dry run: counts only
-python manage.py prune_machines --apply       # delete
-python manage.py prune_machines --apply --days 30
+python manage.py prune_machines                              # dry run: counts only
+python manage.py prune_machines --apply                      # delete exited registrations
+python manage.py prune_machines --apply --include-polling --days 30
 ```
 
 - *exited*: as above, for every owner and without the window; this is what
-  clears a backlog.
-- *abandoned*: never-used registrations of polling Clients last heard from
-  more than `--days` days ago (default 7, minimum 1). Mind the caveat above:
-  a polling Client idle for that long loses its registration and registers
-  again, or exits under `--no-client-downloads`. Raise `--days` beyond the
-  longest quiet period if that matters.
+  clears a backlog, and all that a plain `--apply` deletes.
+- *polling*, only with `--include-polling`: never-used registrations of
+  Clients that keep polling, last heard from more than `--days` days ago
+  (default 7, minimum 1). Mind the caveat above: a polling Client idle for
+  that long loses its registration and registers again, or exits under
+  `--no-client-downloads`. Raise `--days` beyond the longest quiet period.
 
 It never deletes a registration that has a Result or a heartbeat within the
-last 15 minutes, deletes in batches of 500, and skips a batch in which a
-registration gained a Result since the plan was made. Deleting a registration
-does not change any count of games, and LogEvents that name its id keep their
-text. Take a database backup before the first `--apply`.
+last 15 minutes, deletes in batches of 500, re-checks for Results at delete
+time, and reports how many it actually deleted. `--apply` also gives a host
+key to every registration that lacks one. Deleting a registration does not
+change any count of games, and LogEvents that name its id keep their text.
+Take a database backup before the first `--apply`.
+
+### Rolling back past the host key
+
+Migration `0019` adds `Machine.host_key` and two indexes. Rolling the image
+back to one from before it does not undo the migration, and does not need to:
+
+- The column is `NOT NULL DEFAULT ''` in the database, so the older code,
+  which does not know the column, still inserts Machines; workers keep
+  registering. Those rows have an empty key.
+- The indexes are invisible to older code.
+- Do not run `migrate OpenBench 0018` to "match" the old image: it would drop
+  the column and every key, for no benefit.
+
+When the newer image runs again, nothing has to be done by hand. Rows with an
+empty key are never merged with each other, and are keyed by the first
+registration that arrives (200 per registration), by the row's own next
+heartbeat, and by the fleet pages when they meet one. `prune_machines --apply`
+keys all of them at once; the dry run reports how many there are.
 
 ## Response compression
 

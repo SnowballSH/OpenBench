@@ -7,6 +7,7 @@ from django.db.models import Count, F, Min, Sum
 from django.db.models.fields.json import KT
 
 from OpenBench.fleet.hosts import HostKey
+from OpenBench.fleet.housekeeping import rekey_unkeyed
 from OpenBench.fleet.pools import Pool, PoolKey, pool_label, short_name
 from OpenBench.fleet.sessions import current_sessions, threads_of
 from OpenBench.fleet.status import (
@@ -276,6 +277,14 @@ def load_current_sessions(since: datetime) -> list[CurrentSession]:
     return [CurrentSession(**row) for row in rows]
 
 
+def load_keyed_sessions(since: datetime) -> list[CurrentSession]:
+    sessions = load_current_sessions(since)
+    if all(session['host_key'] for session in sessions):
+        return sessions
+    rekey_unkeyed()
+    return load_current_sessions(since)
+
+
 def load_host_totals(since: datetime) -> dict[str, HostTotals]:
     seen = Machine.objects.filter(updated__gte=since).values('host_key')
     sessions = (
@@ -302,7 +311,7 @@ def load_machines_page(
 ) -> MachinesPage:
     limit = OFFLINE_LISTED if offline_limit is None else offline_limit
     since = now - window.span
-    sessions = load_current_sessions(since)
+    sessions = load_keyed_sessions(since)
     totals = load_host_totals(since)
 
     hosts = [host_row(session, totals.get(session['host_key']), now) for session in sessions]

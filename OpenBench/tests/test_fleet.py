@@ -1,4 +1,5 @@
 import io
+import json
 import uuid
 import zlib
 from datetime import UTC, datetime, timedelta
@@ -9,7 +10,7 @@ from django.apps import apps
 from django.contrib.auth.models import User
 from django.core.management import call_command
 from django.core.management.base import CommandError
-from django.db import connection
+from django.db import DatabaseError, connection
 from django.db.models import F
 from django.test import SimpleTestCase, TestCase
 from django.test.utils import CaptureQueriesContext
@@ -22,6 +23,7 @@ from OpenBench.fleet.housekeeping import (
     exits_when_idle,
     plan_prune,
     prune_exited_sessions,
+    rekey_unkeyed,
 )
 from OpenBench.fleet.machine_detail import load_host_detail, pooled_elo
 from OpenBench.fleet.machines import (
@@ -48,6 +50,7 @@ from OpenBench.fleet.status import (
 from OpenBench.fleet.users import latest, load_user_rows
 from OpenBench.insights.domain import Outcomes
 from OpenBench.insights.server import load_fleet
+from OpenBench.insights.sources import result_rows
 from OpenBench.insights.speed import nodes_per_second
 from OpenBench.machine_info import int_of, text_of
 from OpenBench.models import Engine, Machine, Profile, Result, Test
@@ -353,33 +356,59 @@ class HostIdentityTests(SimpleTestCase):
         return host_key(owner, {**self.INFO, **overrides})
 
     def test_registrations_of_one_computer_share_a_key(self):
-        again = self.key(concurrency=8, cli_options='--single_workload', machine_name='renamed', os_ver='6.9')
+        again = self.key(concurrency=8, cli_options='--single_workload', os_ver='6.9', client_ver=51)
         self.assertEqual(self.key(), again)
-        self.assertEqual(self.key(), self.key(mac_address='a4b1c2d3e4f5'))
         self.assertRegex(self.key(), r'^[0-9a-f]{32}$')
 
     def test_owners_never_merge(self):
         self.assertNotEqual(self.key('lab'), self.key('home'))
-        self.assertNotEqual(self.key('lab', mac_address=None), self.key('home', mac_address=None))
+        self.assertNotEqual(self.key('lab', machine_name=None), self.key('home', machine_name=None))
+        self.assertNotEqual(
+            self.key('lab', machine_name=None, mac_address=None), self.key('home', machine_name=None, mac_address=None)
+        )
 
-    def test_a_shared_address_on_different_hardware_is_two_hosts(self):
-        container = 'AC110002'
-        self.assertNotEqual(self.key(mac_address=container), self.key(mac_address=container, cpu_name='Xeon'))
-        self.assertNotEqual(self.key(mac_address=container), self.key(mac_address=container, logical_cores=64))
+    def test_a_name_outranks_the_address(self):
+        for address in ('86A1B2C3D4E5', '3DA1B2C3D4E5', 'EF0000000001', None, 'None', ''):
+            self.assertEqual(self.key(), self.key(mac_address=address), address)
+        self.assertNotEqual(self.key(), self.key(machine_name='other'))
+        self.assertNotEqual(self.key(), self.key(cpu_name='Xeon'))
+        self.assertNotEqual(self.key(), self.key(logical_cores=64))
         self.assertNotEqual(self.key(), self.key(os_name='Windows'))
 
-    def test_without_an_address_the_name_and_hardware_decide(self):
-        unnamed = self.key(mac_address=None, machine_name='None')
-        self.assertEqual(unnamed, self.key(mac_address='', machine_name=None))
-        self.assertNotEqual(unnamed, self.key(mac_address=None))
-        self.assertNotEqual(self.key(mac_address=None), self.key(mac_address=None, machine_name='other'))
-        self.assertNotEqual(self.key(mac_address=None), self.key(mac_address=None, physical_cores=8))
-        self.assertNotEqual(self.key(mac_address=None), self.key())
+    def test_an_unnamed_machine_is_known_by_its_address_and_hardware(self):
+        unnamed = self.key(machine_name='None')
+        self.assertEqual(unnamed, self.key(machine_name=None))
+        self.assertEqual(unnamed, self.key(machine_name='', mac_address='a4b1c2d3e4f5'))
+        self.assertNotEqual(unnamed, self.key())
+        self.assertNotEqual(unnamed, self.key(machine_name=None, mac_address='86A1B2C3D4E5'))
+        self.assertNotEqual(unnamed, self.key(machine_name=None, cpu_name='Xeon'))
+
+    def test_an_unnamed_machine_without_an_address_has_only_its_hardware(self):
+        bare = self.key(machine_name=None, mac_address=None)
+        self.assertEqual(bare, self.key(machine_name='None', mac_address='A5B1C2D3E4F5'))
+        self.assertNotEqual(bare, self.key(machine_name=None))
+        self.assertNotEqual(bare, self.key(machine_name=None, mac_address=None, physical_cores=8))
 
     def test_random_and_malformed_addresses_are_ignored(self):
         self.assertEqual(stable_mac('a4b1c2d3e4f5'), 'A4B1C2D3E4F5')
         self.assertEqual(stable_mac('2B1C2D3E4F5'), '02B1C2D3E4F5')
-        for value in ('A5B1C2D3E4F5', '0', '', 'None', None, 'not-hex', '1A4B1C2D3E4F5', 17, ['A4B1C2D3E4F5']):
+        for value in (
+            'A5B1C2D3E4F5',
+            '0',
+            '',
+            'None',
+            None,
+            'not-hex',
+            '1A4B1C2D3E4F5',
+            17,
+            ['A4B1C2D3E4F5'],
+            '0XA4B1C2D3E4',
+            'A4_B1',
+            ' A4B1C2D3E4F5',
+            'A4B1C2D3E4F5\n',
+            '-A4B1',
+            '+A4B1',
+        ):
             self.assertIsNone(stable_mac(value), value)
         self.assertEqual(self.key(mac_address='A5B1C2D3E4F5'), self.key(mac_address='01B1C2D3E4F5'))
 
@@ -390,20 +419,17 @@ class HostIdentityTests(SimpleTestCase):
         self.assertEqual(host_identity('lab', None).logical_cores, 0)
         self.assertEqual(host_identity('lab', {'cpu_name': 7}).cpu_name, '7')
 
-    def test_ephemeral_jobs_are_distinct_hosts(self):
-        first = {**self.INFO, 'machine_name': f'batch-{JOB_IDS[0]}:0', 'cpu_name': 'AMD EPYC 9R14'}
-        other_vm = {**first, 'machine_name': f'batch-{JOB_IDS[1]}:0', 'mac_address': '0A58A9000002'}
-        self.assertNotEqual(host_key('lab-worker', first), host_key('lab-worker', other_vm))
-        self.assertEqual(host_key('lab-worker', first), host_key('lab-worker', {**first, 'cli_options': 'again'}))
+    def test_a_batch_job_is_one_host_whatever_address_each_start_reports(self):
+        job = {**self.INFO, 'machine_name': 'batch-749476a3-7d81-49a2-b96e-4b14d4c304c3:0', 'cpu_name': 'AMD EPYC 9R14'}
+        starts = [{**job, 'mac_address': f'{octet}A1B2C3D4E5'} for octet in ('86', '3D', 'EF', 'AF', '85', '97')]
+        self.assertEqual(len({host_key('lab-worker', start) for start in starts}), 1)
 
-        unaddressed = {**first, 'mac_address': 'None'}
-        self.assertNotEqual(
-            host_key('lab-worker', unaddressed),
-            host_key('lab-worker', {**unaddressed, 'machine_name': f'batch-{JOB_IDS[1]}:0'}),
-        )
-        self.assertEqual(
-            host_key('lab-worker', first), host_key('lab-worker', {**first, 'machine_name': f'batch-{JOB_IDS[0]}:1'})
-        )
+        slot = {**starts[0], 'machine_name': 'batch-749476a3-7d81-49a2-b96e-4b14d4c304c3:1'}
+        other_job = {**starts[0], 'machine_name': f'batch-{JOB_IDS[1]}:0'}
+        keys = {host_key('lab-worker', info) for info in (starts[0], slot, other_job)}
+        self.assertEqual(len(keys), 3)
+        labels = {pool_label(text_of(info, 'machine_name'), 'AMD EPYC 9R14') for info in (starts[0], slot, other_job)}
+        self.assertEqual(labels, {'batch-*'})
 
     def test_pool_labels_collapse_the_volatile_parts_of_a_name(self):
         cases = {
@@ -657,9 +683,22 @@ class HostGroupingTests(TestCase):
         keys = dict(Machine.objects.values_list('id', 'host_key'))
         Machine.objects.update(host_key='')
 
-        import_module('OpenBench.migrations.0019_machine_host_key').fill_host_keys(apps, None)
+        migration = import_module('OpenBench.migrations.0019_machine_host_key')
+        migration.fill_host_keys(apps, None)
 
         self.assertEqual(dict(Machine.objects.values_list('id', 'host_key')), keys)
+
+    def test_migration_froze_the_current_key_rule(self):
+        frozen = import_module('OpenBench.migrations.0019_machine_host_key').host_key
+        samples: tuple[object, ...] = (
+            self.current.info,
+            self.other.info,
+            {**self.current.info, 'mac_address': 'A5B1C2D3E4F5', 'machine_name': 'None'},
+            {'mac_address': '0xA4', 'logical_cores': 'many', 'cpu_name': 7},
+            None,
+        )
+        for info in samples:
+            self.assertEqual(frozen('lab-worker', info), host_key('lab-worker', info))
 
     def test_a_host_is_one_row_with_its_registrations_summed(self):
         page = load_machines_page(timezone.now(), OfflineWindow.NONE)
@@ -888,7 +927,10 @@ class HousekeepingTests(TestCase):
         used = self.idle(60 * 24 * 30)
         add_result(self.test, used)
 
-        plan = plan_prune(timezone.now())
+        default = plan_prune(timezone.now())
+        self.assertEqual((default.exited, default.abandoned, default.unkeyed), ([exited.id, fleet.id], [], 0))
+
+        plan = plan_prune(timezone.now(), timedelta(days=7))
         self.assertEqual((plan.registrations, plan.in_use), (6, 1))
         self.assertEqual((plan.exited, plan.abandoned), ([exited.id, fleet.id], [abandoned.id]))
         self.assertEqual(never_used(Machine.objects.all()).count(), 5)
@@ -915,14 +957,153 @@ class HousekeepingTests(TestCase):
         self.assertIn('Dry run: 1 registrations would be deleted', out.getvalue())
         self.assertEqual(Machine.objects.count(), 2)
 
-        call_command('prune_machines', '--dry-run', '--days', '2', stdout=out)
+        call_command('prune_machines', '--dry-run', '--include-polling', '--days', '2', stdout=out)
+        self.assertIn('Dry run: 2 registrations would be deleted', out.getvalue())
         self.assertEqual(Machine.objects.count(), 2)
 
         call_command('prune_machines', '--apply', '--days', '2', stdout=out)
-        self.assertIn('Deleted 2 registrations', out.getvalue())
+        self.assertIn('Deleted 1 of 1 registrations', out.getvalue())
+        self.assertEqual([machine.info['machine_name'] for machine in Machine.objects.all()], ['polling-box'])
+
+        call_command('prune_machines', '--apply', '--include-polling', '--days', '2', stdout=out)
         self.assertEqual(Machine.objects.count(), 0)
 
     def test_command_rejects_contradictory_or_unsafe_options(self):
         for arguments in (('--apply', '--dry-run'), ('--days', '0')):
             with self.assertRaises(CommandError):
                 call_command('prune_machines', *arguments, stdout=io.StringIO())
+
+
+def insert_as_old_code(owner: User, info: dict[str, object], seen: timedelta = timedelta()) -> Machine:
+    # What a rolled-back image does: it has no host_key field, so its INSERT never names the column
+    with connection.cursor() as cursor:
+        cursor.execute(
+            'INSERT INTO "OpenBench_machine" (user_id, mnps, dev_mnps, base_mnps, updated, secret, info, workload) '
+            'VALUES (%s, 1.5, 1.5, 1.5, %s, %s, %s, 0)',
+            [owner.id, timezone.now() - seen, 'old-secret', json.dumps(info)],
+        )
+        return Machine.objects.get(id=cursor.lastrowid)
+
+
+class RollbackSafetyTests(TestCase):
+    def setUp(self):
+        ensure_book()
+        create_engine_config()
+        self.worker = create_user('lab-worker')
+        self.reader = create_user('reader')
+        self.test = create_test(create_user('admin', approver=True))
+        self.info = {
+            **system_info(concurrency=8),
+            'machine_name': 'box',
+            'mac_address': mac_of('box'),
+            'cli_options': '',
+        }
+        self.other_info = {**self.info, 'machine_name': 'other', 'mac_address': mac_of('other')}
+
+    def test_old_code_can_still_register_and_its_rows_are_unkeyed(self):
+        self.assertEqual(insert_as_old_code(self.worker, self.info).host_key, '')
+
+    def test_unkeyed_registrations_are_never_merged_with_each_other(self):
+        insert_as_old_code(self.worker, self.info)
+        insert_as_old_code(self.worker, self.other_info)
+
+        self.assertEqual(getMachineStatus(), ': 2 Machines / 16 Threads / 24.0 MNPS ')
+        self.assertEqual(load_fleet(timezone.now()).machines, 2)
+        rows = {item.username: item for item in load_user_rows(timezone.now())}
+        self.assertEqual(rows['lab-worker'].machines_online, 2)
+
+    def test_pages_and_insights_key_unkeyed_rows_from_their_info(self):
+        first = insert_as_old_code(self.worker, self.info)
+        again = insert_as_old_code(self.worker, self.info, seen=timedelta(hours=1))
+        other = insert_as_old_code(self.worker, self.other_info)
+        for machine in (first, again, other):
+            add_result(self.test, machine, (0, 1, 1, 1, 0))
+        self.client.force_login(self.reader)
+
+        machines = result_rows(self.test)
+        self.assertEqual(len({item.host for item in machines}), 2)
+        self.assertNotIn('', {item.host for item in machines})
+
+        page = self.client.get('/machines/').context['page']
+        self.assertEqual(
+            {item.name: (item.sessions, item.lifetime_games) for item in page.rows}, {'box': (2, 12), 'other': (1, 6)}
+        )
+
+        Machine.objects.update(host_key='')
+        detail = self.client.get(f'/machines/{again.id}/').context['detail']
+        self.assertEqual((detail.sessions_total, detail.host.lifetime_games), (2, 12))
+
+    def test_a_heartbeat_keys_its_own_row(self):
+        machine = insert_as_old_code(self.worker, self.info)
+        machine.save(update_fields=['updated'])
+        self.assertEqual(Machine.objects.get(id=machine.id).host_key, host_key('lab-worker', self.info))
+
+    def test_registration_keys_rows_left_by_old_code(self):
+        old = [insert_as_old_code(self.worker, self.info), insert_as_old_code(self.reader, self.other_info)]
+        self.client.post('/clientWorkerInfo/', register_payload(self.worker))
+        self.assertEqual(
+            [Machine.objects.get(id=machine.id).host_key for machine in old],
+            [host_key('lab-worker', self.info), host_key('reader', self.other_info)],
+        )
+
+    def test_rekeying_is_bounded_per_call(self):
+        for _ in range(5):
+            insert_as_old_code(self.worker, self.info)
+        self.assertEqual(rekey_unkeyed(limit=3), 3)
+        self.assertEqual(Machine.objects.filter(host_key='').count(), 2)
+
+    def test_prune_machines_reports_and_keys_unkeyed_rows(self):
+        insert_as_old_code(self.worker, self.info)
+        out = io.StringIO()
+        call_command('prune_machines', stdout=out)
+        self.assertIn('1 registrations have no host key', out.getvalue())
+        self.assertEqual(Machine.objects.filter(host_key='').count(), 1)
+
+        call_command('prune_machines', '--apply', stdout=out)
+        self.assertIn('Keyed 1 registrations', out.getvalue())
+        self.assertFalse(Machine.objects.filter(host_key='').exists())
+
+    def test_failed_housekeeping_never_fails_a_registration(self):
+        for target in ('prune_exited_sessions', 'rekey_unkeyed'):
+            with (
+                mock.patch(f'OpenBench.fleet.housekeeping.{target}', side_effect=DatabaseError('disk I/O error')),
+                self.assertLogs('OpenBench.fleet.housekeeping', level='ERROR'),
+            ):
+                response = self.client.post('/clientWorkerInfo/', register_payload(self.worker)).json()
+            self.assertTrue(Machine.objects.filter(id=response['machine_id'], secret=response['secret']).exists())
+
+
+class ConcurrentSlotTests(TestCase):
+    def setUp(self):
+        self.worker = create_user('lab-worker')
+        job = f'batch-{JOB_IDS[0]}'
+        self.slots = [self.slot(f'{job}:{index}') for index in (0, 1)]
+
+    def slot(self, name: str, seen: timedelta = timedelta(), mac: str = '0242AC110002') -> Machine:
+        info = {**system_info(concurrency=8), 'cpu_name': 'AMD EPYC 9R14', 'machine_name': name, 'mac_address': mac}
+        machine = Machine.objects.create(user=self.worker, info=info, mnps=1.0)
+        Machine.objects.filter(id=machine.id).update(updated=timezone.now() - seen)
+        return machine
+
+    def test_slots_of_one_vm_are_counted_as_two_machines(self):
+        self.assertEqual(getMachineStatus(), ': 2 Machines / 16 Threads / 16.0 MNPS ')
+        fleet = load_fleet(timezone.now())
+        self.assertEqual((fleet.machines, fleet.threads), (2, 16))
+        rows = {item.username: item for item in load_user_rows(timezone.now())}
+        self.assertEqual((rows['lab-worker'].machines_online, rows['lab-worker'].threads_online), (2, 16))
+        page = load_machines_page(timezone.now(), OfflineWindow.NONE)
+        self.assertEqual((page.summary.online, page.summary.threads, len(page.rows)), (2, 16, 2))
+
+    def test_a_restarted_slot_is_still_counted_once(self):
+        for mac in ('86A1B2C3D4E5', '3DA1B2C3D4E5'):
+            self.slot(f'batch-{JOB_IDS[0]}:0', seen=timedelta(seconds=30), mac=mac)
+        self.assertEqual(getMachineStatus(), ': 2 Machines / 16 Threads / 16.0 MNPS ')
+
+    def test_jobs_behind_the_same_container_address_stay_apart_and_share_a_pool(self):
+        other = self.slot(f'batch-{JOB_IDS[1]}:0')
+        hosts = {machine.host_key for machine in (*self.slots, other)}
+        self.assertEqual(len(hosts), 3)
+
+        Machine.objects.update(updated=timezone.now() - timedelta(hours=1))
+        page = load_machines_page(timezone.now(), OfflineWindow.DAY)
+        self.assertEqual([(item.name, item.hosts) for item in page.rows], [('batch-*', 3)])

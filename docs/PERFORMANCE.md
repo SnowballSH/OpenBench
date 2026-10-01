@@ -19,7 +19,7 @@ there first.
 | `/api/workload/<id>/history.csv` | 5 |
 | `/compare/?a=<id>&b=<id>` | 7 |
 | `/api/insights/server/` | 11 |
-| `/machines/`, `/machines/?show=…` | 11 |
+| `/machines/`, `/machines/?show=…` | 11 (9 before any snapshot exists in the last 24 hours, and 8 with no listed workload: empty lookups are skipped) |
 | `/machines/<id>/` | 11 |
 | `/users/` | 8 |
 

@@ -553,46 +553,61 @@ registrations into *hosts*, one per physical machine.
 
 `OpenBench.fleet.hosts.host_key(owner, info)` is the grouping rule. It is a
 pure function of the owner's username and the registration `system_info`
-(any mapping; no ORM), and returns a 32-hex digest:
+(any mapping; no ORM), and returns a 32-hex digest. The name comes first:
 
 | The Client reported | Key is the digest of |
 |---|---|
-| a usable `mac_address` | owner, MAC, `cpu_name`, `os_name`, `logical_cores`, `physical_cores` |
-| no usable `mac_address` | owner, `machine_name`, `cpu_name`, `os_name`, `logical_cores`, `physical_cores` |
+| a `machine_name` (`--identity`; the Client sends `None` otherwise) | owner, name, hardware. The MAC is ignored. |
+| no name, a usable `mac_address` | owner, MAC, hardware |
+| neither | owner, hardware |
 
-- **Owners never merge**: the username is part of both forms.
-- A MAC is usable when it is a hex string of a non-zero 48-bit value with the
-  multicast bit clear. `uuid.getnode()`, which the Client calls, invents a
-  random node *with that bit set* when it finds no interface, and a new one on
-  every start; such a value falls back to the second form.
-- The hardware fields are part of the MAC form because addresses repeat:
-  every Docker host hands its first container `02:42:AC:11:00:02`, and cloned
-  VM images keep their address. `concurrency`, `machine_name` and the Client
-  version are deliberately left out of it, so `-T`, `--identity` and upgrades
-  do not split a host.
-- The digest hides the MAC from pages and payloads; it is not exposed in JSON.
+Hardware is `cpu_name`, `os_name`, `logical_cores` and `physical_cores`.
+
+- **Owners never merge**: the username is part of every form.
+- **Why the name outranks the MAC**: inside a container `uuid.getnode()` finds
+  no interface and invents a random node on every start. On the live server
+  150 registrations carried 149 different addresses, every start of one named
+  job a new one. It sets the multicast bit only when the random value happens
+  to, so about half of those look like real addresses.
+- **Slots are separate hosts.** Supervisors run several Clients at once on one
+  VM as `batch-<uuid>:0`, `:1`, …; each is counted with its own threads, they
+  share a pool (below), and only a re-registration under the same name is
+  folded into its host.
+- A MAC is usable when it is 1 to 12 hex digits, non-zero, with the multicast
+  bit clear.
+- `concurrency` and the Client and OS versions are left out, so `-T` and
+  upgrades do not split a host.
+- The digest hides names and MACs; it is not exposed in JSON.
 
 Limits, none of which lose data (the registrations and Results are intact, and
 each registration is listed on the host page):
 
-- Two machines of one owner with identical hardware merge when they share a
-  MAC (identical containers or cloned VMs) or, without a MAC, share a
-  `machine_name` or both have none. Giving each an `--identity` separates the
-  second case only.
-- One machine splits when its key inputs change: a VM or container that draws
-  a new random (but well-formed) MAC on every boot, a replaced network card, a
-  dual boot into another OS, or SMT toggled in firmware.
-- Two Clients running at once on one host are one host. Its threads and MNPS
-  are those of the registration with the newest heartbeat, not their sum.
+- Two machines of one owner with the same `--identity` and identical hardware
+  are one host. Names are the operator's to keep distinct.
+- An unnamed Client in a container gets a random address per start, so about
+  half of its starts become hosts of their own. Name it.
+- Two unnamed Clients on identical hardware merge when they share a real MAC
+  (two Clients on one machine, cloned VMs) or both have none; while both are
+  online they count as one machine with the threads of the newer registration.
+- One machine splits when its key inputs change: a new `--identity`, a dual
+  boot into another OS, SMT toggled in firmware, or, unnamed, a replaced
+  network card.
 
 The key is stored in `Machine.host_key`, filled by `Machine.save()` and, for
-rows that predate it, by migration `0019`. Storing it is what makes the
-grouping affordable; see [PERFORMANCE.md](PERFORMANCE.md#indexes). Registration
-is otherwise unchanged: every start still gets a new Machine id and secret.
+rows that predate it, by migration `0019`, which carries its own frozen copy
+of the rule (a later change to the rule needs a new migration to re-key rows).
+Storing it is what makes the grouping affordable; see
+[PERFORMANCE.md](PERFORMANCE.md#indexes). Registration is otherwise unchanged:
+every start still gets a new Machine id and secret.
 
-Ephemeral cloud jobs (a new VM per job, named `batch-<uuid>:<slot>`) are each
-a host of their own: their MACs differ, and without a MAC their names do. Two
-slots of one VM share its MAC and are one host.
+A row can have an empty key: an image from before the column existed, run
+again after a rollback, inserts Machines without it
+([DEPLOYMENT.md](DEPLOYMENT.md#rolling-back-past-the-host-key)). An empty key
+never groups: `current_sessions` treats each such row as a host of its own,
+the insights payload computes the key from `info`, and the fleet pages key up
+to 200 such rows before reading. Rows are also keyed by their own next
+heartbeat or workload request, by any registration, and by
+`prune_machines --apply`.
 
 ### Pools
 
