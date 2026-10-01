@@ -16,7 +16,7 @@ The examples below were captured from a local server filled by
 - [Endpoint summary](#endpoint-summary)
 - [Configuration](#configuration): `api/config/`, `api/config/<engine>/`, `api/buildinfo/`
 - [Networks](#networks): list, download, delete
-- [Workloads](#workloads): `api/workloads/`, `api/workload/<id>/<query>/`, `api/spsa/<id>/<query>/`, `api/pgns/<id>/`
+- [Workloads](#workloads): `api/workloads/`, `api/live/…`, `api/workload/<id>/<query>/`, `api/spsa/<id>/<query>/`, `api/pgns/<id>/`
 - [Server](#server): `api/insights/server/`, `api/progress/`, `api/errors/`, `api/jump/`, `api/storage/`, `api/active/`
 - [`/scripts/`](#scripts): upload a network, create a test
 - [`/health/`](#health)
@@ -74,7 +74,7 @@ user only when that flag is set; the rest always demand one.
 
 | Rule | Endpoints |
 |---|---|
-| Enabled user when `require_login_to_view` is `true`, otherwise public | `api/config/`, `api/config/<engine>/`, `api/buildinfo/`, `api/networks/<engine>/`, `api/workload/…`, `api/spsa/…`, `api/pgns/<id>/`, `api/insights/server/`, `api/errors/` |
+| Enabled user when `require_login_to_view` is `true`, otherwise public | `api/config/`, `api/config/<engine>/`, `api/buildinfo/`, `api/networks/<engine>/`, `api/workload/…`, `api/live/…`, `api/spsa/…`, `api/pgns/<id>/`, `api/insights/server/`, `api/errors/` |
 | Always an enabled user | `api/active/`, `api/networks/<engine>/<id>/` (download), `/scripts/` |
 | Always an enabled **Approver** | `api/networks/<engine>/<id>/delete/`, and `UPLOAD_NETWORK` through `/scripts/` |
 | Always a **manager** (Profile or Django superuser) | `api/storage/` |
@@ -90,7 +90,7 @@ Every `/api/` endpoint answers a failed login with 401. The message differs:
 
 | Endpoints | Body |
 |---|---|
-| `api/config/…`, `api/buildinfo/`, `api/networks/<engine>/`, `api/workload/…`, `api/spsa/…`, `api/pgns/…`, `api/insights/server/`, `api/errors/` | `{"error": "API requires authentication for this server"}` |
+| `api/config/…`, `api/buildinfo/`, `api/networks/<engine>/`, `api/workload/…`, `api/live/…`, `api/spsa/…`, `api/pgns/…`, `api/insights/server/`, `api/errors/` | `{"error": "API requires authentication for this server"}` |
 | `api/networks/<engine>/<id>/` (download), `api/networks/<engine>/<id>/delete/`, `api/storage/` | `{"error": "API requires authentication for this endpoint"}` |
 | `api/active/` | `{"error": "Bad Credentials"}` |
 
@@ -158,6 +158,8 @@ The read endpoints and `POST api/active/` change nothing and do not check CSRF.
 | GET, POST | `/api/networks/<engine>/<sha-or-name>/` | user | The network file |
 | POST | `/api/networks/<engine>/<name-or-sha>/delete/` | Approver | Deletes a network |
 | GET, POST | `/api/workloads/?status=&engine=&since_id=&limit=` | view | Compact workload rows, with what each is waiting for |
+| GET, POST | `/api/live/workloads/?author=&token=` | view | The unfinished listing rows as displayed, or "unchanged" |
+| GET, POST | `/api/live/workload/<id>/?token=` | view | One workload's stat block and diagnosis as displayed, or "unchanged" |
 | GET, POST | `/api/workload/<id>/results/` | view | Per-machine results |
 | GET, POST | `/api/workload/<id>/info/` | view | The workload's fields |
 | GET, POST | `/api/workload/<id>/summary/` | view | Results grouped by user, CPU, ISA |
@@ -483,6 +485,125 @@ curl -s https://openbench.example.org/api/workloads/?status=active \
 The response costs a fixed number of queries whatever the `limit`: the rows,
 plus the six of the diagnosis when a row is active and one more when a row is
 stopped.
+
+### `GET|POST /api/live/workloads/` and `/api/live/workload/<id>/`
+
+The two endpoints `OpenBench/static/live.js` polls so that the index and a
+workload page follow a running test without a reload ([UI.md](UI.md#live-updates)).
+They answer with **display values**: the same strings, colours and fractions
+the templates render, built by the same functions (`shortStatBlock`,
+`longStatBlock`, `workload_progress`, `listing_row_timing`, `row_reason`,
+`listing_moment`, and the page's own `FrontPage` queries), so the page and
+the poll cannot drift apart. A script that wants numbers should read
+`/api/workloads/` or the insights instead.
+
+Every response carries a `token`. Send it back as `token=` and, while nothing
+changed, the answer is only
+
+```json
+{ "token": "253ab8c2e80da3a0", "changed": false }
+```
+
+for four queries: the session, the user, the Profile, and one read of the
+token's inputs. The token is a digest, not a timestamp; treat it as opaque.
+
+- For the listing it covers the unfinished, undeleted workloads in scope:
+  how many there are, how many are approved, their newest `updated` and their
+  summed games. A result, an approval, a new workload, a finish or a stop
+  each change it. Every write to a `Test` goes through `save()`, which moves
+  `updated`.
+- For one workload it covers its `updated`, games and state flags.
+- Both also fold in the current minute, so an idle page is re-sent at most
+  once a minute. That keeps the time-derived text ("2h left", "no workers
+  for 12m") from freezing while no games arrive.
+
+It is a query parameter rather than `ETag`/`If-None-Match` so that it means
+the same thing to a POSTing script and survives any proxy that rewrites
+validators when it compresses a response.
+
+| Parameter | Endpoint | Values |
+|---|---|---|
+| `token` | both | The `token` of the previous answer, at most 64 characters |
+| `author` | listing | Only this author's workloads, as on `/user/<name>/`; at most 150 characters |
+
+The listing holds the pending workloads, then the active ones in index
+order:
+
+```json
+{
+    "token": "253ab8c2e80da3a0",
+    "changed": true,
+    "machine_status": ": 3 Machines / 88 Threads / 137.6 MNPS ",
+    "rows": [
+        {
+            "id": 2,
+            "result": {
+                "status": "active",
+                "games": 5240,
+                "colour": "",
+                "outcome": "Running",
+                "statblock": [
+                    "LLR: 0.50 (-2.94, 2.94) [0.00, 3.00]",
+                    "Games: 5240 W: 946 L: 898 D: 3396",
+                    "Ptnml(0-2): 134, 627, 1058, 662, 139"
+                ]
+            },
+            "progress": { "kind": "llr", "fraction": 0.5853, "label": "LLR 0.50 between bounds -2.94 and 2.94" },
+            "timing": {
+                "kind": "left",
+                "text": "19d 17h left",
+                "estimate": true,
+                "note": "Assumes the test keeps producing results like it has so far; an order of magnitude, not a promise.",
+                "rate": "143 games/h",
+                "rate_window": "last 1h"
+            },
+            "reason": null,
+            "moment": { "verb": "started", "at": "2026-09-30T05:10:11.120000+00:00", "ago": "1d ago" }
+        }
+    ]
+}
+```
+
+- `result.status` is the insights status; a listing row is only ever
+  `pending` or `active`. `colour` is `green`, `blue`, `yellow`, `red` or
+  empty, and `outcome` the words that stand in for it
+  (`Blocks/result_text.html`).
+- `progress` is the bar under an active row (`kind` is `llr` or `games`),
+  `null` for a pending row and for a tune.
+- `timing`, `reason` (`severity`, `headline`, `brief`) and `moment` are the
+  lines below the stat block, each `null` when the row shows none.
+- `machine_status` is the text after "Active" in the table heading.
+
+One workload:
+
+```json
+{
+    "token": "3a066758db194dc3",
+    "changed": true,
+    "workload": {
+        "id": 1,
+        "result": { "status": "passed", "games": 10420, "colour": "green", "outcome": "Passed", "statblock": ["…"] },
+        "diagnosis": null
+    }
+}
+```
+
+`result.statblock` is the page's long block (the short one for a tune).
+`diagnosis` is the banner of [INSIGHTS.md](INSIGHTS.md#workload-diagnosis)
+with `state`, `severity`, `headline`, `brief` and `evidence`, and `null` once
+the workload has finished.
+
+| Error | Status | Body |
+|---|---|---|
+| `token` or `author` too long | 400 | `{"error": "token must be at most 64 characters"}` |
+| Authentication failed | 401 | `{"error": "API requires authentication for this server"}` |
+| No workload with that id | 404 | `{"error": "Requested Workload Id does not exist"}` |
+
+A changed listing costs up to 13 queries whatever the number of rows: the
+four above, the pending and active rows, the machine status, and the six of
+the diagnosis, which are spent only when an active row has no recent rate
+(7 queries while every active row is producing games). A changed workload
+costs up to 10.
 
 ### `GET|POST /api/workload/<id>/<query>/`
 

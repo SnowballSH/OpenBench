@@ -21,6 +21,22 @@ class RowMoment:
     ago: str
 
 
+RESULT_LABELS = {
+    'green': 'Passed',
+    'blue': 'Passed, non-regression',
+    'yellow': 'Failed, wins at least losses',
+    'red': 'Failed',
+}
+
+
+def result_label(test: Test, colour: str) -> str:
+    if colour in RESULT_LABELS:
+        return RESULT_LABELS[colour]
+    if test.finished:
+        return 'Finished'
+    return 'Running' if test.approved else 'Pending approval'
+
+
 def workload_label(test: Test, pretty_name: str) -> WorkloadLabel:
 
     # pretty_name is prettyDevName's answer; it stops being the commit when a network or another engine names the row

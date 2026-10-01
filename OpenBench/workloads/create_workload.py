@@ -56,7 +56,7 @@ def create_workload(request, workload_type):
         return OpenBench.views.redirect(request, '/login/', error='Only enabled users can create tests')
 
     if request.method in ('GET', 'HEAD'):
-        source, warning = find_clone_source(request.GET.get('clone'), workload_type)
+        source, warning = find_clone_source(request.GET.get('clone'), workload_type, request.GET.get('preset'))
         return render_form(request, workload_type, source, source and source.fields, warning=warning)
 
     if workload_type == 'TEST':
@@ -131,12 +131,12 @@ def render_form(request, workload_type, clone_source, prefill_fields, error=None
 
     return OpenBench.views.render(request, 'create_workload.html', data, error=error, warning=warning)
 
-def find_clone_source(raw_id, workload_type):
+def find_clone_source(raw_id, workload_type, preset=None):
 
     if raw_id is None:
         return None, None
 
-    try: return load_clone_source(raw_id, workload_type), None
+    try: return load_clone_source(raw_id, workload_type, preset), None
     except CloneError as error: return None, str(error)
 
 def create_new_test(request):

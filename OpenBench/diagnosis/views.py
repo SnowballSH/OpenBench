@@ -1,3 +1,5 @@
+from collections.abc import Iterable
+
 from django.http import HttpRequest, HttpResponse
 from django.views.decorators.csrf import csrf_exempt
 
@@ -8,9 +10,9 @@ AUTHENTICATION_ERROR = 'API requires authentication for this server'
 PARAMETERS = ('status', 'engine', 'since_id', 'limit')
 
 
-def parameters(request: HttpRequest) -> dict[str, str]:
+def parameters(request: HttpRequest, names: Iterable[str] = PARAMETERS) -> dict[str, str]:
     # Scripts POST their credentials, so a filter may arrive in the query string or in the body
-    return {name: value for name in PARAMETERS if (value := request.GET.get(name) or request.POST.get(name))}
+    return {name: value for name in names if (value := request.GET.get(name) or request.POST.get(name))}
 
 
 @csrf_exempt

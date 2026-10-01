@@ -9,6 +9,7 @@ fork_owned=(
     OpenBench/games
     OpenBench/insights
     OpenBench/listing_rows.py
+    OpenBench/live
     OpenBench/machine_info.py
     OpenBench/navigation
     OpenBench/progress
@@ -19,6 +20,8 @@ fork_owned=(
     OpenBench/upstream.py
     OpenBench/workload_names.py
     OpenBench/workloads/clone.py
+    OpenBench/workloads/confirmation.py
+    OpenBench/workloads/presets.py
     OpenBench/management/commands/prune_machines.py
     OpenBench/management/commands/seed_demo.py
     OpenBench/tests

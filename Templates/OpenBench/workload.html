@@ -12,6 +12,9 @@
     <script src="{% static 'workload_utils.js' %}?{{ static_version }}" defer></script>
     <script src="{% static 'vendor/chartjs-4.5.1/chart.umd.min.js' %}" defer></script>
     <script src="{% static 'insights.js' %}?{{ static_version }}" defer></script>
+    {% if not workload.finished and not workload.deleted and profile|may_poll %}
+        <script src="{% static 'live.js' %}?{{ static_version }}" defer></script>
+    {% endif %}
     {% if workload.upload_pgns != "FALSE" %}
         <script src="{% static 'games.js' %}?{{ static_version }}" defer></script>
     {% endif %}
@@ -20,7 +23,7 @@
 
 {% block content %}
 
-    <div class="workload-container" data-workload-id="{{workload.id}}">
+    <div class="workload-container" data-workload-id="{{workload.id}}"{% if not workload.finished and not workload.deleted and profile|may_poll %} data-live-workload="/api/live/workload/{{workload.id}}/" data-live-status="{% if workload.approved %}active{% else %}pending{% endif %}" data-live-games="{{workload.games}}"{% endif %}>
 
     {% if diagnosis %}{% include "OpenBench/Blocks/diagnosis.html" %}{% endif %}
     {% if worker_errors %}<p class="workload-errors"><a href="/errors/?workload={{workload.id}}">Worker errors ({{worker_errors}})</a></p>{% endif %}
@@ -139,6 +142,18 @@
             {% endif %}
         </div>
 
+        {% if confirmation %}
+            <div class="anchor-container">
+                <a class="mt-1 anchorbutton btn-start" href="{{confirmation.url}}" title="Opens the create form with this dev and base at the {{confirmation.preset}} preset; nothing is created until you submit it">Confirm at LTC ({{confirmation.time_control}})</a>
+            </div>
+        {% endif %}
+
+        {% if confirmed_by %}
+            <div class="anchor-container">
+                <a class="mt-1 anchorbutton btn-blue" href="{{confirmed_by.url}}">LTC confirmation: #{{confirmed_by.id}} ({{confirmed_by.time_control}})</a>
+            </div>
+        {% endif %}
+
         <form class="workload-compare-form" method="get" action="/compare/">
             <input type="hidden" name="a" value="{{workload.id}}">
             <label for="compare-with">Compare with workload</label>
@@ -175,7 +190,14 @@
         {% endif %}
 
         <!-- Elo, (SPRT/LRR if SPRT, otherwise CONF), Games -->
-        <p class="visually-hidden">Result: {% include "OpenBench/Blocks/result_text.html" with test=workload %}</p>
+        {% if not workload.finished and not workload.deleted and profile|may_poll %}
+            <div class="live-bar">
+                {% include "OpenBench/Blocks/live_status.html" %}
+                <button type="button" class="live-notify" data-live-notify aria-pressed="false" hidden>Notify me when this finishes</button>
+            </div>
+            <p class="live-note muted" data-live-notify-note role="status"></p>
+        {% endif %}
+        <p class="visually-hidden" data-live-outcome>Result: {% include "OpenBench/Blocks/result_text.html" with test=workload %}</p>
         {% if type == "TEST" %}
             <pre class="long-statblock long-statblock-{{workload|testResultColour}}" id="long-statblock">{{workload|longStatBlock|linebreaksbr}}</pre>
         {% elif type == "TUNE" %}

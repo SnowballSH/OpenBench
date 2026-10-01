@@ -46,6 +46,16 @@ def create_engine_config(name: str = 'Avalanche', cpuflags: str = 'AVX2') -> Eng
     )
 
 
+STC_PRESET = {'both_options': 'Threads=1 Hash=16', 'both_time_control': '8.0+0.08'}
+LTC_PRESET = {'both_options': 'Threads=1 Hash=64', 'both_time_control': '40.0+0.40', 'workload_size': 8, 'priority': 2}
+
+
+def set_test_presets(config: EngineConfig, default: dict[str, Any], **presets: dict[str, Any]) -> EngineConfig:
+    config.presets = {**config.presets, 'test_presets': {'default': default, **presets}}
+    config.save()
+    return config
+
+
 def ensure_book() -> Book:
     return Book.objects.get_or_create(
         name='UHO_Lichess_4852_v1.epd', defaults={'source': 'https://example.invalid/book.zip', 'sha': '0' * 64}

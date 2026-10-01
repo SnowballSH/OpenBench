@@ -1,7 +1,7 @@
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, TypedDict, TypeIs
+from typing import TYPE_CHECKING, Any, TypedDict, TypeIs, cast
 
 from django.db.models import (
     Case,
@@ -20,6 +20,7 @@ from django.db.models.functions import Coalesce
 from django.http import HttpRequest
 from django.utils import timezone
 
+import OpenBench.config
 import OpenBench.utils
 from OpenBench.diagnosis.listing import attach_row_reasons, attach_stop_reasons
 from OpenBench.insights.listing import RowTiming, SnapshotMarks, finished_row_timing, running_row_timing
@@ -54,6 +55,15 @@ def request_profile(request: HttpRequest) -> Profile | None:
 
     cached: Profile | None = getattr(request, PROFILE_ATTRIBUTE)
     return cached
+
+
+def may_poll(profile: object) -> bool:
+    # Mirrors api_authenticate, so a page never loads a poller the API would refuse
+    # Read directly: OpenBench.upstream imports the listing rows, which import this module
+    config = cast(dict[str, Any], OpenBench.config.OPENBENCH_CONFIG)
+    if not config['require_login_to_view']:
+        return True
+    return isinstance(profile, Profile) and profile.enabled
 
 
 def dev_network_label() -> Subquery:
@@ -145,20 +155,46 @@ def lacks_rate(test: Test) -> bool:
 
 
 @dataclass(frozen=True)
+class FrontRows:
+    pending: list[Test]
+    active: list[Test]
+    status: str
+
+
+@dataclass(frozen=True)
 class FrontPage:
     pending: QuerySet[Test]
     active: QuerySet[Test]
     status: Callable[[], str]
 
-    def data(self) -> dict[str, Any]:
-        now = timezone.now()
+    def shown(self, now: datetime) -> FrontRows:
         active = list(listing_tests(self.active, now))
         attach_row_reasons([test for test in active if lacks_rate(test)], now)
+        return FrontRows(pending=list(listing_tests(self.pending, now)), active=active, status=self.status())
+
+    def data(self) -> dict[str, Any]:
+        rows = self.shown(timezone.now())
         return {
-            'pending': listing_tests(self.pending, now),
-            'active': OpenBench.utils.group_active_tests_by_priority(active),
-            'status': self.status(),
+            'pending': rows.pending,
+            'active': OpenBench.utils.group_active_tests_by_priority(rows.active),
+            'status': rows.status,
         }
+
+
+def by_author(tests: QuerySet[Test], author: str | None) -> QuerySet[Test]:
+    return tests if author is None else tests.filter(author=author)
+
+
+def front_page(author: str | None = None) -> FrontPage:
+    return FrontPage(
+        by_author(OpenBench.utils.get_pending_tests(), author),
+        by_author(OpenBench.utils.get_active_tests(), author),
+        lambda: OpenBench.utils.getMachineStatus(author),
+    )
+
+
+def unfinished_tests(author: str | None = None) -> QuerySet[Test]:
+    return by_author(Test.objects.filter(finished=False, deleted=False), author)
 
 
 def workload_list_data(

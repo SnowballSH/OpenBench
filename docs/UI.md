@@ -274,6 +274,70 @@ Zebra striping is switched off while a filter is active, because hidden rows
 would break the alternation. Column widths can still change as rows hide,
 since the table sizes its columns to what is visible.
 
+## Live updates
+
+`OpenBench/static/live.js` keeps the index, a user's page and a workload page
+current without a reload. It has no dependency, runs under the site's
+Content-Security-Policy, and writes only through `textContent`, attributes
+and `createElement`.
+
+- **Where it runs**: only where something can change. The index loads it
+  when the page lists a pending or active row (`table[data-live-listing]`),
+  a workload page while the workload is unfinished
+  (`.workload-container[data-live-workload]`). Later index pages, Greens,
+  Search and finished workloads never poll. Neither the script nor the
+  indicator is rendered for a viewer the API would refuse (`may_poll`: a
+  signed-in account that is not enabled, while viewing needs a login).
+- **Polling**: every 15 seconds while the tab is visible, with the token of
+  [API.md](API.md#getpost-apiliveworkloads-and-apiliveworkloadid), so an
+  unchanged poll is a 57-byte answer. A hidden tab does not poll, and polls
+  once as soon as it is shown again. Failures double the wait up to four
+  minutes, with the seconds to the next try counted down in the indicator;
+  three refusals in a row (a session that ended) stop it. It also
+  stops when the listing has nothing unfinished left, or the workload
+  finished.
+- **Listing rows**: each `tr[data-live-row]` carries its id, status and games.
+  Each poll builds the row's stat-block cell from the payload (the same
+  markup as `Blocks/testsummary.html`: stat block, progress bar, timing line,
+  reason) and swaps in only the parts that differ from what is shown, so a
+  text selection in an unchanged stat block survives the once-a-minute
+  refresh of the relative times. Rows are not re-sorted.
+- **A row that leaves or arrives** (finished, stopped, approved, new) is not
+  moved between sections by script: the indicator says "1 workload finished
+  or changed state" with a **Refresh** button, which reloads the page. The
+  server renders the finished row, its timing and its place in the list.
+  Until then a row that left the payload is marked `.live-stale`: its stat
+  block is dimmed, its hidden result reads "Out of date" and its meta line
+  "changed since this page loaded", so it no longer claims to be running.
+- **Workload page**: the stat block, its hidden "Result:" text and the
+  diagnosis banner follow the payload. Each change raises
+  `openbench:workload-change` on `document`; `workload_utils.js` reloads the
+  results summary on it, and `insights.js` refreshes at once when the status
+  moved. The index raises `openbench:listing-change`, on which `insights.js`
+  refreshes the server strip at most once a minute.
+- **When the workload finishes**, the title gains a marker (`✓ Passed · …`,
+  `✗ Failed · …`), the indicator offers **Reload** for the buttons that only
+  the server decides (Restart, Confirm at LTC), and polling stops.
+- **Notification**: "Notify me when this finishes" is a toggle
+  (`aria-pressed`) on an unfinished workload's page. The browser's permission
+  is requested only by that click. The choice is kept per workload in
+  `localStorage` (`openbench-live-watch`) and dropped once it fires, which
+  also releases the toggle. Without
+  it no `Notification` is ever created. While a workload is watched its tab
+  keeps polling in the background, once a minute, since a notification is
+  for the tab nobody is looking at; the tab still has to stay open.
+- **Indicator** (`Blocks/live_status.html`, `.live-status`): a dot and
+  "Live · updated 12 s ago". That text ticks every second and is **not** a
+  live region. The hidden `aria-live="polite"` element beside it speaks only
+  when the list changed, the workload finished or changed state, and when
+  polling is interrupted or resumes.
+- **Highlight**: a row (or the stat block) whose games moved gets
+  `.live-changed` for 2.5 seconds, a tint that fades by `transition`. Under
+  `prefers-reduced-motion` the site-wide rule removes the fade, leaving a
+  tint that appears and disappears.
+- **Staleness**: between changes the page keeps what it has. The token folds
+  in the minute, so relative times and reasons are at most a minute old.
+
 ## Quick jump
 
 The header of every page carries a jump box (`#quick-jump`, a `GET` form to
@@ -340,7 +404,8 @@ both states, so it still works without JavaScript.
   `summary-table`, `stripes`, `wrappable`, `anchorbutton`, `btn-preset`,
   `col-half`, `pl-half`, `pr-half`, `mt-1`, `w-100`, `engine-options`,
   `engine-options-popup`, `timestamp`, `datestamp`, `sidebar-open`,
-  `row-link`, `row-filtered`.
+  `row-link`, `row-filtered`, `statblock-cell`, `row-name`, `diagnosis-headline`,
+  `diagnosis-details`, `diagnosis-evidence`, `live-changed`.
 - Tinted fills stay at 12% (rest) and 20% (hover) of their colour; stronger
   mixes drop text contrast below 4.5:1.
 - The mobile drawer moves focus to its first link and makes the page inert
@@ -386,7 +451,8 @@ for contrast and anything dynamic.
   hidden `data-insights-announcer` speaks only on first load and when the
   workload's status changes. The workload page's hidden
   `data-workload-announcer` reports completed actions (copy, fetch), and a
-  copy announces success only when the clipboard write succeeded.
+  copy announces success only when the clipboard write succeeded. The live
+  indicator's ticking text is not live either; see [Live updates](#live-updates).
 - **Focus**: an action never leaves focus on `<body>`: copying restores focus
   to its button, and removing a profile repo row moves focus to the next
   row's remove button or the new-engine select.

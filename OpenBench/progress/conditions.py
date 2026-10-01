@@ -1,12 +1,14 @@
 from OpenBench.progress.domain import TimeClass
 from OpenBench.progress.options import thread_count
-from OpenBench.utils import TimeControl
 
 LTC_BASE_SECONDS = 20.0
 VLTC_BASE_SECONDS = 120.0
 
 
 def base_seconds(time_control: str) -> float | None:
+    # Imported here because OpenBench.utils loads the views, and the workload views load this module
+    from OpenBench.utils import TimeControl
+
     if TimeControl.control_type(time_control) != TimeControl.FISCHER:
         return None
     try:

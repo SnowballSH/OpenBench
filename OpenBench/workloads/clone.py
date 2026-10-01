@@ -1,3 +1,4 @@
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from decimal import Decimal
@@ -5,11 +6,11 @@ from typing import Literal
 
 from django.core.exceptions import ObjectDoesNotExist
 
-from OpenBench.models import Engine, SPSARun, Test
+from OpenBench.models import Engine, EngineConfig, SPSARun, Test
 from OpenBench.spsa_utils import spsa_original_input
+from OpenBench.workloads.presets import SIDES, Side, run_settings, test_preset
 
 type WorkloadType = Literal['TEST', 'TUNE', 'DATAGEN']
-type Side = Literal['dev', 'base']
 type FormFields = dict[str, str]
 
 ENGINE_FIELDS = (
@@ -69,6 +70,7 @@ FORM_FIELDS: dict[WorkloadType, tuple[str, ...]] = {
 NOT_APPLICABLE = 'N/A'
 
 MAX_WORKLOAD_ID = 2**31 - 1
+MAX_PRESET_NAME_LENGTH = 64
 
 
 class CloneError(Exception):
@@ -82,6 +84,8 @@ class CloneSource:
     url: str
     fields: FormFields
     bench_hints: FormFields
+    preset: str | None = None
+    preset_changes: tuple[str, ...] = ()
 
 
 def workload_type_of(workload: Test) -> WorkloadType:
@@ -263,7 +267,69 @@ def parse_workload_id(raw_id: str) -> int | None:
     return workload_id if 1 <= workload_id <= MAX_WORKLOAD_ID else None
 
 
-def load_clone_source(raw_id: str, workload_type: WorkloadType) -> CloneSource:
+SETTING_LABELS = {
+    'time_control': 'time control',
+    'options': 'options',
+    'test_bounds': 'SPRT bounds',
+    'test_confidence': 'SPRT confidence',
+    'test_max_games': 'games',
+    'book_name': 'book',
+    'upload_pgns': 'PGN upload',
+    'priority': 'priority',
+    'throughput': 'throughput',
+    'workload_size': 'workload size',
+    'syzygy_wdl': 'Syzygy WDL',
+    'syzygy_adj': 'Syzygy adjudication',
+    'win_adj': 'win adjudication',
+    'draw_adj': 'draw adjudication',
+}
+NUMBER = re.compile(r'-?\d+(?:\.\d+)?')
+
+
+def comparable(value: str) -> tuple[str, tuple[float, ...]]:
+    # "[0.0, 3.0]" and "[0.00, 3.00]" are one setting, as are "32" and "32.0"
+    return NUMBER.sub('#', value).strip(), tuple(float(number) for number in NUMBER.findall(value))
+
+
+def setting_label(name: str, changed: Mapping[str, str]) -> str:
+    side, _, field = name.partition('_')
+    if side not in SIDES:
+        return SETTING_LABELS.get(name, name)
+    label = SETTING_LABELS.get(field, field)
+    both = all(f'{other}_{field}' in changed for other in SIDES)
+    return label if both else f'{side} {label}'
+
+
+def setting_rank(name: str) -> int:
+    field = name.partition('_')[2] if name.startswith(SIDES) else name
+    return list(SETTING_LABELS).index(field) if field in SETTING_LABELS else len(SETTING_LABELS)
+
+
+def changed_settings(fields: FormFields, preset: FormFields) -> tuple[str, ...]:
+    changed = {name: value for name, value in preset.items() if comparable(fields.get(name, '')) != comparable(value)}
+    return tuple(dict.fromkeys(setting_label(name, changed) for name in sorted(changed, key=setting_rank)))
+
+
+def preset_fields(workload: Test, preset_name: str) -> FormFields:
+
+    if workload_type_of(workload) != 'TEST':
+        raise CloneError('Nothing was cloned: only a test can be cloned with a preset')
+
+    config = EngineConfig.objects.filter(name=workload.dev_engine).first()
+    preset = test_preset(config, preset_name) if config and len(preset_name) <= MAX_PRESET_NAME_LENGTH else None
+    if preset is None:
+        raise CloneError(f'Nothing was cloned: {workload.dev_engine} has no test preset with that name')
+
+    # The clone keeps its own test mode, so a preset moves the bounds of an SPRT or the length of a fixed run
+    unused = {name for name, value in test_mode_fields(workload).items() if value == NOT_APPLICABLE}
+    return {
+        name: value
+        for name, value in run_settings(preset).items()
+        if name in FORM_FIELDS['TEST'] and name not in unused
+    }
+
+
+def load_clone_source(raw_id: str, workload_type: WorkloadType, preset_name: str | None = None) -> CloneSource:
     if (workload_id := parse_workload_id(raw_id)) is None:
         raise CloneError('Nothing was cloned: the clone parameter is not a workload id')
 
@@ -281,7 +347,16 @@ def load_clone_source(raw_id: str, workload_type: WorkloadType) -> CloneSource:
     except ObjectDoesNotExist as error:
         raise CloneError(f'Nothing was cloned: workload #{workload.id} is incomplete') from error
 
+    overlay = preset_fields(workload, preset_name) if preset_name else {}
+    changes = changed_settings(fields, overlay)
+
     url = f'/{workload.workload_type_str()}/{workload.id}/'
     return CloneSource(
-        id=workload.id, name=workload.dev.name, url=url, fields=fields, bench_hints=bench_hints(workload)
+        id=workload.id,
+        name=workload.dev.name,
+        url=url,
+        fields=fields | overlay,
+        bench_hints=bench_hints(workload),
+        preset=preset_name or None,
+        preset_changes=changes,
     )

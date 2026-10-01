@@ -36,6 +36,17 @@ FIRST_IMPORTS = (
     'OpenBench.diagnosis.sources',
     'OpenBench.diagnosis.standing',
     'OpenBench.diagnosis.views',
+    'OpenBench.progress.conditions',
+    'OpenBench.progress.report',
+    'OpenBench.workloads.clone',
+    'OpenBench.workloads.confirmation',
+    'OpenBench.workloads.presets',
+    'OpenBench.live.display',
+    'OpenBench.live.domain',
+    'OpenBench.live.listing',
+    'OpenBench.live.token',
+    'OpenBench.live.views',
+    'OpenBench.live.workload',
 )
 
 

@@ -1,1 +1,1 @@
-{% load mytags %}{% with colour=test|testResultColour %}<span class="visually-hidden">{% if colour == 'green' %}Passed{% elif colour == 'blue' %}Passed, non-regression{% elif colour == 'yellow' %}Failed, wins at least losses{% elif colour == 'red' %}Failed{% elif test.finished %}Finished{% elif test.approved %}Running{% else %}Pending approval{% endif %}. </span>{% endwith %}
+{% load mytags %}<span class="visually-hidden">{{test|result_label}}. </span>

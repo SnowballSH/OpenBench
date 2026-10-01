@@ -16,11 +16,14 @@ from OpenBench.security.csp import (
     serialize_policy,
 )
 from OpenBench.tests.fixtures import (
+    LTC_PRESET,
+    STC_PRESET,
     create_engine_config,
     create_test,
     create_user,
     ensure_book,
     logged_build_failure,
+    set_test_presets,
     system_info,
 )
 
@@ -213,7 +216,7 @@ class TemplateSourceTests(TestCase):
 
 class RenderedPageTests(TestCase):
     def setUp(self) -> None:
-        create_engine_config()
+        set_test_presets(create_engine_config(), {}, STC=STC_PRESET, LTC=LTC_PRESET)
         self.book = ensure_book()
         user = create_user('admin', approver=True)
         user.is_superuser = user.is_staff = True
@@ -232,6 +235,7 @@ class RenderedPageTests(TestCase):
             a_ratio=0.1,
         )
         self.datagen = create_test(user, test_mode='DATAGEN')
+        self.passed = create_test(user, finished=True, passed=True)
         self.uploading = create_test(user, upload_pgns='COMPACT')
         self.machine = Machine.objects.create(user=user, info={**system_info(), 'supported': ['Avalanche']})
         self.error = logged_build_failure(self, self.test, self.machine)
@@ -253,7 +257,9 @@ class RenderedPageTests(TestCase):
             f'/tune/{self.tune.id}/',
             f'/datagen/{self.datagen.id}/',
             '/test/new/',
+            f'/test/{self.passed.id}/',
             f'/test/new/?clone={self.test.id}',
+            f'/test/new/?clone={self.passed.id}&preset=LTC',
             '/tune/new/',
             '/datagen/new/',
             '/machines/',
