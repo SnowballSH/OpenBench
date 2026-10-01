@@ -1076,11 +1076,12 @@ section and its nav entry with it:
   render and retries with the delay doubling up to 8 minutes; after three
   consecutive client errors (a 4xx, or an `error` payload such as an unknown
   id) it stops. `eta.reason` picks the wording under an unavailable time left.
-  - Status card, rendered by the server and refreshed from the payload: the
-    verdict's `label` and `figures` with its tone on the left edge (hidden
-    until a game was played), and under "Explain" its `text` and, while
-    `outlook` is not null, an "About the forecast" disclosure holding the
-    caveat in plain text, so it does not depend on hovering.
+  - At the head of Results, rendered by the server and refreshed from the
+    payload: the verdict's `text` with its tone on the left edge (hidden
+    until a game was played) and, while `outlook` is not null, an "About the
+    forecast" disclosure holding the caveat in plain text, so it does not
+    depend on hovering. `label` and `figures` stay in the payload for API
+    consumers; the page does not draw them.
   - Summary, likewise: for an active Workload a meter (LLR position between the
     bounds, or the fraction of `target_games`) and one line with the time
     left (prefixed with `≈` for an SPRT) and games per hour, worded as on the
@@ -1142,10 +1143,10 @@ template filled from evidence, and `unknown` when the evidence is not there.
 |---|---|
 | `state` | One of the states below |
 | `severity` | `ok` (running, finished), `info` (pending, starting, queued, unknown) or `warning` (blocked or stalled) |
-| `headline` | One or two sentences, under "Details" in the workload page's Status card |
-| `brief` | A few words, for a listing row and the Status card's worker line |
+| `headline` | One or two sentences, in the workload page's banner when urgent |
+| `brief` | A few words, for a listing row and the banner's first line |
 | `evidence` | `[{ "kind", "text", "link": { "href", "label" } \| null }]`, each a fact the verdict rests on; an item without text is dropped when the verdict is assembled, and `live.js` skips one too |
-| `urgent` | `true` for `stopped_by_error`, `failing` and `no_eligible_workers`: the states whose explanation starts open |
+| `urgent` | `true` for `stopped_by_error`, `failing` and `no_eligible_workers`: the only states the workload page shows a banner for |
 
 States, in the order they are decided:
 
@@ -1252,11 +1253,10 @@ left is forgotten after a quarter of an hour.
 
 ### Where it shows, and what it costs
 
-- **Workload page**: one line in the Status card for every workload that
-  is not finished, and for one stopped by a worker error
-  (`Blocks/diagnosis.html`): the `brief`, with the headline and evidence in a
-  closed "Details" disclosure; amber-edged for `warning`, and open only when
-  `urgent`.
+- **Workload page**: a banner under the stat block (`Blocks/diagnosis.html`)
+  only while the diagnosis is `urgent`: the `brief`, the headline and the
+  evidence. A diagnosis that is not urgent is rendered hidden, so a live
+  update can reveal it when the state turns urgent.
 - **Listings**: an active row whose timing line has no rate shows `brief`
   under it, amber for a warning, with the headline as its tooltip. Rows that
   are producing games are left alone. A finished row stopped by a worker

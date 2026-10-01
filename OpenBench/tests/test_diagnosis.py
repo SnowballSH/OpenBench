@@ -279,13 +279,12 @@ class DiagnosisPageTests(ClientProtocolCase):
         test = create_test(self.author, finished=True, passed=True)
         self.assertNotIn('data-diagnosis-state', self.client.get(f'/test/{test.id}/').content.decode())
 
-    def test_running_banner_is_calm_and_collapsed(self) -> None:
+    def test_a_running_workload_keeps_its_banner_hidden(self) -> None:
         test = create_test(self.author)
         self.request_workload(self.register())
         self.client.force_login(self.author)
         content = self.client.get(f'/test/{test.id}/').content.decode()
-        self.assertIn('class="diagnosis diagnosis-ok" data-diagnosis-state="running"', content)
-        self.assertIn('<details class="diagnosis-details">', content)
+        self.assertIn('class="diagnosis diagnosis-ok" data-diagnosis-state="running" hidden>', content)
         self.assertIn('<p class="diagnosis-brief">Running on 1 worker</p>', content)
         self.assertNotRegex(content, r'<li>\s*</li>')
 

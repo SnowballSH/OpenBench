@@ -59,28 +59,11 @@
                 {% include "OpenBench/Blocks/live_status.html" %}
             </div>
         {% endif %}
-    </section>
-
-    <div class="workload-side">
-
-    {% if summary.verdict or diagnosis or not workload.finished %}
-    <section class="card status-card" aria-labelledby="status-title">
-        <h2 id="status-title" class="card-title">Status</h2>
-        <div class="status-verdict{% if summary.verdict %} status-verdict-{{summary.verdict.tone}}{% endif %}" data-insights-verdict{% if not summary.verdict %} hidden{% endif %}>
-            <p class="status-label" data-verdict-label>{{summary.verdict.label}}</p>
-            <dl class="status-figures" data-verdict-figures>{% for figure in summary.verdict.figures %}<div><dt>{{figure.label}}</dt><dd>{{figure.value}}</dd></div>{% endfor %}</dl>
-            <details class="status-explain">
-                <summary>Explain</summary>
-                <p data-verdict-text>{{summary.verdict.text}}</p>
-                <div class="status-forecast" data-insights-forecast></div>
-            </details>
-        </div>
         {% if diagnosis %}{% include "OpenBench/Blocks/diagnosis.html" %}{% endif %}
     </section>
-    {% endif %}
 
     <section id="actions" class="card workload-actions" aria-labelledby="actions-title">
-        <h2 id="actions-title" class="card-title">Actions</h2>
+        <h2 id="actions-title" class="visually-hidden">Actions</h2>
 
         <form id="workload-actions" method="post" hidden>{% csrf_token %}</form>
 
@@ -211,8 +194,6 @@
         <p class="visually-hidden" role="status" data-workload-announcer></p>
     </section>
 
-    </div>
-
     <div class="insights workload-evidence" data-insights-evidence>
 
         <div class="section-bar">
@@ -229,6 +210,10 @@
         {% if sections.results %}
             <section id="results" class="workload-section" data-section="results" aria-labelledby="results-title"{% if not sections.results.shown %} hidden{% endif %}>
                 <h2 id="results-title" class="section-title">Results</h2>
+                <div class="results-verdict{% if summary.verdict %} results-verdict-{{summary.verdict.tone}}{% endif %}" data-insights-verdict{% if not summary.verdict %} hidden{% endif %}>
+                    <p data-verdict-text>{{summary.verdict.text}}</p>
+                    <div class="results-forecast" data-insights-forecast></div>
+                </div>
                 <div class="section-body" data-insights-results></div>
                 {% if type == "TEST" and workload.upload_pgns == "FALSE" %}
                     <p class="insights-note games-hint">Per-game insights need PGN uploads (set Upload PGNs to COMPACT when creating the test)</p>

@@ -259,22 +259,14 @@
         view.timing.replaceChildren(...(timing ? [timing] : []));
     }
 
-    function figure_row(figure) {
-        const row = element('div');
-        row.append(element('dt', null, figure.label), element('dd', null, figure.value));
-        return row;
-    }
-
     function render_verdict(view, insights) {
         if (!view.verdict) return;
         const results = insights.progress.games > 0 ? insights.results : null;
         view.verdict.hidden = !results;
         if (results) {
             const { verdict } = results;
-            view.verdict.className = `status-verdict status-verdict-${verdict.tone}`;
-            view.label.textContent = verdict.label;
+            view.verdict.className = `results-verdict results-verdict-${verdict.tone}`;
             view.text.textContent = verdict.text;
-            view.figures.replaceChildren(...verdict.figures.map(figure_row));
         }
 
         const open = view.forecast.querySelector('details')?.open ?? false;
@@ -1016,8 +1008,6 @@
             this.evidence = section.querySelector('[data-insights-evidence]');
             this.summary = {
                 verdict: section.querySelector('[data-insights-verdict]'),
-                label: section.querySelector('[data-verdict-label]'),
-                figures: section.querySelector('[data-verdict-figures]'),
                 text: section.querySelector('[data-verdict-text]'),
                 forecast: section.querySelector('[data-insights-forecast]'),
                 meter: section.querySelector('[data-summary-meter]'),

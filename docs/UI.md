@@ -93,8 +93,8 @@ without relying on fill alone.
   `.chart-empty` fallback; `.insights-empty` is a full-width dashed notice.
   `.contribution-table` is a full-width `.table-wrap` with a caption, and
   `.share-bar` a small horizontal bar set by `--share`. `.insights-error` is
-  the inline failure banner. `.status-verdict` (`-positive`, `-negative`)
-  is the Status card's verdict, a label over `dl.status-figures`, with a toned left edge; `.insights-details`
+  the inline failure banner. `.results-verdict` (`-positive`, `-negative`)
+  is the verdict sentence at the head of Results, with a toned left edge; `.insights-details`
   a small `<details>` note under the tiles; `.results-grid` lays
   the outcome table beside the By CPU table, `.results-wide` spans it; and
   `.results-outcome-bar-{loss,loss-soft,level,win-soft,win}` recolour a `.share-bar`
@@ -156,9 +156,9 @@ without relying on fill alone.
 - **Banners**: `.error-message`, `.warning-message`, `.status-message` render
   the session messages in `base.html`.
 - **Diagnosis**: `.diagnosis` with `.diagnosis-{ok,info,warning}` is the
-  workload page's "what is this waiting for" (or "what stopped this") block in the Status card (`Blocks/diagnosis.html`):
-  the `brief` as one line, then the headline and the evidence in a
-  `<details>` that starts open only for an `urgent` diagnosis. `.row-reason` is the same
+  workload page's "what is this waiting for" (or "what stopped this") banner under the stat block (`Blocks/diagnosis.html`), drawn only for an
+  `urgent` diagnosis and otherwise kept hidden for live updates:
+  the `brief` as one line, then the headline and the evidence. `.row-reason` is the same
   verdict in a few words on a listing row's `.row-meta` line,
   `.row-reason-warning` in `--warn-text`; its hidden "Status:" prefix and its
   `title` carry the meaning without the colour.
@@ -321,35 +321,22 @@ raw summary.
    captioned "LLR" or "Games") with the time left and rate of the index row,
    and the stat block, which stays the one place for the exact counters and
    the text that Copy Stat Block copies.
-2. **How is it going, and what should I do next?** A side column
-   (`.workload-side`) with two cards.
-   - **Status** (`.status-card`): the verdict of
-     [INSIGHTS.md](INSIGHTS.md#verdict) in its compact form, a label
-     ("Likely a gain", "Passed") over a few label and value rows (Elo, LOS,
-     chance to pass, games to decide); and the worker status as one line, the
-     diagnosis' `brief` ("Next in line for a worker", "Running on 3
-     workers"). Each has a closed `<details>`: "Explain" holds the verdict
-     sentence and "About the forecast"; "Details" holds the diagnosis
-     headline and its evidence, shown in full. Only
-     a diagnosis marked `urgent` (stopped by a worker error, failing, no
-     capable worker) starts open, and a change to an urgent state opens it;
-     other warnings keep their amber edge and stay as the viewer left them. A healthy workload's card is five or six short lines. A
-     settled workload with no verdict and no diagnosis (a stopped test without
-     games, a finished tune) has no card.
-   - **Actions** (`#actions`): Approve, Restart or Restore, Confirm at LTC or
-     the link to the existing confirmation, Clone; the compare form; the copy
-     and download tools and the notify toggle; the info, priority and
-     throughput form folded into a `<details>` whose summary states the
-     current priority and throughput; and, apart under a rule and
-     right-aligned, Stop and Delete. A button that cannot apply in the
-     current state (Approve on an approved workload) is not drawn; one the
-     viewer lacks the right for is drawn disabled, as before.
-
-   Status comes before Actions in both layouts. Below 1024px the column
-   follows the summary, so the page reads title, numbers, status, actions:
-   what to press depends on how the test stands, and the Status card is
-   short enough that Actions still starts within the second screen at 375px.
-   At 1440x900 the header, summary and both cards fit without scrolling.
+   A diagnosis appears here only when it is `urgent` (stopped by a worker
+   error, failing, no capable worker): a banner with the headline and its
+   evidence. Every other diagnosis stays in the page hidden, so a live
+   update can reveal it if the workload turns urgent. The top says nothing
+   the stat block already says: there is no status card, and the verdict
+   sentence of [INSIGHTS.md](INSIGHTS.md#verdict) with "About the forecast"
+   opens the Results section instead.
+2. **What should I do next?** One full-width toolbar (`#actions`), so the
+   page is a single column with no empty space beside a short summary:
+   Approve, Restart or Restore, Confirm at LTC or the link to the existing
+   confirmation, Clone; the compare form; the copy and download tools and
+   the notify toggle; the info, priority and throughput form folded into a
+   `<details>` that takes a row of its own when opened; and, pushed to the
+   right, Stop and Delete. A button that cannot apply in the current state
+   (Approve on an approved workload) is not drawn; one the viewer lacks the
+   right for is drawn disabled, as before.
    All of it is rendered by the server; `insights.js` and `live.js` then keep
    it current.
 3. **Why?** The evidence, each an `<h2>` section with an anchor, reached from
@@ -400,9 +387,9 @@ A quantity is stated in the summary and at most once more below it.
 | Elo with its interval | stat block, verdict; the Elo chart | the Elo tile |
 | LLR and its bounds | stat block, summary meter; the LLR chart | the LLR tile |
 | Games, W/L/D | stat block; the games chart | the Games tile, the W/D/L line of the draw-ratio tile |
-| Chance to pass, games to decide | Status card, with "About the forecast" under Explain | the two forecast tiles |
+| Chance to pass, games to decide | the verdict sentence at the head of Results, with "About the forecast" | the two forecast tiles |
 | Time left, games per hour | summary line; Progress tiles (with the date and the window) | |
-| Verdict | Status card (label and figures; the sentence under Explain) | the copy inside the Results group, the sentence at the top of the page |
+| Verdict | the head of Results (one sentence) | the copy inside the Results group, the sentence at the top of the page |
 | Games, Elo, share per CPU | Workers "By CPU" (share, games, pairs/h, Elo, deviation, crashes, time losses, speed) | "Contributions by CPU" beside "Consistency by CPU": now one table. A tune has no consistency, and keeps the contributions table |
 | Author, creation | header | the two configuration rows |
 
@@ -465,7 +452,7 @@ and `createElement`.
   block is dimmed, its hidden result reads "Out of date" and its meta line
   "changed since this page loaded", so it no longer claims to be running.
 - **Workload page**: the stat block, its hidden "Result:" text, the state
-  badge beside the title (`data-live-badge`) and the Status card's diagnosis follow
+  badge beside the title (`data-live-badge`) and the diagnosis banner follow
   the payload. Each change raises
   `openbench:workload-change` on `document`; `workload_utils.js` reloads the
   results summary on it, and `insights.js` refreshes on it, coalesced to one
