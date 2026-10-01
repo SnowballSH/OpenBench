@@ -4,10 +4,13 @@
 #
 # Creates accounts, an Engine, a Book, a fleet of Machines, and Workloads of
 # every mode (SPRT, GAMES, SPSA, DATAGEN) in every state, each with per-Machine
-# Results and a WorkloadSnapshot history. Refuses to run without DEBUG, or
+# Results and a WorkloadSnapshot history. COMMIT_CHAIN adds commit-pinned
+# tests like a lab agent creates: both branch names are 40-hex SHAs, each
+# commit is tested at STC then LTC, and an accepted commit is the next base. Refuses to run without DEBUG, or
 # against a database that already holds Workloads.
 
 import datetime
+import hashlib
 import random
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
@@ -61,6 +64,14 @@ SPRT_BATCH = 50
 
 SPRT_MAX_PAIRS = 40_000
 
+DEFAULT_INFO = 'Seeded demonstration workload'
+
+STC = '8.0+0.08'
+
+LTC = '40.0+0.4'
+
+LTC_HASH_MB = 64
+
 
 @dataclass(frozen=True)
 class DemoWorkload:
@@ -79,7 +90,30 @@ class DemoWorkload:
     genfens_args: str = ''
     play_reverses: bool = False
     days_ago: float = 0.0
+    duration_hours: float = 0.0
     author: int = 0
+    base_name: str = 'master'
+    dev_sha: str = ''
+    base_sha: str = ''
+    info: str = DEFAULT_INFO
+    hash_mb: int = 0
+
+
+@dataclass(frozen=True)
+class DemoStage:
+    tc: str
+    state: str
+    pairs: int = 0
+    hash_mb: int = 0
+
+
+@dataclass(frozen=True)
+class DemoCommit:
+    subject: str
+    elo: float
+    stages: tuple[DemoStage, ...]
+    accepted: bool = False
+    author: int = 1
 
 
 @dataclass(frozen=True)
@@ -167,6 +201,40 @@ PAST_SPRTS = [
     DemoWorkload('mate-distance', 'SPRT', -9.0, 0, 'failed', days_ago=8, author=2),
 ]
 
+# Commits in the order the lab agent proposed them. Each is tested against the newest accepted commit
+# before it, so the two commits after the last accepted one are parallel candidates sharing a base.
+COMMIT_CHAIN = (
+    DemoCommit(
+        'Scale late move reductions by history score',
+        9.0,
+        (DemoStage(STC, 'passed'), DemoStage(LTC, 'passed', hash_mb=LTC_HASH_MB)),
+        accepted=True,
+    ),
+    DemoCommit('Prune quiet moves with negative static exchange', -7.0, (DemoStage(STC, 'failed'),)),
+    DemoCommit(
+        'Extend the singular move search at high depth',
+        8.0,
+        (DemoStage(STC, 'passed'), DemoStage(LTC, 'passed', hash_mb=LTC_HASH_MB)),
+        accepted=True,
+    ),
+    DemoCommit(
+        'Pawn static-eval correction history (corrhist-pawn), indexed by pawn structure and side',
+        5.0,
+        (DemoStage(STC, 'passed'), DemoStage(LTC, 'active', pairs=1400, hash_mb=LTC_HASH_MB)),
+    ),
+    DemoCommit('Widen aspiration windows after a fail high', 1.5, (DemoStage(STC, 'active', pairs=900),)),
+)
+
+CHAIN_ROOT = 'Seeded chain root'
+
+CHAIN_SPAN_DAYS = 5.0
+
+CHAIN_SLOT_USED = 0.6
+
+COMMIT_TAG = 'avl'
+
+COMMIT_TAG_LENGTH = 12
+
 SEARCH_PARAMETERS = (
     DemoParameter('LmrBase', True, 0.75, 0.25, 1.50, 0.08, 0.002, 0.92),
     DemoParameter('LmrDivisor', True, 2.25, 1.50, 3.50, 0.15, 0.002, 2.05),
@@ -217,7 +285,7 @@ class Command(BaseCommand):
             create_engine_config()
             create_book()
             machines = create_machines(users)
-            for spec in WORKLOADS + PAST_SPRTS:
+            for spec in seeded_workloads():
                 create_workload(spec, users[spec.author], machines, rng)
             for tune in TUNES:
                 create_tune(tune, users[0], machines, rng)
@@ -226,9 +294,55 @@ class Command(BaseCommand):
             age_offline_machines(machines)
 
         self.stdout.write(
-            f'Seeded {len(WORKLOADS) + len(PAST_SPRTS) + len(TUNES)} workloads on {len(machines)} machines. '
+            f'Seeded {len(seeded_workloads()) + len(TUNES)} workloads on {len(machines)} machines. '
             f'Log in as admin / {DEMO_PASSWORD}'
         )
+
+
+def commit_sha(subject: str) -> str:
+    return hashlib.sha1(subject.encode(), usedforsecurity=False).hexdigest()
+
+
+def chain_workloads(
+    commits: Sequence[DemoCommit], root: str = CHAIN_ROOT, span_days: float = CHAIN_SPAN_DAYS
+) -> list[DemoWorkload]:
+
+    # One SPRT per stage, oldest first, each in its own evenly spaced slot of span_days: a finished stage
+    # ends before the next slot opens and a running one runs on until now, so every stage is created
+    # after the test that accepted its base. The info is the lab agent's: the subject, then its commit tag.
+    stages = sum(len(commit.stages) for commit in commits)
+    slot_days = span_days / stages
+    base = commit_sha(root)
+    workloads: list[DemoWorkload] = []
+    for commit in commits:
+        dev = commit_sha(commit.subject)
+        for stage in commit.stages:
+            finished = stage.state in FINISHED_STATES
+            workloads.append(
+                DemoWorkload(
+                    name=dev,
+                    mode='SPRT',
+                    elo=commit.elo,
+                    pairs=stage.pairs,
+                    state=stage.state,
+                    tc=stage.tc,
+                    days_ago=(days_ago := span_days - slot_days * len(workloads)),
+                    duration_hours=24 * (slot_days * CHAIN_SLOT_USED if finished else days_ago),
+                    author=commit.author,
+                    base_name=base,
+                    dev_sha=dev,
+                    base_sha=base,
+                    info=f'{commit.subject}\n{COMMIT_TAG}:{dev[:COMMIT_TAG_LENGTH]}',
+                    hash_mb=stage.hash_mb,
+                )
+            )
+        if commit.accepted:
+            base = dev
+    return workloads
+
+
+def seeded_workloads() -> list[DemoWorkload]:
+    return [*WORKLOADS, *PAST_SPRTS, *chain_workloads(COMMIT_CHAIN)]
 
 
 def create_users() -> list[User]:
@@ -357,7 +471,9 @@ class Schedule:
     ended: datetime.datetime
 
 
-def schedule(state: str, rng: random.Random, days_ago: float = 0.0) -> Schedule:
+def schedule(state: str, rng: random.Random, days_ago: float = 0.0, duration_hours: float = 0.0) -> Schedule:
+    if days_ago and duration_hours:
+        return exact_schedule(days_ago, duration_hours)
     if days_ago:
         return past_schedule(days_ago, rng)
     now = timezone.now()
@@ -367,6 +483,12 @@ def schedule(state: str, rng: random.Random, days_ago: float = 0.0) -> Schedule:
     return Schedule(created, started, ended)
 
 
+def exact_schedule(days_ago: float, duration_hours: float) -> Schedule:
+    created = timezone.now() - datetime.timedelta(days=days_ago)
+    started = created + datetime.timedelta(minutes=5)
+    return Schedule(created, started, min(timezone.now(), started + datetime.timedelta(hours=duration_hours)))
+
+
 def past_schedule(days_ago: float, rng: random.Random) -> Schedule:
     created = timezone.now() - datetime.timedelta(days=days_ago, hours=rng.uniform(0, 12))
     started = created + datetime.timedelta(minutes=rng.uniform(2, 10))
@@ -374,18 +496,23 @@ def past_schedule(days_ago: float, rng: random.Random) -> Schedule:
     return Schedule(created, started, ended)
 
 
-def create_engine(name: str, rng: random.Random) -> Engine:
-    sha = f'{rng.getrandbits(160):040x}'
+def create_engine(name: str, rng: random.Random, sha: str = '') -> Engine:
+    if sha:
+        # A pinned commit benches the same in every Workload that builds it
+        bench = 2_000_000 + int(sha[:8], 16) % 2_000_000
+    else:
+        sha = f'{rng.getrandbits(160):040x}'
+        bench = rng.randint(2_000_000, 4_000_000)
     source = ENGINE_SOURCE.replace('github.com', 'api.github.com/repos') + f'/zipball/{sha}'
-    return Engine.objects.create(name=name, source=source, sha=sha, bench=rng.randint(2_000_000, 4_000_000))
+    return Engine.objects.create(name=name, source=source, sha=sha, bench=bench)
 
 
 def create_workload(spec: DemoWorkload, author: User, machines: list[Machine], rng: random.Random) -> None:
 
-    dev = create_engine(spec.name, rng)
-    base = create_engine('master', rng)
-    options = f'Threads={spec.threads} Hash={16 * spec.threads}'
-    times = schedule(spec.state, rng, spec.days_ago)
+    dev = create_engine(spec.name, rng, spec.dev_sha)
+    base = create_engine(spec.base_name, rng, spec.base_sha)
+    options = f'Threads={spec.threads} Hash={spec.hash_mb or 16 * spec.threads}'
+    times = schedule(spec.state, rng, spec.days_ago, spec.duration_hours)
     is_sprt = spec.mode == 'SPRT'
     is_data = spec.mode == 'DATAGEN'
     sprt = {
@@ -424,7 +551,7 @@ def create_workload(spec: DemoWorkload, author: User, machines: list[Machine], r
         use_tri=is_data and not spec.play_reverses,
         use_penta=not is_data or spec.play_reverses,
         approved=spec.state != 'pending',
-        info='Seeded demonstration workload',
+        info=spec.info,
         **(sprt if is_sprt else {}),
     )
 

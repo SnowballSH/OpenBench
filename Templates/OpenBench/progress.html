@@ -160,8 +160,8 @@
                         </thead>
                         <tbody>
                             {% for green in page.greens %}
-                                <tr>
-                                    <td class="progress-test-name"><a href="{{green.url}}">{{green.name}}</a></td>
+                                <tr data-row-href="{{green.url}}">
+                                    <td class="progress-test-name"><a class="row-link" href="{{green.url}}">{{green.name}}</a></td>
                                     <td>{{green.finished_on|date:"M j, Y"}}</td>
                                     <td class="numeric mono">{{green.elo}}</td>
                                     <td class="numeric mono">{{green.bounds}}</td>

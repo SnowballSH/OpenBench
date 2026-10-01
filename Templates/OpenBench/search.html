@@ -4,7 +4,7 @@
 
 {% block heading %}Search{% endblock %}
 
-{% load static %}
+{% load static mytags %}
 
 {% block scripts %}
     <script src="{% static 'search.js' %}?{{ static_version }}" defer></script>
@@ -117,7 +117,7 @@
     <table class="test-list stripes hoverable">
         <caption class="visually-hidden">Search results</caption>
         {% for test in tests %}
-            <tr>
+            <tr data-row-href="{{test|workload_url}}">
                 <td class="datestamp">{{test.creation|date:"U"}}</td>
                 {% include "OpenBench/Blocks/testsummary.html" %}
             </tr>

@@ -100,8 +100,8 @@
                         </thead>
                         <tbody>
                             {% for item in detail.contributions %}
-                                <tr>
-                                    <td><a href="{{item.test|workload_url}}">{{item.test|workload_pretty_name}}</a></td>
+                                <tr data-row-href="{{item.test|workload_url}}">
+                                    <td><a class="row-link" href="{{item.test|workload_url}}"><span class="row-id">#{{item.test.id}}</span> {{item.test|workload_pretty_name}}</a></td>
                                     <td class="mono">{{item.test.test_mode}}</td>
                                     <td class="numeric">{{item.games|insertCommas}}</td>
                                     <td class="numeric">{% if item.elo %}{{item.elo.value|floatformat:2}} ± {{item.elo_margin|floatformat:2}}{% else %}<span class="muted">—</span>{% endif %}</td>

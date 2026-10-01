@@ -68,9 +68,9 @@
                     </thead>
                     <tbody>
                         {% for row in page.rows %}
-                            <tr{% if not row.online %} class="fleet-offline"{% endif %}>
+                            <tr data-row-href="/machines/{{row.id}}/"{% if not row.online %} class="fleet-offline"{% endif %}>
                                 <td data-sort-value="{{row.id}}">
-                                    <a href="/machines/{{row.id}}/">{{row.name|default:"Machine"}}</a>
+                                    <a class="row-link" href="/machines/{{row.id}}/">{{row.name|default:"Machine"}}</a>
                                     <span class="muted mono">#{{row.id}}</span>
                                 </td>
                                 <td><a href="/user/{{row.owner|urlencode:''}}/">{{row.owner}}</a></td>

@@ -126,6 +126,117 @@ without relying on fill alone.
   `.icon-danger`, `.icon-muted` for Font Awesome icons, `.mono` for hashes,
   options and time controls, `.muted` for secondary text.
 
+## Row navigation
+
+Every table whose rows have one obvious destination opens it from a click
+anywhere on the row, not only from the link.
+
+| Table | Destination |
+| --- | --- |
+| Workload listings (index, greens, user pages, search results) | the workload |
+| Machines | the machine |
+| A machine's workloads | the workload |
+| Users, and the progress page's contributor and author tables | the user's workloads |
+| Events | the workload |
+| Errors | the error's log when it has one, otherwise the workload |
+| Progress, contributing greens | the workload |
+
+Networks stay plain rows: a row there has three equal candidates (engine,
+download, edit), and a stray click must not start a download. The compare
+table lists workloads in columns, and the workload page's per-machine results
+are built by `workload_utils.js`; neither is wired.
+
+The markup is two attributes, and `site.js` does the rest on every page:
+
+```html
+<tr data-row-href="/test/12/">
+    <td><a href="/user/admin">Admin</a></td>
+    <td><a class="row-link" href="/test/12/">#12 lmr-tweak</a></td>
+    ...
+</tr>
+```
+
+- `data-row-href` on the `<tr>` is the destination. Exactly one
+  `<a class="row-link">` inside the row carries the same `href`: it is the
+  keyboard and screen-reader path (Tab, Enter, the link's own context menu),
+  and the whole feature without JavaScript. `OpenBench/tests/test_listing_rows.py`
+  renders every wired page and fails on a row with no primary link, two of
+  them, or one that goes elsewhere.
+- One delegated `click` listener on `document` handles every table, including
+  rows that `fleet.js` re-sorts. It ignores a click that lands on, or inside,
+  a link, button, form control, `<label>`, `<summary>` or anything marked
+  `data-row-ignore`, so the author, diff, owner and log links and the sort
+  buttons keep their own behaviour.
+- Cmd-click, Ctrl-click and the middle button open the destination in a new
+  tab (`window.open` with `noopener`); Shift- and Alt-click do nothing, since
+  the browser gives them meanings a row cannot honour. A click that ends a
+  text selection inside the row does not navigate, so figures can still be
+  copied out of a stat block. A double-click navigates on its first click,
+  like a double-click on a link does; drag to select a word instead.
+- Only same-origin destinations are followed.
+- `tr[data-row-href]` shows a pointer cursor and takes the `--row-hover`
+  background on hover and on `:focus-within`, so the row a keyboard user is
+  on is marked like the one under the mouse.
+
+**Why a script and not a stretched link.** The pure-CSS alternative gives the
+primary link an `::after` that covers the row (`position: absolute; inset: 0`
+against a positioned `<tr>`). It was rejected for these tables: the overlay
+sits above the cells, so text under it cannot be selected and the `title`
+tooltips on the progress meters, flags and timestamps stop appearing; every
+other link in the row has to be lifted above it with `position` and
+`z-index`, which a new link added later silently forgets; and a positioned
+table row as a containing block is the least reliable part of table layout
+across engines. The script costs nothing when it fails: the primary link is
+still a link.
+
+### Workload names and numbers
+
+A listing row starts with `#<id>`, so a test can be referred to by number, and
+then a label from `OpenBench/listing_rows.py` (`workload_label`):
+
+- A branch-named workload keeps the name `prettyDevName` gives it.
+- A commit-pinned workload is titled by the first line of its info text,
+  normally the commit subject, with `76f2da3c vs 8c308d43` (8-character SHAs,
+  dev then base) in monospace beneath. Without info the commit pair is the
+  title. The info column then shows only the lines after the subject (the lab
+  agent's `avl:<sha>` tag, for instance), and is empty when there are none.
+  A dev name counts as a commit when it is a full 40-digit hex SHA, as
+  `prettyName` decides it, or 7 to 39 hex digits with at least one decimal
+  digit, so `deadbeef` stays a branch.
+- When a network or another engine names the row, that name wins as before.
+
+The title link (`.row-title`) wraps to at most two lines, between 26ch and
+44ch wide, and carries the full text in `title`, so a long subject never
+forces the table to scroll. The info cell and the author link (`.row-author`,
+shown in full up to 14ch) carry their full text in `title` as well. At 1100px
+and narrower the stat block leaves too little room for everything, so the
+listing tightens: cell padding shrinks, the title's floor drops to 11ch, the
+author is cut at 7ch, the commit pair may wrap, and the info column is
+hidden. The search results' date column is already hidden from 1350px down,
+where it would squeeze the info column to nothing; the row's own
+`finished ... ago` line still dates it. That keeps the table inside its card down to 1024px; below
+that it scrolls inside `.table-wrap` as before. Events, errors and
+machine pages use `#<id>` and the `short_name` filter.
+
+Below the name, `listing_moment` adds `finished 3d ago`, `started 2h ago`
+(first recorded report) or `created 5m ago`, as a `<time>` whose `datetime`
+and `title` hold the exact instant. It reads only the listing's existing
+annotations, so it adds no query.
+
+### Quick filter
+
+The index, greens and user pages carry a filter box above the table.
+`<input data-row-filter="<table id>" data-row-filter-count="<element id>">`
+hides the `tr[data-row-href]` rows of that table whose text does not contain
+every whitespace-separated term (case-insensitive; the text includes the
+hidden result word, so `passed` and `failed` work), hides group headings left
+with no rows, and writes `7 of 33 shown` into the count element, a
+`role="status"` region with a reserved width so nothing moves. It filters the
+rows on the current page only; Search is the way to look across pages.
+Zebra striping is switched off while a filter is active, because hidden rows
+would break the alternation. Column widths can still change as rows hide,
+since the table sizes its columns to what is visible.
+
 ## Conventions
 
 - No inline scripts, `on*=` handlers or `style` attributes: the
@@ -136,7 +247,8 @@ without relying on fill alone.
 - Keep class names that scripts use: `table-header`, `active-highlight`,
   `summary-table`, `stripes`, `wrappable`, `anchorbutton`, `btn-preset`,
   `col-half`, `pl-half`, `pr-half`, `mt-1`, `w-100`, `engine-options`,
-  `engine-options-popup`, `timestamp`, `datestamp`, `sidebar-open`.
+  `engine-options-popup`, `timestamp`, `datestamp`, `sidebar-open`,
+  `row-link`, `row-filtered`.
 - Tinted fills stay at 12% (rest) and 20% (hover) of their colour; stronger
   mixes drop text contrast below 4.5:1.
 - The mobile drawer moves focus to its first link and makes the page inert

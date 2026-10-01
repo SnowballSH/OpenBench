@@ -204,6 +204,9 @@ hash. For the Templates and static scripts that means:
   `data-submit-form="<form id>"` submits that form, and a form's
   `data-action-template` (such as `/manage/books/{book-name}/create/`) replaces
   each `{field id}` with that field's URL-encoded value before submitting.
+  `data-row-href` on a table row makes the whole row open that same-origin
+  URL, and `data-row-filter` on an input filters a table's rows; both are
+  described in [UI.md](UI.md#row-navigation).
 - No `style="..."` attributes and no `<style>` elements. Per-element values go
   through the CSSOM, which CSP allows: `site.js` copies `data-fraction` and
   `data-share` into the `--fraction` and `--share` custom properties the

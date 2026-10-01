@@ -97,7 +97,7 @@ class SearchPagingTests(TestCase):
 
     def shown_ids(self, url: str) -> list[int]:
         content = self.client.get(url).content.decode()
-        return [int(test_id) for test_id in re.findall(r'<a href="/test/(\d+)/">', content)]
+        return [int(test_id) for test_id in re.findall(r'<a class="row-link row-title" href="/test/(\d+)/"', content)]
 
     def test_pages_list_the_newest_matches_first(self) -> None:
         newest = [test.id for test in reversed(self.tests)]
@@ -123,7 +123,9 @@ class EventWorkloadTests(TestCase):
 
         content = self.client.get('/events/').content.decode()
 
-        self.assertIn(f'<a href="/tune/{test.id}/">dev</a>', content)
+        self.assertIn(
+            f'<a class="row-link" href="/tune/{test.id}/"><span class="row-id">#{test.id}</span> dev</a>', content
+        )
         self.assertIn('<td class="mono">N=25000</td>', content)
 
 

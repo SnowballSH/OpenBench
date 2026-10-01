@@ -1009,8 +1009,77 @@ tr + tr.table-header th {
     background-color: var(--stripe);
 }
 
+.stripes:where(.row-filtered) tr:nth-child(even):not(.table-header, .table-small-header, .table-spacer) > td {
+    background-color: transparent;
+}
+
 .hoverable tr:not(.table-header, .table-small-header, .table-spacer):hover > td {
     background-color: var(--row-hover);
+}
+
+tr[data-row-href] {
+    cursor: pointer;
+}
+
+tr[data-row-href]:not(.table-header):is(:hover, :focus-within) > td {
+    background-color: var(--row-hover);
+}
+
+.row-id {
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+}
+
+.row-heading {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-1);
+}
+
+.row-title {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    min-width: 26ch;
+    max-width: 44ch;
+    overflow: hidden;
+    white-space: normal;
+    overflow-wrap: anywhere;
+}
+
+.row-author {
+    display: inline-block;
+    max-width: 14ch;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    vertical-align: bottom;
+}
+
+.row-meta {
+    margin-top: var(--space-1);
+    color: var(--text-muted);
+    font-size: var(--text-xs);
+    line-height: var(--leading-tight);
+}
+
+.row-filter {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    margin-bottom: var(--space-3);
+}
+
+.row-filter > input {
+    flex: 0 1 26rem;
+    min-width: 0;
+}
+
+.row-filter-count {
+    flex: none;
+    min-width: 9ch;
+    font-size: var(--text-sm);
+    font-variant-numeric: tabular-nums;
 }
 
 .numeric {
@@ -1799,8 +1868,30 @@ td.contribution-name {
     }
 }
 
-@media (max-width: 767px) {
+@media (max-width: 1100px) {
+    .test-list :is(th, td) {
+        padding-inline: var(--space-2);
+    }
+
+    .test-list .row-author {
+        max-width: 7ch;
+    }
+
+    .test-list .row-title {
+        min-width: 11ch;
+    }
+
+    .test-list .row-meta {
+        white-space: normal;
+    }
+
     .test-list td.test-info {
+        display: none;
+    }
+}
+
+@media (max-width: 1350px) {
+    .test-list td.datestamp {
         display: none;
     }
 }
