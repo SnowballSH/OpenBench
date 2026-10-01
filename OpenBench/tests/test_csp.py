@@ -282,6 +282,8 @@ class RenderedPageTests(TestCase):
             '/manage/storage/',
             '/progress/',
             '/progress/Avalanche/?window=all',
+            '/digest/',
+            '/digest/?since=7d',
             '/compare/',
             f'/compare/?a={self.test.id}&b={self.datagen.id}',
             f'/compare/?a={self.test.id}&b={self.tune.id}',

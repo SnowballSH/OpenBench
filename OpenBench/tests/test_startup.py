@@ -47,6 +47,18 @@ FIRST_IMPORTS = (
     'OpenBench.live.token',
     'OpenBench.live.views',
     'OpenBench.live.workload',
+    'OpenBench.digest.domain',
+    'OpenBench.digest.errors',
+    'OpenBench.digest.fleet',
+    'OpenBench.digest.headline',
+    'OpenBench.digest.present',
+    'OpenBench.digest.report',
+    'OpenBench.digest.serialize',
+    'OpenBench.digest.sources',
+    'OpenBench.digest.trunk',
+    'OpenBench.digest.views',
+    'OpenBench.digest.window',
+    'OpenBench.digest.workloads',
 )
 
 

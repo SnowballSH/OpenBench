@@ -69,14 +69,13 @@ def finished_sprts(scope: Scope) -> QuerySet[Test]:
 
 
 def run_status(row: dict[str, Any], mode: RunMode) -> RunStatus:
-    decisive = mode == RunMode.SPRT
-    flags = (
-        (decisive and row['passed'], RunStatus.PASSED),
-        (decisive and row['failed'], RunStatus.FAILED),
-        (row['finished'], RunStatus.STOPPED if decisive else RunStatus.COMPLETED),
-        (not row['approved'], RunStatus.PENDING),
-    )
-    return next((status for flag, status in flags if flag), RunStatus.RUNNING)
+    # A restarted test keeps its passed or failed flag while it runs again, so finished is read first
+    if not row['finished']:
+        return RunStatus.RUNNING if row['approved'] else RunStatus.PENDING
+    if mode != RunMode.SPRT:
+        return RunStatus.COMPLETED
+    flags = ((row['passed'], RunStatus.PASSED), (row['failed'], RunStatus.FAILED))
+    return next((status for flag, status in flags if flag), RunStatus.STOPPED)
 
 
 def run_row(row: dict[str, Any], classify: Classifier, usage: Usage) -> RunRow:

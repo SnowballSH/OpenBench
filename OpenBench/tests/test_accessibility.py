@@ -218,6 +218,8 @@ class RenderedPageAccessibilityTests(TestCase):
             '/manage/engines/Avalanche/',
             '/manage/storage/',
             '/progress/',
+            '/digest/',
+            '/digest/?since=7d',
             '/compare/',
             f'/compare/?a={self.test.id}&b={self.datagen.id}',
             f'/compare/?a={self.test.id}&b={self.tune.id}',

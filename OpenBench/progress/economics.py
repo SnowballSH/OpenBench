@@ -43,14 +43,18 @@ def class_runs(steps: Iterable[Step]) -> list[tuple[TimeClass, Run]]:
     ]
 
 
-def hours_per_game(steps: Iterable[Step]) -> Rates:
+def class_rates(runs: Iterable[tuple[TimeClass, Run]]) -> Rates:
     hours: defaultdict[TimeClass, float] = defaultdict(float)
     games: Counter[TimeClass] = Counter()
-    for time_class, run in class_runs(steps):
+    for time_class, run in runs:
         if run.core_hours is not None and run.counted_games:
             hours[time_class] += run.core_hours
             games[time_class] += run.counted_games
     return {time_class: hours[time_class] / games[time_class] for time_class in games}
+
+
+def hours_per_game(steps: Iterable[Step]) -> Rates:
+    return class_rates(class_runs(steps))
 
 
 def estimated_hours(time_class: TimeClass, run: Run, rates: Rates) -> float | None:
