@@ -1,4 +1,4 @@
-from collections.abc import Callable, Iterable
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, TypedDict, TypeIs
@@ -25,7 +25,7 @@ from OpenBench.diagnosis.listing import attach_row_reasons, attach_stop_reasons
 from OpenBench.insights.listing import RowTiming, SnapshotMarks, finished_row_timing, running_row_timing
 from OpenBench.insights.sources import workload_facts
 from OpenBench.insights.timing import RECENT_WINDOW, Mark
-from OpenBench.models import LogEvent, Network, Profile, SPSAParameter, Test, WorkloadSnapshot
+from OpenBench.models import Network, Profile, SPSAParameter, Test, WorkloadSnapshot
 from OpenBench.progress.sources import finish_time
 
 if TYPE_CHECKING:
@@ -172,15 +172,3 @@ def workload_list_data(
     listed = list(listing_tests(completed, now)[start:end])
     attach_stop_reasons(listed, now)
     return {**shown, 'completed': listed, 'paging': paging}
-
-
-def attach_event_workloads(events: Iterable[LogEvent]) -> list[LogEvent]:
-
-    events = list(events)
-    workloads = Test.objects.select_related('dev').only('id', 'test_mode', 'dev_time_control', 'dev__name')
-    by_id = workloads.in_bulk({event.test_id for event in events})
-
-    for event in events:
-        event.workload = by_id.get(event.test_id)  # type: ignore[attr-defined]  # attached for the templates to read
-
-    return events

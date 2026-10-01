@@ -23,6 +23,7 @@ untyped_calls_exclude = [
     "OpenBench.models",
     "OpenBench.spsa_utils",
     "OpenBench.stats",
+    "OpenBench.templatetags.mytags",
     "OpenBench.utils",
     "OpenBench.views",
     "OpenBench.workloads.get_workload",

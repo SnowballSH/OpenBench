@@ -5,8 +5,10 @@ from typing import Any
 
 from django.contrib.auth.models import User
 from django.test import SimpleTestCase, override_settings
+from django.utils import timezone
 
-from OpenBench.models import Book, Engine, EngineConfig, Profile, Test
+from OpenBench.models import Book, Engine, EngineConfig, LogEvent, Machine, Profile, Test
+from OpenBench.triage.demo import BUILD_LOG, build_failure_summary, record_error
 from OpenBench.upstream import openbench_config
 
 PASSWORD = 'correct-horse-battery-staple'
@@ -113,3 +115,10 @@ def credentials(user: User) -> dict[str, str]:
 
 def register_payload(user: User, **info: Any) -> dict[str, str]:
     return {**credentials(user), 'system_info': json.dumps(system_info(**info))}
+
+
+def logged_build_failure(case: SimpleTestCase, test: Test, machine: Machine) -> LogEvent:
+    # Long enough to fold, with markup a careless template would let through
+    use_temporary_media(case)
+    log = BUILD_LOG + '<b onclick=x style=y>\n' * 400
+    return record_error(test, machine.id, machine.user.username, build_failure_summary(test), timezone.now(), log)

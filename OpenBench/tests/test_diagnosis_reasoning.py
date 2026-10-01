@@ -321,7 +321,7 @@ class EligibleWorkerTests(SimpleTestCase):
         self.assertIn('the last 2 workers to take it all failed', found.headline)
         self.assertIn('with "[Avalanche] dev build failed" 2m ago', found.headline)
         self.assertEqual(
-            [item.link for item in found.evidence[:2]], [Link('/event/8/', 'Log 8'), Link('/errors/', 'Errors')]
+            [item.link for item in found.evidence[:2]], [Link('/event/8/', 'Log 8'), Link('/event/7/', 'Error 7')]
         )
 
     def test_errors_before_the_last_result_are_resolved(self):

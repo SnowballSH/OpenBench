@@ -13,9 +13,12 @@ there first.
 | `/search/` | 7 |
 | `/go/?q=` (the header's quick jump; the header itself adds none) | 3 to 6 |
 | `/api/jump/?q=` | at most 7 |
-| `/events/`, `/errors/` | 7 |
+| `/events/`, `/errors/?view=list` | 7 |
+| `/errors/` (grouped), with any filter | 9 |
+| `/api/errors/` | 8 |
+| `/event/<id>/` | 8 |
 | `/networks/` | 5 |
-| `/test/<id>/` | 10, 11 for a stopped workload, 16 for an active one |
+| `/test/<id>/` | 11, 12 for a stopped workload, 17 for an active one |
 | `/api/workload/<id>/summary/`, `/results/` | 5 |
 | `/api/workload/<id>/insights/` | 6, or 12 for an active workload |
 | `/api/workload/<id>/history.csv` | 5 |
@@ -47,8 +50,14 @@ count at both dataset sizes.
   so that line adds no query either.
 - **Pending and Active tests**, and the Machine status, are only shown on the
   first page of a listing, so later pages no longer fetch them.
-- **Events and errors** fetch the page's Tests in one `in_bulk` query and hang
-  each on its LogEvent as `event.workload`.
+- **Events and errors** fetch the page's Tests in one query
+  (`triage.groups.load_workloads`, with the dev Network annotation the row
+  title needs) and pass each row its Test. The grouped errors page
+  ([INSIGHTS.md](INSIGHTS.md#worker-errors)) costs five queries of its own
+  whatever the number of events: one `GROUP BY (test_id, summary)` over the
+  error events, the Tests of those groups, the last result time of each, the
+  reporting registrations of the 25 groups on the page, and their Machines.
+  The workload page's "Worker errors (N)" line is one `COUNT`.
 - **The Profile** is fetched once per request, with its User, by
   `request_profile`, and cached on the request.
 - **The Machine status** line sums concurrency and MNPS in SQL, reading
@@ -81,8 +90,32 @@ measured with 20,000 Tests, 50,000 LogEvents and 100,000 PGNs:
 | `test_author` | `/user/<name>/` | `SCAN test` → `SEARCH USING INDEX (author=?)` | count 7.0 → 0.4 ms |
 | `logevent_machine` | `/events/` count and page | `SCAN logevent` → `SEARCH USING COVERING INDEX (machine_id=?)` | count 1.7 → 0.5 ms |
 | `pgn_unprocessed`: `test_id WHERE NOT processed` | The PGN watcher's batch, `/api/pgns/<id>/` | `SCAN pgn` + temp B-tree sort → `SCAN/SEARCH USING INDEX` | watcher 5.1 → 0.7 ms, api 3.8 → 0.01 ms |
-| `logevent_test_machine`: `(test_id, machine_id)` | The diagnosis' worker errors of the active workloads, and the newest event of each stopped one | `SCAN logevent` → `SEARCH USING INDEX logevent_test_machine (test_id=? AND machine_id>?)`; newest event: `SEARCH USING COVERING INDEX logevent_test_machine (test_id=?)` | |
+| `logevent_test_machine`: `(test_id, machine_id)` | The diagnosis' worker errors of the active workloads, the newest event of each stopped one, and every error-triage query that names a workload (`/errors/?workload=`, the page's reporters, an event's occurrences, the workload page's count) | `SCAN logevent` → `SEARCH USING INDEX logevent_test_machine (test_id=? AND machine_id>?)`; newest event: `SEARCH USING COVERING INDEX logevent_test_machine (test_id=?)` | |
 | `network_engine_sha` | The dev Network annotation on every listed row, network lookups | correlated `SCAN network` per row → `SEARCH` | |
+
+### Error triage needs no index of its own
+
+Measured on SQLite with 60,000 LogEvents (48,000 of them worker errors over
+2,000 workloads), `EXPLAIN QUERY PLAN` shows every triage query on an
+existing index:
+
+| Query | Plan | Time |
+|---|---|---|
+| Grouped errors: `GROUP BY test_id, summary` over `machine_id > 0`, newest 501 | `SEARCH USING INDEX logevent_test_machine (ANY(test_id) AND machine_id>?)`, temp B-trees for the grouping and the order | 93 ms |
+| The same for one workload (`?workload=`) | `SEARCH USING INDEX logevent_test_machine (test_id=? AND machine_id>?)` | under 1 ms |
+| Flat list page (`ORDER BY id DESC LIMIT 25`) | reverse `SCAN` of the table that stops after 25 matches | under 1 ms |
+| Flat list count | `SEARCH USING COVERING INDEX logevent_machine (machine_id>?)` | under 1 ms |
+| Flat list count with a `kind` filter | the kind is a regular expression over `summary`, so every error event is read and matched | 130 to 255 ms, by kind |
+| Reporting registrations of the page's workloads | `SEARCH USING INDEX logevent_test_machine (test_id=? AND machine_id>?)` | under 1 ms |
+| Workload page count, an event's occurrences | `SEARCH USING (COVERING) INDEX logevent_test_machine` | under 1 ms |
+
+A `kind` filter costs the same full read on the grouped page. Adding
+`workload=` narrows either to that workload's rows first.
+
+The unfiltered grouping reads every error event, so it grows with the table:
+about 2 ms per thousand events. It and the kind-filtered count are the
+queries here that are not bounded by a page; if the table reaches millions of rows, bound it to a time
+window rather than adding an index, since no index avoids the aggregation.
 
 ### `Machine.host_key`
 

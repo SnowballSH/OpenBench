@@ -4,7 +4,11 @@ from django.contrib.auth.models import User
 from django.http import HttpRequest, HttpResponse
 
 import OpenBench.config
+import OpenBench.utils
 import OpenBench.views
+from OpenBench.listing_rows import WorkloadLabel
+from OpenBench.models import Test
+from OpenBench.templatetags import mytags
 
 type Context = dict[str, Any]
 
@@ -42,3 +46,26 @@ def api_user(request: HttpRequest) -> User | None:
 def api_authenticate(request: HttpRequest) -> bool:
     authenticated: bool = OpenBench.views.api_authenticate(request)
     return authenticated
+
+
+def workload_label(test: Test) -> WorkloadLabel:
+    label: WorkloadLabel = mytags.workload_label(test)
+    return label
+
+
+def workload_url(test: Test) -> str:
+    url: str = mytags.workload_url(test)
+    return url
+
+
+class Counted:
+    def __init__(self, total: int) -> None:
+        self.total = total
+
+    def count(self) -> int:
+        return self.total
+
+
+def paging(total: int, page: int, url: str) -> tuple[int, int, Context]:
+    start, end, context = OpenBench.utils.getPaging(Counted(total), page, url)
+    return start, end, context

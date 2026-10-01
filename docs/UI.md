@@ -120,6 +120,29 @@ without relying on fill alone.
   click). A cell's `data-sort-value` overrides its text as the sort key.
   `OpenBench/static/fleet.js` wires them up and sets `aria-sort`; load it from
   the page's `scripts` block. Never put a click handler on a bare `<th>`.
+- **Error triage** (`/errors/`, `/event/<id>/`; behaviour in
+  [INSIGHTS.md](INSIGHTS.md#worker-errors)): `.triage` stacks the page.
+  `.triage-controls` holds the filters, each a `<nav class="fleet-filter">`
+  of `.fleet-filter-option` links with `aria-current` on the chosen one, so
+  every filter is a plain link that works without script and can be
+  bookmarked. `.triage-groups` is the grouped table; its error, workload and
+  host cells wrap, and a status is a `.badge` (`badge-fail` still happening,
+  `badge-warn` quiet, `badge-pass` resolved) with the reason in words on the
+  `.row-meta` line beneath, so colour is never the only signal.
+  `.triage-empty` is the dashed empty state. On the event page `.key-lines`
+  is the extract (line number, label badge, text) and `.log` the scrolling
+  log region (focusable, labelled, at most 70vh): every line is a
+  `.log-line` block whose number comes from `data-line` through `::before`,
+  so numbers are neither selected nor copied; `.log-fold` is the `<details>`
+  holding the middle of a long log and `.log-omitted` the note for lines
+  left out. `static/triage.js` only adds the copy button's behaviour (it
+  announces through a hidden `role="status"` line), opens the fold when a
+  key line or a `#L<n>` fragment points into it, and marks that line
+  (`.log-line-target`); without it the log, the fold and the raw download
+  all still work. `Blocks/event_workload.html` renders a workload as
+  `#id title` with the commit pair beneath, as the listings do, for the
+  events, errors and event pages. `.workload-errors` is the workload page's
+  "Worker errors (N)" line.
 - **Banners**: `.error-message`, `.warning-message`, `.status-message` render
   the session messages in `base.html`.
 - **Diagnosis**: `.diagnosis` with `.diagnosis-{ok,info,warning}` is the
@@ -150,7 +173,8 @@ anywhere on the row, not only from the link.
 | A machine's workloads | the workload |
 | Users, and the progress page's contributor and author tables | the user's workloads |
 | Events | the workload |
-| Errors | the error's log when it has one, otherwise the workload |
+| Errors, grouped | the newest log of the group when it has one, otherwise the workload |
+| Errors, every event | the error's page when it has a log, otherwise the workload |
 | Progress: lineage, direct-check and detached rows that stand for exactly one workload | the workload |
 
 Networks stay plain rows: a row there has three equal candidates (engine,
@@ -227,8 +251,9 @@ author is cut at 7ch, the commit pair may wrap, and the info column is
 hidden. The search results' date column is already hidden from 1350px down,
 where it would squeeze the info column to nothing; the row's own
 `finished ... ago` line still dates it. That keeps the table inside its card down to 1024px; below
-that it scrolls inside `.table-wrap` as before. Events, errors and
-machine pages use `#<id>` and the `short_name` filter.
+that it scrolls inside `.table-wrap` as before. Machine pages use `#<id>`
+and the `short_name` filter; events and errors use the same title as the
+listings (`Blocks/event_workload.html`).
 
 Below the name, `listing_moment` adds `finished 3d ago`, `started 2h ago`
 (first recorded report) or `created 5m ago`, as a `<time>` whose `datetime`

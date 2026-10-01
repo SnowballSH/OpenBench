@@ -12,6 +12,7 @@ from OpenBench.tests.fixtures import (
     create_test,
     create_user,
     ensure_book,
+    logged_build_failure,
     system_info,
 )
 
@@ -170,6 +171,7 @@ class RenderedPageAccessibilityTests(TestCase):
         self.datagen = create_test(user, test_mode='DATAGEN')
         self.uploading = create_test(user, upload_pgns='COMPACT')
         self.machine = Machine.objects.create(user=user, info={**system_info(), 'supported': ['Avalanche']})
+        self.error = logged_build_failure(self, self.test, self.machine)
         Network.objects.create(sha256='ABCDEF01', name='r1', engine='Avalanche', author='admin', default=True)
         Network.objects.create(sha256='ABCDEF02', name='r2', engine='Avalanche', author='admin', was_default=True)
         Network.objects.create(sha256='ABCDEF03', name='r3', engine='Avalanche', author='admin')
@@ -196,6 +198,9 @@ class RenderedPageAccessibilityTests(TestCase):
             '/users/',
             '/events/',
             '/errors/',
+            '/errors/?view=list&kind=build',
+            f'/errors/?workload={self.test.id}&unresolved=1',
+            f'/event/{self.error.id}/',
             '/networks/',
             '/networks/Avalanche/',
             '/networks/Avalanche/EDIT/ABCDEF01/',

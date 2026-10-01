@@ -494,30 +494,6 @@ def search(request, page=1):
 def users(request):
     return render(request, 'users.html', { 'rows' : load_user_rows(timezone.now()) })
 
-def event(request, pk):
-
-    try:
-        with open(os.path.join(MEDIA_ROOT, LogEvent.objects.get(id=pk).log_file)) as fin:
-            return render(request, 'event.html', { 'content' : fin.read() })
-    except:
-        return redirect(request, '/index/', error='No logs for event exist')
-
-def events_actions(request, page=1):
-
-    events = LogEvent.objects.all().filter(machine_id=0).order_by('-id')
-    start, end, paging = OpenBench.utils.getPaging(events, int(page), 'events')
-
-    data = { 'events' : OpenBench.page_queries.attach_event_workloads(events[start:end]), 'paging' : paging };
-    return render(request, 'events.html', data)
-
-def events_errors(request, page=1):
-
-    events = LogEvent.objects.all().exclude(machine_id=0).order_by('-id')
-    start, end, paging = OpenBench.utils.getPaging(events, int(page), 'errors')
-
-    data = { 'events' : OpenBench.page_queries.attach_event_workloads(events[start:end]), 'paging' : paging };
-    return render(request, 'errors.html', data)
-
 def machines(request, pk=None):
 
     if pk is None:

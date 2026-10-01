@@ -1005,5 +1005,5 @@ class GamesPageTests(GameAnalysisTestCase):
         self.client.get(f'/test/{plain.id}/')
 
         for test in (plain, self.test):
-            with self.assertNumQueries(16):
+            with self.assertNumQueries(17):
                 self.assertEqual(self.client.get(f'/test/{test.id}/').status_code, 200)

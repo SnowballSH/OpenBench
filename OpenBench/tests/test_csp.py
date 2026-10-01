@@ -20,6 +20,7 @@ from OpenBench.tests.fixtures import (
     create_test,
     create_user,
     ensure_book,
+    logged_build_failure,
     system_info,
 )
 
@@ -233,6 +234,7 @@ class RenderedPageTests(TestCase):
         self.datagen = create_test(user, test_mode='DATAGEN')
         self.uploading = create_test(user, upload_pgns='COMPACT')
         self.machine = Machine.objects.create(user=user, info={**system_info(), 'supported': ['Avalanche']})
+        self.error = logged_build_failure(self, self.test, self.machine)
         Network.objects.create(sha256='ABCDEF01', name='r1', engine='Avalanche', author='admin')
 
     def assert_renders_no_inline_code(self, page: str) -> None:
@@ -259,6 +261,9 @@ class RenderedPageTests(TestCase):
             '/users/',
             '/events/',
             '/errors/',
+            '/errors/?view=list&kind=build',
+            f'/errors/?workload={self.test.id}&unresolved=1',
+            f'/event/{self.error.id}/',
             '/networks/',
             '/networks/Avalanche/',
             '/networks/Avalanche/EDIT/ABCDEF01/',

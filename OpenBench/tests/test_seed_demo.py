@@ -6,6 +6,8 @@ from django.core.management.base import CommandError
 from django.test import SimpleTestCase, TestCase, override_settings
 from django.utils import timezone
 
+from OpenBench.diagnosis.domain import DiagnosisState
+from OpenBench.diagnosis.report import diagnose_workload
 from OpenBench.fleet.pools import pool_label
 from OpenBench.fleet.sessions import never_used
 from OpenBench.games.service import archive_path
@@ -13,8 +15,13 @@ from OpenBench.management.commands.seed_demo import (
     BATCH_CPU,
     BATCH_IDLE_HOSTS_HOURS_AGO,
     BATCH_PLAYING_HOSTS,
+    BENCH_DRIFT,
+    BENCH_MISMATCH_WORKLOAD,
+    BUILD_FAILURE_WORKLOAD,
+    BUILD_FAILURES,
     CHAIN_ROOT,
     COMMIT_CHAIN,
+    GAME_ERROR_WORKLOAD,
     LTC,
     PAST_SPRTS,
     PGN_BATCHES,
@@ -30,10 +37,16 @@ from OpenBench.management.commands.seed_demo import (
     commit_sha,
     progress_checks,
 )
-from OpenBench.models import PGN, Engine, GameAnalysis, Machine, Profile, Result, Test, WorkloadSnapshot
+from OpenBench.models import PGN, Engine, GameAnalysis, LogEvent, Machine, Profile, Result, Test, WorkloadSnapshot
 from OpenBench.progress.domain import TimeClass, Window
 from OpenBench.progress.report import progress_report
 from OpenBench.tests.fixtures import present, use_temporary_media
+from OpenBench.triage.actions import action_rows, operator_events
+from OpenBench.triage.domain import Standing
+from OpenBench.triage.groups import error_events, group_rows, with_affected
+from OpenBench.triage.kinds import ErrorKind
+from OpenBench.triage.logs import log_path
+from OpenBench.triage.query import ErrorQuery
 
 
 class SeedDemoTests(TestCase):
@@ -140,7 +153,7 @@ class SeedDemoTests(TestCase):
             self.assertTrue(test.finished or not (test.passed or test.failed))
 
         stopped = Test.objects.filter(test_mode='SPRT', finished=True, passed=False, failed=False)
-        self.assertEqual(stopped.count(), sum(spec.state == 'stopped' for spec in PAST_SPRTS))
+        self.assertEqual(stopped.count(), sum(spec.state == 'stopped' for spec in (*WORKLOADS, *PAST_SPRTS)))
 
         for test in Test.objects.filter(test_mode='GAMES', finished=True):
             self.assertEqual((test.passed, test.failed), (test.wins >= test.losses, test.wins < test.losses))
@@ -205,7 +218,8 @@ class SeedDemoTests(TestCase):
 
         jobs = Machine.objects.filter(info__cpu_name=BATCH_CPU)
         names = set(jobs.values_list('info__machine_name', flat=True))
-        hosts = BATCH_PLAYING_HOSTS + len(BATCH_IDLE_HOSTS_HOURS_AGO)
+        failed = BUILD_FAILURES - 1
+        hosts = BATCH_PLAYING_HOSTS + len(BATCH_IDLE_HOSTS_HOURS_AGO) + failed
         self.assertEqual((len(names), jobs.values('host_key').distinct().count()), (hosts, hosts))
         self.assertEqual({pool_label(name, BATCH_CPU) for name in names}, {'batch-*'})
         self.assertEqual(Result.objects.filter(machine__in=jobs).count(), BATCH_PLAYING_HOSTS)
@@ -250,6 +264,40 @@ class SeedDemoTests(TestCase):
         self.assertTrue(ltc)
         for test in ltc:
             self.assertEqual(test.dev_options, 'Threads=1 Hash=64')
+
+    @override_settings(DEBUG=True)
+    def test_worker_errors_and_operator_events_are_seeded(self):
+        call_command('seed_demo', stdout=io.StringIO())
+        now = timezone.now()
+
+        groups = {(row.group.signature.kind, present(row.workload).dev.name): row for row in seeded_error_rows(now)}
+        build = groups[ErrorKind.BUILD, BUILD_FAILURE_WORKLOAD]
+        bench = groups[ErrorKind.BENCH, BENCH_MISMATCH_WORKLOAD]
+        crash = groups[ErrorKind.CRASH, GAME_ERROR_WORKLOAD]
+
+        self.assertEqual((build.group.count, build.verdict.standing), (BUILD_FAILURES, Standing.HAPPENING))
+        self.assertEqual((present(build.affected).hosts, present(build.affected).pruned), (BUILD_FAILURES - 1, 1))
+        self.assertEqual([pool.label for pool in present(build.affected).pools], ['batch-*'])
+        self.assertEqual((present(bench.bench).difference, bench.verdict.reason), (BENCH_DRIFT, 'workload finished'))
+        self.assertEqual((crash.group.count, crash.verdict.standing), (2, Standing.RESOLVED))
+        self.assertIn((ErrorKind.ILLEGAL, GAME_ERROR_WORKLOAD), groups)
+
+        for event in LogEvent.objects.exclude(log_file=''):
+            self.assertTrue(present(log_path(event)).read_text().strip())
+
+        stopped = Test.objects.get(dev__name=BENCH_MISMATCH_WORKLOAD)
+        self.assertEqual(diagnose_workload(stopped).state, DiagnosisState.STOPPED_BY_ERROR)
+        failing = Test.objects.get(dev__name=BUILD_FAILURE_WORKLOAD)
+        self.assertEqual(diagnose_workload(failing).state, DiagnosisState.FAILING)
+
+        actions = LogEvent.objects.filter(machine_id=0)
+        self.assertEqual(actions.filter(summary__startswith='CREATE').count(), Test.objects.count())
+        self.assertTrue(any(row.count > 1 for row in action_rows(list(operator_events()), now)))
+
+
+def seeded_error_rows(now):
+    rows, _ = group_rows(ErrorQuery(), now)
+    return with_affected(rows, error_events(ErrorQuery()))
 
 
 class ChainWorkloadTests(SimpleTestCase):

@@ -12,20 +12,20 @@
     <table class="hoverable">
 
         <tr class="table-header">
-            <th>Date</th>
+            <th>When</th>
             <th>User</th>
-            <th>Test</th>
+            <th>Workload</th>
             <th>TC</th>
-            <th>Summary</th>
+            <th>Action</th>
         </tr>
 
-        {% for event in events %}
-            <tr{% if event.workload %} data-row-href="{{event.workload|workload_url}}"{% endif %}>
-                <td class="timestamp muted">{{event.created|date:'U'}}</td>
-                <td>{{event.author|capfirst}}</td>
-                <td>{% if event.workload %}<a class="row-link" href="{{event.workload|workload_url}}"><span class="row-id">#{{event.workload.id}}</span> {{event.workload.dev.name|short_name}}</a>{% endif %}</td>
-                <td class="mono">{{event.workload.dev_time_control}}</td>
-                <td>{{event.summary}}</td>
+        {% for row in rows %}
+            <tr{% if row.workload %} data-row-href="{{row.workload|workload_url}}"{% endif %}>
+                <td><time class="muted" datetime="{{row.event.created|date:'c'}}" title="{{row.event.created|date:'c'}}">{{row.ago}}</time></td>
+                <td>{{row.event.author|capfirst}}</td>
+                <td>{% include "OpenBench/Blocks/event_workload.html" with workload=row.workload test_id=row.event.test_id primary=1 %}</td>
+                <td class="mono">{{row.workload.dev_time_control}}</td>
+                <td>{{row.event.summary}}{% if row.count > 1 %} <span class="badge" title="{{row.count}} in a row, the first at {{row.first_at|date:'c'}}">&times;{{row.count}}</span>{% endif %}</td>
             </tr>
         {% endfor %}
 

@@ -69,7 +69,7 @@ def machine_link(machine_id: int) -> Link:
 
 
 def event_link(event: LogEvent) -> Link:
-    return Link(f'/event/{event.id}/', f'Log {event.id}') if event.log_file else Link('/errors/', 'Errors')
+    return Link(f'/event/{event.id}/', f'Log {event.id}' if event.log_file else f'Error {event.id}')
 
 
 def verdict(state: DiagnosisState, headline: str, brief: str, evidence: Sequence[Evidence] = ()) -> Diagnosis:

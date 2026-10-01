@@ -14,6 +14,7 @@ fork_owned=(
     OpenBench/progress
     OpenBench/security
     OpenBench/storage
+    OpenBench/triage
     OpenBench/page_queries.py
     OpenBench/upstream.py
     OpenBench/workload_names.py

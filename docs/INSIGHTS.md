@@ -1262,6 +1262,137 @@ one query between them, for their newest events. A listing pays the six only
 when an active row has no rate, and the one only when it lists a stopped
 workload. Both error lookups use the `logevent_test_machine` index.
 
+## Worker errors
+
+A worker reports a failure as a `LogEvent` with its Machine id: a build that
+does not compile, a bench that does not match, a game the match runner
+adjudicated as a crash. An ephemeral fleet repeats the same failure from every
+new job, once a minute, so `/errors/` (`OpenBench/triage/`) groups them.
+
+### Kinds
+
+`triage/kinds.py` reads the summary strings exactly as `Client/worker.py`,
+`Client/bench.py` and `Client/genfens.py` format them. `test_triage.py` checks
+each format against the Client source, so a changed message fails a test
+instead of silently landing in "Other".
+
+| Kind | Summary from the Client | Grouped as |
+|---|---|---|
+| `build` | `[<engine>] <branch> build failed` | `<engine> build failed`, apart per branch (a 40-hex branch is shown by its first eight digits) |
+| `bench` | `[<binary>] Wrong Bench: <n>`, `[<binary>] Bench Exceeded Max Duration`, `[<binary>] Failed to Execute Benchmark`, `[<binary>] Non-Deterministic Benches` | the message, apart per binary; different wrong numbers are one group |
+| `crash` | `Disconnect`, `Stalled` | the word |
+| `illegal` | `Illegal Move` | the words |
+| `genfens` | `[<binary>] Stalled during genfens` | the message, apart per binary |
+| `timeloss` | `Time Loss` or `Timeloss`, any case | `Time Loss` |
+| `other` | anything else | the text after a leading `[...]`, or the whole summary |
+
+The current Client never sends a time-loss event: time losses only arrive as
+the `timeloss` counter on a Result. The kind exists so that a Client which
+starts reporting them is filed correctly. `kind=game` selects `crash`,
+`timeloss` and `illegal` together.
+
+The same rules exist once more as database conditions (`KIND_CONDITIONS`), so
+the kind filter runs in SQL; `test_triage.py` feeds both the same summaries,
+hostile ones included, and requires the same answer.
+
+### Groups
+
+A group is one workload and one normalised summary. It carries the count, the
+first and last time seen, the newest event and the newest event that has a
+log, and who reported it: the number of distinct hosts
+([`host_key`](#hosts)) and their [pools](#pools) with the CPU model. A
+reporting Machine whose row has since been pruned is counted as "no longer
+registered" rather than dropped. Hosts are counted over the newest 900
+reporting registrations of the workloads on the page; when that cap is hit
+the count carries a `+`.
+
+Registrations are distinct Machine rows. A group made of one summary takes
+the count from SQL. A group that merges several summaries (wrong benches with
+different numbers) counts the distinct reporters it was given, so a Machine
+that reported two numbers is one registration; only when the 900 cap was hit
+does it fall back to the sum over its summaries, an upper bound, and
+`sampled` says so.
+
+The subject of a bench or genfens failure is the binary without its
+directory: the Client sends `Engines/<binary>` in some messages and
+`<binary>` in others, with either path separator, and both are one group.
+A summary with no text left after normalising is titled "(no summary)".
+
+The count on a group row links to exactly that group's events: the flat list
+filtered by `workload` and one `summary=` parameter per raw summary in the
+group (at most 50; a group with more distinct summaries lists its newest 50).
+The event page's "N with this summary" link is the same filter with the one
+summary. `summary` matches the stored text exactly and works on the grouped
+layout and the API as well.
+
+A wrong bench shows the number the worker computed beside the workload's
+expected bench and the difference. The expected value is the bench of
+whichever engine (dev or base) the reported binary name belongs to: the
+Client names a binary `<engine>-<first eight of the sha, upper case>`, with
+`-<network>` after it when there is one.
+
+Grouping covers the 500 most recently seen (workload, summary) pairs; the
+page says so when there are more, and the flat list reaches the rest.
+
+### Still happening, quiet, resolved
+
+The verdict uses the [workload diagnosis](#workload-diagnosis)' reading of an
+error: a result reported after it has answered it. In order:
+
+1. The workload is finished or deleted (or its row is gone): **resolved**.
+   A wrong bench always lands here, because `clientBenchError` finishes the
+   workload.
+2. Last seen within ten minutes (the diagnosis' `RECENT_WINDOW`): **still
+   happening**, whatever else is true. A build that fails on one pool while
+   another pool plays games is still failing.
+3. A Result with games was updated after the group was last seen:
+   **resolved**.
+4. Otherwise **quiet**: nothing has reported it lately and nothing has shown
+   it fixed, which is what a failing workload looks like once no worker is
+   left to try it.
+
+"Only unresolved" hides the resolved groups.
+
+### The event page
+
+`/event/<id>/` shows one error: its summary, when, the workload, how many
+times that summary occurred on the workload, the reporting Machine's pool,
+CPU, OS and compilers (when its row still exists), then the log.
+
+- **Key lines** come first (`triage/logs.py`): compiler and linker errors
+  (`error:`, `error[`, `fatal error`, `undefined reference`,
+  `symbol(s) not found`, make's `*** [...] Error N`), a Python traceback's
+  first three lines and the exception it ends in, any line that says
+  `illegal move`, and a PGN `[Termination "..."]` header. At most 30 lines of
+  at most 240 characters; each links to its line in the log when that line
+  is rendered. Only the first 4,096 characters of a line are examined, the
+  exception that ends a traceback is looked for within 200 lines of its
+  header, and the scan stops once 30 lines are found, so the first 30 in the
+  log are the ones shown.
+- **The log** shows its first and last 120 lines. The next 5,000 lines in
+  between sit in a closed `<details>`, which costs the browser nothing until
+  it is opened; anything beyond that is left out with a count and a pointer
+  to the raw download.
+- **Copy** copies the rendered lines (and says "Copy shown lines" when some
+  were left out); **Download raw** is `/event/<id>/raw`, the whole file as a
+  `text/plain` attachment.
+
+A log is worker input, so it is treated as hostile
+([SECURITY.md](SECURITY.md#worker-logs)).
+
+### Where else it shows
+
+- The workload page carries a "Worker errors (N)" link to
+  `/errors/?workload=<id>` under the diagnosis banner when N is not zero.
+- `/api/errors/` returns the groups as JSON
+  ([API.md](API.md#getpost-apierrorsworkloadkindunresolvedlimit)), which is
+  how a script asks "what is failing".
+- `/events/`, the operator actions, titles each workload like the listings
+  do, dates rows relatively, and folds a run of identical consecutive actions
+  by one user on one workload (repeated `MODIFY`) into one row with a count.
+  A run is folded within a page of 25 events, so one that crosses a page
+  boundary shows on both pages.
+
 ## Comparing workloads
 
 `/compare/?a=<id>&b=<id>` shows two workloads side by side
@@ -1376,6 +1507,11 @@ schedule as `spsa_workload_assignment_dict` and the Client's delta update, so
 their parameters end at values the Server itself could have reached. Each
 iteration is a mini-match between the two perturbed sides, and the side nearer a
 hidden optimum plays slightly stronger, so the parameters drift towards it.
+
+`seed_demo` also seeds operator events for `/events/` and worker errors with
+logs for `/errors/`: a build failure repeated by fourteen ephemeral jobs in
+the last quarter of an hour (one of whose Machine rows is gone), a wrong bench
+that stopped a workload, and two crashes and an illegal move with their PGNs.
 
 ## Fleet pages
 
