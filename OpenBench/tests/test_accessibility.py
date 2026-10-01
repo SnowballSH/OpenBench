@@ -169,6 +169,7 @@ class RenderedPageAccessibilityTests(TestCase):
             a_ratio=0.1,
         )
         self.datagen = create_test(user, test_mode='DATAGEN')
+        self.uploading = create_test(user, upload_pgns='COMPACT')
         self.machine = Machine.objects.create(user=user, info={**system_info(), 'supported': ['Avalanche']})
         self.error = logged_build_failure(self, self.test, self.machine)
         Network.objects.create(sha256='ABCDEF01', name='r1', engine='Avalanche', author='admin', default=True)
@@ -185,6 +186,7 @@ class RenderedPageAccessibilityTests(TestCase):
             '/search/?go=1&keywords=dev',
             '/search/?q=dev',
             f'/test/{self.test.id}/',
+            f'/test/{self.uploading.id}/',
             f'/tune/{self.tune.id}/',
             f'/datagen/{self.datagen.id}/',
             '/test/new/',

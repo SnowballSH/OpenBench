@@ -1835,6 +1835,83 @@ td.contribution-name {
     background-color: var(--series-1);
 }
 
+.games-insights,
+.games-block {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    min-width: 0;
+}
+
+.games-insights {
+    gap: var(--space-4);
+}
+
+.games-insights[hidden] {
+    display: none;
+}
+
+.games-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 28rem), 1fr));
+    gap: var(--space-4);
+    align-items: start;
+}
+
+.games-table,
+.games-table > table {
+    width: 100%;
+}
+
+td.games-opening {
+    min-width: 16rem;
+    font-size: var(--text-xs);
+    white-space: normal;
+    overflow-wrap: anywhere;
+}
+
+.outcome-cell {
+    min-width: 7rem;
+}
+
+.outcome-bar {
+    display: flex;
+    gap: 2px;
+    height: 8px;
+}
+
+.outcome-segment {
+    flex: var(--share, 0) 1 0;
+    min-width: 2px;
+    border-radius: 2px;
+}
+
+.outcome-win { background-color: var(--pass); }
+.outcome-draw { background-color: var(--neutral-edge); }
+.outcome-loss { background-color: var(--fail); }
+.series-decisive { background-color: var(--series-1); }
+.series-drawn { background-color: var(--series-2); }
+
+.chart-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1) var(--space-4);
+    color: var(--text-muted);
+    font-size: var(--text-xs);
+}
+
+.chart-legend-item {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.chart-legend-swatch {
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
+}
+
 .server-stats {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(min(100%, 10.5rem), 1fr));
@@ -2218,7 +2295,7 @@ td.contribution-name {
 
 .fleet-columns {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 28rem), 1fr));
     gap: var(--space-4);
 }
 

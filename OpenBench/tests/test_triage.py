@@ -26,7 +26,7 @@ from OpenBench.tests.fixtures import (
     ensure_book,
     present,
     system_info,
-    temporary_media,
+    use_temporary_media,
 )
 from OpenBench.tests.test_listing_rows import row_audit
 from OpenBench.triage.actions import action_rows, operator_events
@@ -163,7 +163,7 @@ class TriageCase(TestCase):
         cls.author = create_user('author')
 
     def setUp(self) -> None:
-        self.media = Path(temporary_media(self))
+        self.media = Path(use_temporary_media(self))
         self.now = timezone.now()
         self.client.force_login(self.author)
 
@@ -746,7 +746,7 @@ class TriageQueryBudgetTests(TestCase):
         cls.data = error_dataset(cls.size)
 
     def setUp(self) -> None:
-        temporary_media(self)
+        use_temporary_media(self)
         self.client.force_login(self.data.users[0])
 
     def test_pages(self) -> None:

@@ -12,6 +12,9 @@
     <script src="{% static 'workload_utils.js' %}?{{ static_version }}" defer></script>
     <script src="{% static 'vendor/chartjs-4.5.1/chart.umd.min.js' %}" defer></script>
     <script src="{% static 'insights.js' %}?{{ static_version }}" defer></script>
+    {% if workload.upload_pgns != "FALSE" %}
+        <script src="{% static 'games.js' %}?{{ static_version }}" defer></script>
+    {% endif %}
 
 {% endblock %}
 
@@ -233,6 +236,11 @@
         <div class="insights-tiles" data-insights-tiles></div>
         <div class="insights-charts" data-insights-charts></div>
         <div data-insights-contributions></div>
+        {% if workload.upload_pgns != "FALSE" %}
+            <div class="games-insights" data-games-insights data-workload-id="{{workload.id}}" hidden></div>
+        {% elif type == "TEST" %}
+            <p class="insights-note games-hint">Per-game insights need PGN uploads (set Upload PGNs to COMPACT when creating the test)</p>
+        {% endif %}
     </section>
 
     <!-- SPSA Paramater Summary, for Tunes -->

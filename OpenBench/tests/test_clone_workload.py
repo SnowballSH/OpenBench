@@ -20,6 +20,7 @@ from OpenBench.tests.fixtures import (
     create_user,
     ensure_book,
     present,
+    use_temporary_media,
 )
 from OpenBench.tests.test_create_workload import (
     github_commit,
@@ -275,6 +276,7 @@ class CloneFieldsTests(TestCase):
 
 class CloneRoundTripTests(TestCase):
     def setUp(self):
+        use_temporary_media(self)
         create_engine_config()
         ensure_book()
         Network.objects.create(sha256='AAAAAAAA', name='nezha', engine='Avalanche', author='author')

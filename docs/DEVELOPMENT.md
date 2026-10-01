@@ -121,7 +121,7 @@ has none today.
 This is a fork of [AndyGrant/OpenBench](https://github.com/AndyGrant/OpenBench),
 and upstream changes are merged in periodically.
 
-- **Fork-owned**: `OpenBench/compare/`, `OpenBench/converters.py`, `OpenBench/fleet/`, `OpenBench/insights/`, `OpenBench/listing_rows.py`,
+- **Fork-owned**: `OpenBench/compare/`, `OpenBench/converters.py`, `OpenBench/fleet/`, `OpenBench/games/`, `OpenBench/insights/`, `OpenBench/listing_rows.py`,
   `OpenBench/diagnosis/`, `OpenBench/triage/`,
   `OpenBench/machine_info.py`, `OpenBench/navigation/`, `OpenBench/progress/`, `OpenBench/security/`, `OpenBench/storage/`,
   `OpenBench/page_queries.py`, `OpenBench/upstream.py`, `OpenBench/workload_names.py`,

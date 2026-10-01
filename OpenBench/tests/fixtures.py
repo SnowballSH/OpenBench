@@ -1,11 +1,10 @@
 import json
 import tempfile
-import unittest
 from collections.abc import Iterable
 from typing import Any
 
 from django.contrib.auth.models import User
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
 from OpenBench.models import Book, Engine, EngineConfig, LogEvent, Machine, Profile, Test
@@ -19,6 +18,13 @@ def present[T](value: T | None) -> T:
     if value is None:
         raise AssertionError('expected a value, got None')
     return value
+
+
+def use_temporary_media(case: SimpleTestCase) -> str:
+    media = tempfile.TemporaryDirectory()
+    case.addCleanup(media.cleanup)
+    case.enterContext(override_settings(MEDIA_ROOT=media.name))
+    return media.name
 
 
 def create_user(username: str, enabled: bool = True, approver: bool = False) -> User:
@@ -111,15 +117,8 @@ def register_payload(user: User, **info: Any) -> dict[str, str]:
     return {**credentials(user), 'system_info': json.dumps(system_info(**info))}
 
 
-def temporary_media(case: unittest.TestCase) -> str:
-    # For setUp: the override is undone at cleanup, after any override a decorator put on the test method
-    media = case.enterContext(tempfile.TemporaryDirectory())
-    case.enterContext(override_settings(MEDIA_ROOT=media))
-    return media
-
-
-def logged_build_failure(case: unittest.TestCase, test: Test, machine: Machine) -> LogEvent:
+def logged_build_failure(case: SimpleTestCase, test: Test, machine: Machine) -> LogEvent:
     # Long enough to fold, with markup a careless template would let through
-    temporary_media(case)
+    use_temporary_media(case)
     log = BUILD_LOG + '<b onclick=x style=y>\n' * 400
     return record_error(test, machine.id, machine.user.username, build_failure_summary(test), timezone.now(), log)

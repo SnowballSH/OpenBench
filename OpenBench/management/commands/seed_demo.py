@@ -4,15 +4,18 @@
 #
 # Creates accounts, an Engine, a Book, a fleet of Machines, and Workloads of
 # every mode (SPRT, GAMES, SPSA, DATAGEN) in every state, each with per-Machine
-# Results and a WorkloadSnapshot history. COMMIT_CHAIN adds commit-pinned
+# Results and a WorkloadSnapshot history. Two tests that upload PGNs get a small
+# synthetic archive, formatted by the Client's own code. COMMIT_CHAIN adds commit-pinned
 # tests like a lab agent creates: both branch names are 40-hex SHAs, each
 # commit is tested at STC then LTC, and an accepted commit is the next base. Refuses to run without DEBUG, or
 # against a database that already holds Workloads.
 
 import datetime
 import hashlib
+import io
 import math
 import random
+import tarfile
 import uuid
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
@@ -26,7 +29,11 @@ from django.db.models import Q, Sum
 from django.utils import timezone
 
 from OpenBench.fleet.hosts import host_key
+from OpenBench.games.archive import Budget
+from OpenBench.games.service import archive_path, refresh
+from OpenBench.games.synthetic import MatchSetup, raw_runner_file, upload_batch
 from OpenBench.models import (
+    PGN,
     Book,
     Engine,
     EngineConfig,
@@ -119,6 +126,14 @@ BENCH_DRIFT = 18_422
 
 MODIFY_REPEATS = 4
 
+PGN_BATCHES = 5
+
+PGN_RUNNERS_PER_BATCH = 2
+
+PGN_PAIRS_PER_RUNNER = 12
+
+PGN_SEED_BUDGET = Budget(compressed_bytes=1 << 30, games=1 << 30, seconds=600.0)
+
 
 @dataclass(frozen=True)
 class DemoWorkload:
@@ -195,9 +210,9 @@ class DemoTune:
 
 
 WORKLOADS = [
-    DemoWorkload('lmr-tweak', 'SPRT', 2.5, 5200, 'active', priority=1),
+    DemoWorkload('lmr-tweak', 'SPRT', 2.5, 5200, 'active', priority=1, upload_pgns='VERBOSE'),
     DemoWorkload('history-bonus', 'SPRT', -1.0, 2600, 'active'),
-    DemoWorkload('nezha-v2', 'SPRT', 6.0, 3100, 'passed', bounds=(0.0, 5.0)),
+    DemoWorkload('nezha-v2', 'SPRT', 6.0, 3100, 'passed', bounds=(0.0, 5.0), upload_pgns='COMPACT'),
     DemoWorkload('aspiration-width', 'SPRT', -6.0, 1800, 'failed'),
     DemoWorkload('smp-scaling', 'GAMES', 12.0, 400, 'active', max_games=4000, tc='20.0+0.2', threads=4),
     DemoWorkload('qsearch-see', 'SPRT', 1.0, 0, 'pending'),
@@ -364,12 +379,40 @@ class Command(BaseCommand):
             age_offline_machines(machines)
             create_operator_events(users[0])
             create_worker_errors(machines)
+            create_game_archives(options['seed'])
 
         self.stdout.write(
             f'Seeded {len(seeded_workloads()) + len(TUNES)} workloads on {len(machines)} machines '
             f'({Machine.objects.count()} registrations). '
             f'Log in as admin / {DEMO_PASSWORD}'
         )
+
+
+def create_game_archives(seed: int) -> None:
+    for test in Test.objects.filter(test_mode__in=('SPRT', 'GAMES'), games__gt=0).exclude(upload_pgns='FALSE'):
+        create_game_archive(test, random.Random(f'{seed}-pgn-{test.id}'))
+
+
+def create_game_archive(test: Test, rng: random.Random) -> None:
+
+    result = Result.objects.filter(test=test).order_by('id').first()
+    if result is None:
+        return
+
+    setup = MatchSetup(engine=test.dev_engine, time_control=test.dev_time_control)
+    path = archive_path(test.id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    with tarfile.open(path, 'w') as tar:
+        for batch in range(PGN_BATCHES):
+            runners = [raw_runner_file(setup, PGN_PAIRS_PER_RUNNER, rng) for _ in range(PGN_RUNNERS_PER_BATCH)]
+            content = upload_batch(runners, 1.0, compact=test.upload_pgns == 'COMPACT')
+            pgn = PGN.objects.create(test_id=test.id, result_id=result.id, book_index=batch, processed=True)
+            member = tarfile.TarInfo(pgn.filename())
+            member.size = len(content)
+            tar.addfile(member, io.BytesIO(content))
+
+    refresh(test, PGN_SEED_BUDGET)
 
 
 def commit_sha(subject: str) -> str:
