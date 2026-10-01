@@ -22,8 +22,9 @@ OPENBENCH_DEBUG=1 python manage.py seed_demo
 OPENBENCH_DEBUG=1 python manage.py runserver
 ```
 
-`seed_demo` fills an empty development database with accounts, Machines and
-Workloads of every mode (SPRT, fixed games, SPSA tunes, datagen) in every
+`seed_demo` fills an empty development database with accounts, Machines (one
+of them a supervised host with a registration per workload and idle ones in
+between) and Workloads of every mode (SPRT, fixed games, SPSA tunes, datagen) in every
 state, so pages can be seen with realistic data. It refuses
 to run without `OPENBENCH_DEBUG`, and prints the demo login it created.
 
@@ -176,6 +177,61 @@ POST body like the other API endpoints. Otherwise it answers 401 with
 | `media.skipped_symlinks`, `media.unreadable_dirs` | Symbolic links not followed, and directories that could not be listed (their contents are not counted). |
 | `media.truncated` | The scan hit its entry limit, so totals are low. |
 | `upload_spool` | `null` when `OPENBENCH_UPLOAD_TEMP_DIR` is unset. `truncated` is true when it holds more than 10,000 entries, so the figures are low. |
+
+## Machine registrations
+
+The Client registers a new `Machine` row on every start. A supervisor running
+it with `--single-workload` starts it once a minute while there is no work, so
+an idle host would add about 1,440 rows a day that never play a game. Rows
+with Results are history and are never removed (`Result.machine` is
+`PROTECT`); the never-used ones are removed in two ways.
+
+**At registration**, `clientWorkerInfo` deletes, in the same transaction as
+the new row, registrations that are all of:
+
+- of the same host as the one registering (same owner and machine; see
+  [INSIGHTS.md](INSIGHTS.md#hosts)),
+- without any Result,
+- made by a Client that exits when it has no work (`--single-workload` or
+  `--fleet` in the `cli_options` it registered with),
+- last heard from more than 15 minutes ago,
+
+at most 50 per registration. Such a registration made one workload request and
+its Client has exited: it cannot come back. The 15 minutes cover a Client that
+registered and is still retrying its first request through a network outage.
+An idle supervised host therefore keeps about 15 rows, and an existing backlog
+on a host drains 50 rows per start. Reusing the newest idle row instead of
+inserting was rejected: it would change the id and secret handed to a Client
+that may still be starting, and would never shrink a backlog.
+
+Registrations of a Client that keeps polling are deliberately left alone at
+registration. `clientGetWorkload` does not refresh `Machine.updated` when it
+has no work to give, so an idle polling Client is indistinguishable from a dead
+one by its heartbeat. If its row is deleted, its next request is answered
+`Bad Client Version: Bad Machine Id`; the Client re-downloads itself and
+registers again, but one started with `--no-client-downloads` exits instead.
+
+**On demand**, `prune_machines` reports, and with `--apply` deletes, both
+kinds across the whole server:
+
+```bash
+python manage.py prune_machines               # dry run: counts only
+python manage.py prune_machines --apply       # delete
+python manage.py prune_machines --apply --days 30
+```
+
+- *exited*: as above, for every host; this is what clears a backlog.
+- *abandoned*: never-used registrations of polling Clients last heard from
+  more than `--days` days ago (default 7, minimum 1). Mind the caveat above:
+  a polling Client idle for that long loses its registration and registers
+  again, or exits under `--no-client-downloads`. Raise `--days` beyond the
+  longest quiet period if that matters.
+
+It never deletes a registration that has a Result or a heartbeat within the
+last 15 minutes, deletes in batches of 500, and skips a batch in which a
+registration gained a Result since the plan was made. Deleting a registration
+does not change any count of games, and LogEvents that name its id keep their
+text. Take a database backup before the first `--apply`.
 
 ## Response compression
 
