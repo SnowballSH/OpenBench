@@ -1,9 +1,11 @@
 import re
-from datetime import datetime
+from datetime import UTC, datetime
 
 from OpenBench.digest.domain import DEFAULT_CHOICE, MAX_WINDOW, DigestWindow, Preset, WindowChoice
 
-TIMESTAMP = re.compile(r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})')
+TIMESTAMP = re.compile(
+    r'\d{4}-\d{2}-\d{2}T(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d{1,6})?(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)'
+)
 
 SINCE_ERROR = f'since must be one of {", ".join(preset.value for preset in Preset)}'
 FROM_ERROR = 'from must be an ISO 8601 timestamp with an offset, such as 2026-10-01T06:00:00Z'
@@ -45,4 +47,5 @@ def resolve(choice: WindowChoice, now: datetime) -> DigestWindow:
     if choice.since is None or choice.since > now:
         raise BadWindow(FUTURE_ERROR)
     earliest = now - MAX_WINDOW
-    return DigestWindow(None, max(choice.since, earliest), now, clamped=choice.since < earliest)
+    start = max(choice.since, earliest).astimezone(UTC).replace(second=0, microsecond=0)
+    return DigestWindow(None, start, now, clamped=choice.since < earliest)

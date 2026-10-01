@@ -21,10 +21,8 @@ AUTHENTICATION_ERROR = 'API requires authentication for this server'
 
 def report_for(choice: WindowChoice) -> DigestReport:
     window = resolve(choice, timezone.now())
-    if choice.preset is None:
-        # Only the fixed windows are cached, so an arbitrary timestamp never becomes a cache key
-        return digest_report(window)
-    key = f'digest:{choice.preset.value}'
+    # A timestamp window starts on a whole minute of the last 30 days, which bounds the keys
+    key = f'digest:{window.preset.value if window.preset else window.since.isoformat()}'
     return cast(DigestReport, cache.get_or_set(key, lambda: digest_report(window), REPORT_CACHE_SECONDS))
 
 

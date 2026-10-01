@@ -15,7 +15,12 @@ def moved(measurement: Measurement, window: DigestWindow) -> bool:
     return measurement.provisional or window.holds(settled_at(measurement))
 
 
-def trunk_move(index: int, step: Step, measurement: Measurement) -> TrunkMove:
+def remeasured(measurement: Measurement, window: DigestWindow) -> bool:
+    earlier = any(run.finished_at is not None and run.finished_at < window.since for run in measurement.runs)
+    return earlier and not measurement.provisional
+
+
+def trunk_move(index: int, step: Step, measurement: Measurement, window: DigestWindow) -> TrunkMove:
     return TrunkMove(
         index=index,
         base=step.base,
@@ -27,6 +32,7 @@ def trunk_move(index: int, step: Step, measurement: Measurement) -> TrunkMove:
         elo=measurement.elo,
         games=measurement.games,
         measured_at=None if measurement.provisional else settled_at(measurement),
+        remeasured=remeasured(measurement, window),
         runs=[run.id for run in measurement.runs],
     )
 
@@ -41,7 +47,7 @@ def class_movement(time_class: TimeClass, trunk: Sequence[Step], window: DigestW
         return None
 
     series = chain_series([step for _, step, _ in found], time_class, 1)
-    moves = [trunk_move(index, step, measurement) for index, step, measurement in found]
+    moves = [trunk_move(index, step, measurement, window) for index, step, measurement in found]
     return ClassMovement(
         time_class=time_class,
         moves=moves[-MOVES_SENT:],
@@ -49,6 +55,7 @@ def class_movement(time_class: TimeClass, trunk: Sequence[Step], window: DigestW
         measured=series.measured,
         accepted=sum(move.verdict == RunStatus.PASSED and not move.provisional for move in moves),
         provisional=sum(move.provisional for move in moves),
+        remeasured=sum(move.remeasured for move in moves),
         net=series.total,
     )
 

@@ -3,6 +3,7 @@
 
     const VISIT_KEY = 'openbench-digest-visit';
     const VISIT_GAP_MS = 30 * 60 * 1000;
+    const MAX_AGE_MS = 30 * 24 * 3600 * 1000;
     const MAX_TICKS = 6;
     const BAR_THICKNESS = 24;
     const HOUR_MS = 3600 * 1000;
@@ -16,17 +17,20 @@
         weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'UTC',
     });
     const visit_format = new Intl.DateTimeFormat(undefined, {
-        month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false,
+        month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'UTC',
     });
 
     const format_count = value => count_format.format(Math.round(value));
     const format_compact = value => compact_format.format(value);
 
-    function read_visits() {
+    function read_visits(now_ms) {
+        const usable = value => {
+            const at = typeof value === 'string' ? Date.parse(value) : NaN;
+            return Number.isFinite(at) && now_ms >= at && MAX_AGE_MS > now_ms - at ? value : null;
+        };
         try {
             const stored = JSON.parse(window.localStorage.getItem(VISIT_KEY));
-            const valid = value => (typeof value === 'string' && Number.isFinite(Date.parse(value)) ? value : null);
-            return stored && typeof stored === 'object' ? { last: valid(stored.last), previous: valid(stored.previous) } : {};
+            return stored && typeof stored === 'object' ? { last: usable(stored.last), previous: usable(stored.previous) } : {};
         } catch (error) {
             return {};
         }
@@ -49,7 +53,7 @@
         const now = root.dataset.digestGenerated;
         if (!now || !Number.isFinite(Date.parse(now))) return;
 
-        const visits = next_visits(read_visits(), now);
+        const visits = next_visits(read_visits(Date.parse(now)), now);
         write_visits(visits);
 
         const link = root.querySelector('[data-digest-last-visit]');
@@ -58,7 +62,7 @@
         const since = new Date(visits.previous);
         link.href = `/digest/?from=${encodeURIComponent(since.toISOString())}`;
         if (new URL(link.href).search === window.location.search) return;
-        link.title = `Since ${visit_format.format(since)}`;
+        link.title = `Since ${visit_format.format(since)} UTC`;
         link.hidden = false;
     }
 

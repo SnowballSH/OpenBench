@@ -1137,8 +1137,9 @@ field means is in [INSIGHTS.md](INSIGHTS.md#digest).
 | `since` | `8h`, `24h` (default), `3d` or `7d` |
 | `from` | Instead of `since`: an ISO 8601 timestamp with seconds and an offset, such as `2026-10-01T06:00:00Z`. More than 30 days back is clamped to 30 days and reported as `window.clamped` |
 
-Either may be sent in the query string or in the POST body. Fixed windows are
-cached for 60 seconds.
+Either may be sent in the query string or in the POST body. A `from` window
+starts on the whole UTC minute at or before the instant. Reports are cached
+for 60 seconds per window.
 
 ```json
 {
@@ -1151,11 +1152,11 @@ cached for 60 seconds.
             "clamped": false
         },
         "headline": [
-            "5 workloads finished in the last 24 hours (2 passed, 2 failed, 1 without a verdict), 8 still running, 1 awaiting approval, 1 unresolved error group.",
-            "The fleet played 77,352 games on 8 hosts, 535.3 core-h of search."
+            "5 workloads finished in the last 24 hours (1 passed, 2 failed, 2 completed), 8 still running, 1 awaiting approval, 1 unresolved error group.",
+            "The fleet played 77,352 games on 5 pools, at least 535.3 core-h of search."
         ],
         "finished": {
-            "counts": {"total": 5, "passed": 2, "failed": 2},
+            "counts": {"total": 5, "passed": 1, "failed": 2, "completed": 2},
             "workloads": [
                 {
                     "workload": {
@@ -1183,7 +1184,7 @@ cached for 60 seconds.
         "running": {
             "total": 9,
             "pending": 1,
-            "started": 3,
+            "started": 2,
             "workloads": [
                 {
                     "workload": {"id": 38, "url": "/test/38/", "title": "Widen aspiration windows after a fail high", "commits": "2ac6a70d vs 60637f88", "author": "lab-worker", "engine": "Avalanche", "mode": "SPRT", "time_control": "8.0+0.08", "time_class": "stc"},
@@ -1231,6 +1232,7 @@ cached for 60 seconds.
                                 "elo": {"lower": -7.42, "value": 1.36, "upper": 10.15},
                                 "games": 2800,
                                 "measured_at": null,
+                                "remeasured": false,
                                 "runs": [37]
                             }
                         ],
@@ -1238,6 +1240,7 @@ cached for 60 seconds.
                         "measured": 0,
                         "accepted": 0,
                         "provisional": 1,
+                        "remeasured": 0,
                         "net": null
                     }
                 ]

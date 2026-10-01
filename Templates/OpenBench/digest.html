@@ -176,7 +176,7 @@
                                             <span class="mono">{% if line.base.url %}<a href="{{line.base.url}}">{{line.base.label}}</a>{% else %}{{line.base.label}}{% endif %} → {% if line.dev.url %}<a href="{{line.dev.url}}">{{line.dev.label}}</a>{% else %}{{line.dev.label}}{% endif %}</span>
                                             {% if line.subject %}<div class="row-meta">{{line.subject}}</div>{% endif %}
                                         </td>
-                                        <td><span class="mono{% if line.provisional %} lineage-provisional{% endif %}">{{line.elo}}</span>{% if line.provisional %} <span class="muted">provisional</span>{% endif %}<div class="row-meta">{{line.games}} ·{% for run in line.runs %} <a{% if run.primary %} class="row-link"{% endif %} href="{{run.url}}"><span class="visually-hidden">Workload </span>{{run.label}}</a>{% endfor %}</div></td>
+                                        <td><span class="mono{% if line.provisional %} lineage-provisional{% endif %}">{{line.elo}}</span>{% if line.provisional %} <span class="muted">provisional</span>{% endif %}{% if line.remeasured %} <span class="badge">re-measured</span>{% endif %}<div class="row-meta">{{line.games}} ·{% for run in line.runs %} <a{% if run.primary %} class="row-link"{% endif %} href="{{run.url}}"><span class="visually-hidden">Workload </span>{{run.label}}</a>{% endfor %}</div></td>
                                         <td><span class="badge{% if line.tone %} badge-{{line.tone}}{% endif %}">{{line.verdict}}</span></td>
                                         <td>{% if line.measured_at %}<time datetime="{{line.measured_at|date:'c'}}" title="{{line.measured_at|date:'c'}}">{{line.ago}}</time>{% else %}<span class="muted">running</span>{% endif %}</td>
                                     </tr>
@@ -278,6 +278,9 @@
                 <h2 id="digest-errors-title" class="card-title">Errors</h2>
                 <span class="muted">Worker error groups seen in the window, unresolved first · <a href="{{page.errors_url}}">open error triage</a></span>
             </div>
+            {% if page.errors.truncated %}
+                <p class="muted progress-note">Grouping the 500 most recently seen summaries; older errors are in <a href="/errors/?view=list">every event</a>.</p>
+            {% endif %}
             {% if page.errors.lines %}
                 <div class="table-wrap w-100">
                     <table class="hoverable w-100 triage-groups digest-table">

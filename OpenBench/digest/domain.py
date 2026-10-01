@@ -104,10 +104,11 @@ class FinishedCounts:
     total: int
     passed: int
     failed: int
+    completed: int
 
     @property
-    def undecided(self) -> int:
-        return self.total - self.passed - self.failed
+    def stopped(self) -> int:
+        return self.total - self.passed - self.failed - self.completed
 
 
 @dataclass(frozen=True, slots=True)
@@ -167,6 +168,7 @@ class TrunkMove:
     elo: EloInterval | None
     games: int
     measured_at: datetime | None
+    remeasured: bool
     runs: list[int]
 
 
@@ -178,6 +180,7 @@ class ClassMovement:
     measured: int
     accepted: int
     provisional: int
+    remeasured: int
     net: EloInterval | None
 
 

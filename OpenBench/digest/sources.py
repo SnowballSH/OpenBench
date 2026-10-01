@@ -5,6 +5,7 @@ from django.db.models import Count, DateTimeField, F, Func, Max, Q, QuerySet, Va
 from django.db.models.functions import TruncHour
 
 from OpenBench.digest.domain import FINISHED_SENT, DigestWindow, FinishedCounts
+from OpenBench.insights.domain import WorkloadMode
 from OpenBench.models import Result, Test, WorkloadSnapshot
 from OpenBench.page_queries import listing_tests
 from OpenBench.progress.sources import FINISH_SLACK, finish_time
@@ -22,10 +23,14 @@ def finished_tests(window: DigestWindow) -> QuerySet[Test]:
 
 
 def load_finished_counts(window: DigestWindow) -> FinishedCounts:
+    sprt = Q(test_mode=WorkloadMode.SPRT)
     counts = finished_tests(window).aggregate(
-        total=Count('id'), passed=Count('id', filter=Q(passed=True)), failed=Count('id', filter=Q(failed=True))
+        every=Count('id'),
+        green=Count('id', filter=sprt & Q(passed=True)),
+        red=Count('id', filter=sprt & Q(passed=False, failed=True)),
+        unjudged=Count('id', filter=~sprt),
     )
-    return FinishedCounts(counts['total'], counts['passed'], counts['failed'])
+    return FinishedCounts(counts['every'], counts['green'], counts['red'], counts['unjudged'])
 
 
 def load_finished(window: DigestWindow) -> list[Test]:

@@ -32,12 +32,13 @@ def span_phrase(window: DigestWindow) -> str:
 
 
 def outcome_phrase(counts: FinishedCounts) -> str:
-    parts = [
-        f'{count(counts.passed)} passed' if counts.passed else '',
-        f'{count(counts.failed)} failed' if counts.failed else '',
-        f'{count(counts.undecided)} without a verdict' if counts.undecided else '',
-    ]
-    return ', '.join(part for part in parts if part)
+    outcomes = (
+        (counts.passed, 'passed'),
+        (counts.failed, 'failed'),
+        (counts.completed, 'completed'),
+        (counts.stopped, 'stopped'),
+    )
+    return ', '.join(f'{count(total)} {word}' for total, word in outcomes if total)
 
 
 def finished_phrase(counts: FinishedCounts, window: DigestWindow) -> str:
@@ -52,7 +53,8 @@ def trunk_phrases(trunk: Sequence[TrunkMovement]) -> Iterator[str]:
         owner = f'{movement.engine} ' if several else ''
         for found in movement.classes:
             if found.net is not None:
-                yield f'{elo_text(found.net, 1)} Elo chained on the {owner}{found.time_class.label} trunk'
+                again = f' ({count(found.remeasured)} re-measured)' if found.remeasured else ''
+                yield f'{elo_text(found.net, 1)} Elo chained on the {owner}{found.time_class.label} trunk{again}'
 
 
 def running_phrases(running: RunningDigest) -> Iterator[str]:
@@ -70,14 +72,19 @@ def error_phrases(errors: ErrorDigest) -> Iterator[str]:
         yield f'{plural(errors.total, "error group")}, all resolved'
 
 
+def hours_phrase(fleet: FleetActivity) -> str:
+    if fleet.core_hours is None:
+        return ''
+    bound = 'at least ' if fleet.games_without_hours else 'about ' if fleet.core_hours_estimated else ''
+    return f', {bound}{core_hours_text(fleet.core_hours)} of search'
+
+
 def fleet_sentence(fleet: FleetActivity, window: DigestWindow) -> str:
     if not fleet.games:
         return f'The fleet played no games in {span_phrase(window)}.'
-    hosts = f' on {plural(fleet.hosts, "host")}' if fleet.hosts else ''
-    hours = ''
-    if fleet.core_hours is not None:
-        hours = f', {"about " if fleet.core_hours_estimated else ""}{core_hours_text(fleet.core_hours)} of search'
-    return f'The fleet played {plural(fleet.games, "game")}{hosts}{hours}.'
+    pools = len(fleet.pools) + fleet.pools_omitted
+    where = f' on {plural(pools, "pool")}' if pools else ''
+    return f'The fleet played {plural(fleet.games, "game")}{where}{hours_phrase(fleet)}.'
 
 
 def headline(

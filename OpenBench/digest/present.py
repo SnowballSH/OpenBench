@@ -106,6 +106,7 @@ class MoveLine:
     subject: str
     elo: str
     provisional: bool
+    remeasured: bool
     verdict: str
     tone: str | None
     games: str
@@ -250,6 +251,7 @@ def move_line(move: TrunkMove, now: datetime) -> MoveLine:
         subject=move.subject,
         elo=elo_text(move.elo),
         provisional=move.provisional,
+        remeasured=move.remeasured,
         verdict=move.verdict.value,
         tone=VERDICT_TONES[move.verdict],
         games=f'{count(move.games)} games',
@@ -269,6 +271,8 @@ def movement_summary(found: ClassMovement) -> str:
         if found.net is not None
         else ['No measurement finished in the window']
     )
+    if found.remeasured:
+        parts.append(f'{plural(found.remeasured, "re-measured step")} counted with the pooled value of all its runs')
     if found.provisional:
         parts.append(f'{plural(found.provisional, "provisional step")} still running and not counted')
     return ', '.join(parts) + '.'
@@ -329,8 +333,10 @@ def fleet_view(fleet: FleetActivity) -> FleetView:
 def finished_tile(finished: FinishedDigest) -> Tile:
     counts = finished.counts
     meta = f'{count(counts.passed)} passed · {count(counts.failed)} failed'
-    if counts.undecided:
-        meta += f' · {count(counts.undecided)} other'
+    if counts.completed:
+        meta += f' · {count(counts.completed)} completed'
+    if counts.stopped:
+        meta += f' · {count(counts.stopped)} stopped'
     return Tile('Finished', count(counts.total), meta, 'pass' if counts.passed else None)
 
 
@@ -351,6 +357,8 @@ def trunk_tiles(trunk: list[TrunkMovement]) -> Iterator[Tile]:
             meta = f'{plural(found.accepted, "step")} accepted'
             if found.provisional:
                 meta += f' · {count(found.provisional)} provisional'
+            if found.remeasured:
+                meta += f' · {count(found.remeasured)} re-measured'
             if found.net is None:
                 yield Tile(label, DASH, meta)
             else:
@@ -362,11 +370,19 @@ def games_tile(fleet: FleetActivity) -> Tile:
     return Tile('Games played', count(fleet.games), peak)
 
 
+def hours_meta(fleet: FleetActivity) -> str:
+    if fleet.games_without_hours:
+        return f'excludes {plural(fleet.games_without_hours, "game")}'
+    return 'partly estimated' if fleet.core_hours_estimated else 'measured search time'
+
+
 def hours_tile(fleet: FleetActivity) -> Tile:
+    if not fleet.games:
+        return Tile('Core-hours', DASH, 'no games played')
     if fleet.core_hours is None:
         return Tile('Core-hours', DASH, 'no node counters')
     value = f'{"≈ " if fleet.core_hours_estimated else ""}{fleet.core_hours:,.1f}'
-    return Tile('Core-hours', value, 'partly estimated' if fleet.core_hours_estimated else 'measured search time')
+    return Tile('Core-hours', value, hours_meta(fleet))
 
 
 def hosts_tile(fleet: FleetActivity) -> Tile:

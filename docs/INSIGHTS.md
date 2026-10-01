@@ -1782,7 +1782,10 @@ The measurement's **verdict** is the status of its newest decided run
 (`passed` or `failed`, SPRT only). Without a decided run it is the first of
 `running`, `pending` (awaiting approval), `completed` (a finished GAMES run,
 whose `passed` flag only says who scored more) and `stopped` (an SPRT finished
-without a verdict) that any run has.
+without a verdict) that any run has. A run that is not finished is `running`
+or `pending` whatever its flags say: restarting a decided test leaves its
+`passed` or `failed` flag set while it plays on, and until it finishes again
+it has no finish time and its step is provisional.
 
 ### The trunk
 
@@ -2391,8 +2394,10 @@ applied to it.
 Sending both, an unknown `since`, a `from` in any other shape or a `from` in
 the future is refused: the API answers 400 and the page falls back to 24
 hours. A `from` more than 30 days back is moved to 30 days and
-`window.clamped` is `true`. Both ends belong to the window, so a workload
-that finished at exactly `window.since` is in it.
+`window.clamped` is `true`. A `from` window starts on the whole UTC minute
+at or before the instant given, and hours past 23 or minutes past 59 are
+refused rather than rolled over. Both ends belong to the window, so a
+workload that finished at exactly `window.since` is in it.
 
 "Since my last visit" is a `from` link built in the browser. `digest.js`
 keeps two instants under `openbench-digest-visit` in `localStorage`: `last`,
@@ -2400,16 +2405,21 @@ the server time of the newest digest this browser loaded, and `previous`,
 the value `last` had when the current visit began. A load more than 30
 minutes after `last` begins a new visit. The link points at `previous`, so
 reloading or changing the window during a visit does not move it; it stays
-hidden until there has been an earlier visit, and with storage blocked. The
-server never stores a visit.
+hidden until there has been an earlier visit, and with storage blocked. A
+stored instant that is in the future or more than 30 days old is discarded,
+so the link never leads to a refused or clamped window. The server never
+stores a visit.
 
 ### What is in it
 
 - **Finished**: workloads that are finished, not deleted, and whose
   [finish time](#finish-time) is in the window, newest first, at most 100
   (`finished.omitted` counts the rest; `finished.counts` covers all of them).
-  The status is the workload's own (`passed`, `failed`, `completed` for a
-  tune that ran its games, otherwise `stopped`), the Elo is the logistic
+  Statuses are worded as the progress page words runs: only an SPRT is
+  `passed` or `failed`, an SPRT that finished without a verdict is `stopped`,
+  and every finished GAMES run, tune or datagen is `completed`, whatever its
+  `passed` flag says. `finished.counts` has `total`, `passed`, `failed` and
+  `completed`; the rest are stopped. The Elo is the logistic
   estimate with its 95% interval for tests and is absent for tunes and
   datagen, the duration runs from the first recorded report (or creation) to
   the finish time, and a stopped row carries the diagnosis' reason when there
@@ -2418,7 +2428,9 @@ server never stores a visit.
   deleted, pending ones included, newest start first, at most 100.
   `started_in_window` says whether its first recorded report (or its
   creation, before any report) is in the window, so a test that has been
-  running for a week is listed and not marked new. Each carries its diagnosis
+  running for a week is listed and not marked new. `running.started` counts
+  the approved ones among them, and `running.pending` the workloads awaiting
+  approval; a restarted test is `active` here whatever flags it kept. Each carries its diagnosis
   state, its LLR between its bounds, and the listing's own rate and
   [time left](#time-left).
 - **Trunk movement**: per engine with a lineage and per chained time-control
@@ -2430,8 +2442,12 @@ server never stores a visit.
   runs at that class are all unfinished is listed as provisional, as on the
   progress page, and adds nothing to `net`. The trunk itself is built from
   every run, as always: the window only selects which measurements are
-  reported. A measurement that an older repeat finished long ago and a new
-  repeat finished today counts as today's, with its pooled value.
+  reported. When a repeat finishes in the window on a step that already had
+  a finished run before it, the step is reported with the pooled value of all
+  its runs, because that is the one number the progress page has for it, and
+  it is marked `remeasured` (the class's `remeasured` counts them, and the
+  headline and tile say so): `net` then includes Elo that was already on the
+  trunk before the window, not only what the window added.
 - **Fleet**: `games` is the growth of each workload's snapshot history inside
   the window (the newest count before the window is the baseline; games
   played before a workload's history began count in the hour of its first
@@ -2446,9 +2462,12 @@ server never stores a visit.
   times threads, and gives a run's hours to the window by the share of its
   games played in it; `core_hours_estimated` is true when a run's counters
   cover only part of its games or its class's rate stood in for a run with no
-  counters, and `games_without_hours` counts games no rate exists for.
+  counters, and `games_without_hours` counts games no rate exists for. When
+  that is not zero the figure is a lower bound: the headline says "at least"
+  and the tile says how many games it excludes.
   `hosts` and `pools` are the distinct [hosts](#hosts) and [pools](#pools)
-  behind the results last reported in the window.
+  behind the results last reported in the window. The headline counts pools,
+  since one batch job is one host and the host count mostly counts jobs.
 - **Errors**: the [error groups](#groups) whose newest event is in the
   window, unresolved first, at most 20, each with the status rules of the
   errors page; `new` marks a group whose first event is in the window too.
@@ -2462,8 +2481,8 @@ One report is at most 20 queries however much data there is: the diagnosis
 of active workloads, the stop causes and the error lookups are skipped when
 there is nothing for them to read. The page adds the four every logged-in
 page pays.
-Fixed windows are cached for 60 seconds each. A `from` window is computed on
-every request, so an arbitrary timestamp never becomes a cache key. Like the
+Every window is cached for 60 seconds. A `from` window is keyed on its start,
+which is a whole minute of the last 30 days, so the keys are bounded. Like the
 progress report, it reads every run of every engine to build the lineage.
 
 ### `GET|POST /api/digest/?since=&from=`
@@ -2473,7 +2492,7 @@ progress report, it reads every run of every engine to build the lineage.
 `workloads`, `omitted`), `running` (`total`, `pending`, `started`,
 `workloads`, `omitted`), `trunk` (per engine: `engine`, `head`,
 `trunk_length`, `classes` with `time_class`, `moves`, `moves_omitted`,
-`measured`, `accepted`, `provisional`, `net`), `fleet` and `errors`
+`measured`, `accepted`, `provisional`, `remeasured`, `net`), `fleet` and `errors`
 (`total`, `new`, `unresolved`, `omitted`, `truncated`, `groups`). A group has
 the fields of [`/api/errors/`](API.md#getpost-apierrorsworkloadkindunresolvedlimit)
 plus `new`. An example is in [API.md](API.md#getpost-apidigestsincefrom).

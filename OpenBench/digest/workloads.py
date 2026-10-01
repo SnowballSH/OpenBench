@@ -56,12 +56,23 @@ def stop_reason(diagnosis: Diagnosis | None) -> str | None:
     return diagnosis.brief if diagnosis and diagnosis.shown else None
 
 
+def finished_status(test: Test, facts: WorkloadFacts) -> WorkloadStatus:
+    if facts.mode != WorkloadMode.SPRT:
+        return WorkloadStatus.COMPLETED
+    flags = ((test.passed, WorkloadStatus.PASSED), (test.failed, WorkloadStatus.FAILED))
+    return next((status for flag, status in flags if flag), WorkloadStatus.STOPPED)
+
+
+def unfinished_status(test: Test) -> WorkloadStatus:
+    return WorkloadStatus.ACTIVE if test.approved else WorkloadStatus.PENDING
+
+
 def finished_workload(test: ListedTest, diagnoses: Diagnoses) -> FinishedWorkload:
     facts = workload_facts(test)
     started = started_at(test)
     return FinishedWorkload(
         workload=workload_ref(test),
-        status=facts.status,
+        status=finished_status(test, facts),
         elo=match_elo(facts),
         games=test.games,
         started_at=started,
@@ -99,7 +110,7 @@ def running_workload(test: ListedTest, window: DigestWindow, diagnoses: Diagnose
     rate, eta = rate_and_eta(test, facts, window.until)
     return RunningWorkload(
         workload=workload_ref(test),
-        status=facts.status,
+        status=unfinished_status(test),
         started_in_window=window.holds(started),
         started_at=started,
         games=test.games,
@@ -117,7 +128,7 @@ def running_digest(tests: Sequence[ListedTest], window: DigestWindow, diagnoses:
     return RunningDigest(
         total=len(rows),
         pending=sum(row.status == WorkloadStatus.PENDING for row in rows),
-        started=sum(row.started_in_window for row in rows),
+        started=sum(row.started_in_window and row.status == WorkloadStatus.ACTIVE for row in rows),
         workloads=newest_first[:RUNNING_SENT],
         omitted=max(0, len(rows) - RUNNING_SENT),
     )
