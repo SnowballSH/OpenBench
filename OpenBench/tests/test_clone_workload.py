@@ -1,6 +1,7 @@
 import io
 import json
 import re
+import tempfile
 from html.parser import HTMLParser
 from pathlib import Path
 from types import SimpleNamespace
@@ -315,7 +316,8 @@ class CloneRoundTripTests(TestCase):
         from OpenBench.workloads.verify_workload import verify_workload
 
         Test.objects.all().delete()
-        call_command('seed_demo', stdout=io.StringIO())
+        with override_settings(MEDIA_ROOT=self.enterContext(tempfile.TemporaryDirectory())):
+            call_command('seed_demo', stdout=io.StringIO())
         Network.objects.create(sha256='BCF481FD', name='nezha', engine='Avalanche', author='admin')
 
         engine_preset = {'scale_nps': str(EngineConfig.objects.get().nps)}
