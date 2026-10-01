@@ -21,13 +21,13 @@
         </tr>
 
         {% for event in events %}
-            <tr>
+            <tr{% if event.log_file %} data-row-href="/event/{{event.id}}"{% elif event.workload %} data-row-href="{{event.workload|workload_url}}"{% endif %}>
                 <td class="timestamp muted">{{event.created|date:'U'}}</td>
                 <td><a href="/machines/{{event.machine_id}}">{{event.machine_id}}</a></td>
                 <td>{{event.author|capfirst}}</td>
-                <td>{% if event.workload %}<a href="{{event.workload|workload_url}}">{{event.workload.dev.name|prettyName}}</a>{% endif %}</td>
+                <td>{% if event.workload %}<a{% if not event.log_file %} class="row-link"{% endif %} href="{{event.workload|workload_url}}"><span class="row-id">#{{event.workload.id}}</span> {{event.workload.dev.name|short_name}}</a>{% endif %}</td>
                 <td>{{event.summary}}</td>
-                <td>{% if event.log_file %}<a href='/event/{{event.id}}'>View</a>{% endif %}</td>
+                <td>{% if event.log_file %}<a class="row-link" href="/event/{{event.id}}">View<span class="visually-hidden"> log of error {{event.id}}</span></a>{% endif %}</td>
             </tr>
         {% endfor %}
 

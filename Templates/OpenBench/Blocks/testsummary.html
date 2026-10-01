@@ -1,12 +1,15 @@
 {% load mytags %}
 <td><a href="/user/{{test.author}}">{{test.author|capfirst|slice:":6"}}</a></td>
 <td>{{test.dev_engine}}</td>
-<td>
-    <a href="{{test|workload_url}}">{{test|prettyDevName}}</a>
+{% with label=test|workload_label %}
+<td class="row-name">
+    <a class="row-link" href="{{test|workload_url}}"><span class="row-id">#{{test.id}}</span> <span class="row-title" title="{{label.title}}">{{label.title}}</span></a>
     {% if test.error %} <span class="flag flag-error" title="Crash or illegal move"><span aria-hidden="true">*</span><span class="visually-hidden">(Crash or illegal move)</span></span> {% endif %}
     {% if test|test_is_fischer %} <span class="flag flag-fischer" title="Fischer random chess"><span aria-hidden="true">*</span><span class="visually-hidden">(Fischer random chess)</span></span> {% endif %}
+    {% if label.commits %}<div class="row-meta mono">{{label.commits}}</div>{% endif %}
+    {% with moment=test|listing_moment %}{% if moment %}<div class="row-meta"><time datetime="{{moment.at|date:'c'}}" title="{{moment.at|date:'c'}}">{{moment.verb}} {{moment.ago}}</time></div>{% endif %}{% endwith %}
 </td>
-<td class="textcenter"><a href="{{test|gitDiffLink}}">diff<span class="visually-hidden"> for {{test|prettyDevName}}</span></a></td>
+<td class="textcenter"><a href="{{test|gitDiffLink}}">diff<span class="visually-hidden"> for #{{test.id}}</span></a></td>
 <td>
     {{test.dev_time_control}}
     {% if test|test_is_time_odds %} <span class="flag flag-time-odds" title="Time odds"><span aria-hidden="true">*</span><span class="visually-hidden">(Time odds)</span></span> {% endif %}
@@ -19,4 +22,5 @@
     {% endif %}{% endwith %}{% endif %}
     {% with timing=test|listing_timing %}{% if timing %}{% include "OpenBench/Blocks/row_timing.html" %}{% endif %}{% endwith %}
 </td>
-<td class="test-info"><div>{{test.info}}</div></td>
+<td class="test-info">{% if not label.repeats_info %}<div>{{test.info}}</div>{% endif %}</td>
+{% endwith %}

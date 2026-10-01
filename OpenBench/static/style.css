@@ -1009,8 +1009,59 @@ tr + tr.table-header th {
     background-color: var(--stripe);
 }
 
+.stripes:where(.row-filtered) tr:nth-child(even):not(.table-header, .table-small-header, .table-spacer) > td {
+    background-color: transparent;
+}
+
 .hoverable tr:not(.table-header, .table-small-header, .table-spacer):hover > td {
     background-color: var(--row-hover);
+}
+
+tr[data-row-href] {
+    cursor: pointer;
+}
+
+tr[data-row-href]:not(.table-header):is(:hover, :focus-within) > td {
+    background-color: var(--row-hover);
+}
+
+.row-id {
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+}
+
+.row-title {
+    display: inline-block;
+    max-width: clamp(14ch, 28vw, 44ch);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    vertical-align: bottom;
+}
+
+.row-meta {
+    margin-top: var(--space-1);
+    color: var(--text-muted);
+    font-size: var(--text-xs);
+    line-height: var(--leading-tight);
+}
+
+.row-filter {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    margin-bottom: var(--space-3);
+}
+
+.row-filter > input {
+    flex: 0 1 26rem;
+    min-width: 0;
+}
+
+.row-filter-count {
+    flex: none;
+    min-width: 9ch;
+    font-size: var(--text-sm);
+    font-variant-numeric: tabular-nums;
 }
 
 .numeric {
