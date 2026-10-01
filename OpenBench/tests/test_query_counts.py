@@ -44,7 +44,7 @@ PAGE_QUERIES = {
     '/api/jump/?q=branch': 6,
     '/events/': 7,
     '/errors/': 9,
-    '/errors/?view=list': 7,
+    '/errors/?view=list': 8,
     '/networks/': 5,
     '/api/insights/server/': 11,
     '/machines/': 11,
