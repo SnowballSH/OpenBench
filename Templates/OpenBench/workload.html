@@ -44,9 +44,6 @@
     </header>
 
     <section class="workload-summary" aria-label="Summary">
-        {% if diagnosis %}{% include "OpenBench/Blocks/diagnosis.html" %}{% endif %}
-        <p class="insights-verdict{% if summary.verdict %} insights-verdict-{{summary.verdict.tone}}{% endif %}" data-insights-verdict{% if not summary.verdict %} hidden{% endif %}>{{summary.verdict.text}}</p>
-        <div class="summary-forecast" data-insights-forecast></div>
         <div class="summary-progress">
             <div class="summary-meter" data-summary-meter>{% if summary.meter %}<span class="summary-meter-caption">{{summary.meter.caption}}</span><span class="insight-meter insight-meter-{{summary.meter.kind}}" role="meter" aria-valuemin="0" aria-valuemax="1" aria-valuenow="{{summary.meter.fraction|stringformat:'.3f'}}" aria-valuetext="{{summary.meter.label}}" title="{{summary.meter.label}}" data-fraction="{{summary.meter.fraction|stringformat:'.4f'}}"></span>{% endif %}</div>
             <div class="summary-timing" data-summary-timing>{% if summary.timing %}{% include "OpenBench/Blocks/row_timing.html" with timing=summary.timing %}{% endif %}</div>
@@ -63,6 +60,24 @@
             </div>
         {% endif %}
     </section>
+
+    <div class="workload-side">
+
+    {% if summary.verdict or diagnosis or not workload.finished %}
+    <section class="card status-card" aria-labelledby="status-title">
+        <h2 id="status-title" class="card-title">Status</h2>
+        <div class="status-verdict{% if summary.verdict %} status-verdict-{{summary.verdict.tone}}{% endif %}" data-insights-verdict{% if not summary.verdict %} hidden{% endif %}>
+            <p class="status-label" data-verdict-label>{{summary.verdict.label}}</p>
+            <dl class="status-figures" data-verdict-figures>{% for figure in summary.verdict.figures %}<div><dt>{{figure.label}}</dt><dd>{{figure.value}}</dd></div>{% endfor %}</dl>
+            <details class="status-explain">
+                <summary>Explain</summary>
+                <p data-verdict-text>{{summary.verdict.text}}</p>
+                <div class="status-forecast" data-insights-forecast></div>
+            </details>
+        </div>
+        {% if diagnosis %}{% include "OpenBench/Blocks/diagnosis.html" %}{% endif %}
+    </section>
+    {% endif %}
 
     <section id="actions" class="card workload-actions" aria-labelledby="actions-title">
         <h2 id="actions-title" class="card-title">Actions</h2>
@@ -195,6 +210,8 @@
 
         <p class="visually-hidden" role="status" data-workload-announcer></p>
     </section>
+
+    </div>
 
     <div class="insights workload-evidence" data-insights-evidence>
 

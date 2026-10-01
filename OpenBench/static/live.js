@@ -433,6 +433,14 @@
         }
     }
 
+    function stated(evidence) {
+        return evidence.filter(item => typeof item.text === 'string' && item.text.trim() !== '');
+    }
+
+    function sentence_case(text) {
+        return text.charAt(0).toUpperCase() + text.slice(1);
+    }
+
     function evidence_item(item) {
         const entry = element('li', '', item.text);
         const href = item.link && same_origin_href(item.link.href);
@@ -443,27 +451,18 @@
         return entry;
     }
 
-    function evidence_details(section) {
-        const existing = section.querySelector('.diagnosis-details');
-        if (existing) return existing;
-        const details = element('details', 'diagnosis-details');
-        details.append(element('summary', '', 'Evidence'), element('ul', 'diagnosis-evidence'));
-        section.append(details);
-        return details;
-    }
-
     function render_diagnosis(section, diagnosis) {
         if (!section) return;
         section.hidden = diagnosis === null;
         if (diagnosis === null) return;
 
+        const moved = section.dataset.diagnosisState !== diagnosis.state;
         section.className = `diagnosis diagnosis-${diagnosis.severity}`;
         section.dataset.diagnosisState = diagnosis.state;
-        section.querySelector('.diagnosis-headline').textContent = diagnosis.headline;
-
-        const details = evidence_details(section);
-        details.hidden = diagnosis.evidence.length === 0;
-        details.querySelector('.diagnosis-evidence').replaceChildren(...diagnosis.evidence.map(evidence_item));
+        set_text(section.querySelector('.diagnosis-brief'), sentence_case(diagnosis.brief));
+        set_text(section.querySelector('.diagnosis-headline'), diagnosis.headline);
+        if (moved && diagnosis.urgent) section.querySelector('.diagnosis-details').open = true;
+        section.querySelector('.diagnosis-evidence').replaceChildren(...stated(diagnosis.evidence).map(evidence_item));
     }
 
     class LiveWorkload {

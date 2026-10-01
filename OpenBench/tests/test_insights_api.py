@@ -156,7 +156,8 @@ class InsightsApiTests(TestCase):
         results = self.insights()['insights']['results']
 
         self.assertEqual(set(results), {'verdict', 'outcomes', 'outlook', 'speed', 'consistency'})
-        self.assertEqual(set(results['verdict']), {'kind', 'tone', 'text'})
+        self.assertEqual(set(results['verdict']), {'kind', 'tone', 'text', 'label', 'figures'})
+        self.assertTrue(all(set(figure) == {'label', 'value'} for figure in results['verdict']['figures']))
         self.assertEqual(
             set(results['outcomes']),
             {

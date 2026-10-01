@@ -474,6 +474,7 @@ host can be a broken build, a throttled machine or chance.
 
 #### Verdict
 
+`verdict.label` and `verdict.figures` are the compact form (a headline and its numbers as label and value pairs), built beside the sentence from the same values.
 `verdict.text` is one or two sentences built from fixed templates
 (`verdict.py`), no model involved; `kind` and `tone` classify it.
 
@@ -618,7 +619,14 @@ queries: status 401 or 404 with `{ "error": "..." }`.
       "verdict": {
         "kind": "likely_gain",        // see the Verdict table
         "tone": "positive",           // positive | negative | neutral
-        "text": "Likely a gain: +2.9 ± 4.4 Elo, LOS 90%. Forecast: 68% chance to pass, ..."
+        "text": "Likely a gain: +2.9 ± 4.4 Elo, LOS 90%. Forecast: 68% chance to pass, ...",
+        "label": "Likely a gain",     // the sentence's headline, for a compact display
+        "figures": [                  // the numbers of the sentence, in order; empty when too early
+          { "label": "Elo", "value": "+2.9 ± 4.4" },
+          { "label": "LOS", "value": "90%" },
+          { "label": "Chance to pass", "value": "68%" },
+          { "label": "Games to decide", "value": "~38k (13k–132k)" }
+        ]
       },
       "outcomes": {
         "trinomial_fractions": [0.168, 0.655, 0.177],                 // [L, D, W], or null
@@ -1068,11 +1076,12 @@ section and its nav entry with it:
   render and retries with the delay doubling up to 8 minutes; after three
   consecutive client errors (a 4xx, or an `error` payload such as an unknown
   id) it stops. `eta.reason` picks the wording under an unavailable time left.
-  - Summary, rendered by the server and refreshed from the payload: the
-    verdict line with its tone on the left edge (hidden until a game was
-    played); an "About the forecast" disclosure under it while `outlook` is
-    not null, holding the caveat in plain text, so it does not depend on
-    hovering; for an active Workload a meter (LLR position between the
+  - Status card, rendered by the server and refreshed from the payload: the
+    verdict's `label` and `figures` with its tone on the left edge (hidden
+    until a game was played), and under "Explain" its `text` and, while
+    `outlook` is not null, an "About the forecast" disclosure holding the
+    caveat in plain text, so it does not depend on hovering.
+  - Summary, likewise: for an active Workload a meter (LLR position between the
     bounds, or the fraction of `target_games`) and one line with the time
     left (prefixed with `≈` for an SPRT) and games per hour, worded as on the
     index row.
@@ -1133,9 +1142,10 @@ template filled from evidence, and `unknown` when the evidence is not there.
 |---|---|
 | `state` | One of the states below |
 | `severity` | `ok` (running, finished), `info` (pending, starting, queued, unknown) or `warning` (blocked or stalled) |
-| `headline` | One sentence, for the workload page's banner |
-| `brief` | A few words, for a listing row |
-| `evidence` | `[{ "kind", "text", "link": { "href", "label" } \| null }]`, each a fact the verdict rests on |
+| `headline` | One or two sentences, under "Details" in the workload page's Status card |
+| `brief` | A few words, for a listing row and the Status card's worker line |
+| `evidence` | `[{ "kind", "text", "link": { "href", "label" } \| null }]`, each a fact the verdict rests on; an item without text is dropped when the verdict is assembled, and `live.js` skips one too |
+| `urgent` | `true` for `stopped_by_error`, `failing` and `no_eligible_workers`: the states whose explanation starts open |
 
 States, in the order they are decided:
 
@@ -1242,10 +1252,11 @@ left is forgotten after a quarter of an hour.
 
 ### Where it shows, and what it costs
 
-- **Workload page**: a banner at the top of the summary for every workload that
+- **Workload page**: one line in the Status card for every workload that
   is not finished, and for one stopped by a worker error
-  (`Blocks/diagnosis.html`): quiet with collapsed evidence for
-  `ok` and `info`, amber with the evidence open for `warning`.
+  (`Blocks/diagnosis.html`): the `brief`, with the headline and evidence in a
+  closed "Details" disclosure; amber-edged for `warning`, and open only when
+  `urgent`.
 - **Listings**: an active row whose timing line has no rate shows `brief`
   under it, amber for a warning, with the headline as its tooltip. Rows that
   are producing games are left alone. A finished row stopped by a worker

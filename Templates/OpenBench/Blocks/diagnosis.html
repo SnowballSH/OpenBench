@@ -1,14 +1,8 @@
-<section class="diagnosis diagnosis-{{diagnosis.severity}}" data-diagnosis-state="{{diagnosis.state}}" aria-labelledby="diagnosis-title">
-    <h2 id="diagnosis-title" class="visually-hidden">What this workload is waiting for</h2>
-    <p class="diagnosis-headline">{{diagnosis.headline}}</p>
-    {% if diagnosis.evidence %}
-        <details class="diagnosis-details"{% if not diagnosis.calm %} open{% endif %}>
-            <summary>Evidence</summary>
-            <ul class="diagnosis-evidence">
-                {% for item in diagnosis.evidence %}
-                    <li>{{item.text}}{% if item.link %} <a href="{{item.link.href}}">{{item.link.label}}</a>{% endif %}</li>
-                {% endfor %}
-            </ul>
-        </details>
-    {% endif %}
-</section>
+<div class="diagnosis diagnosis-{{diagnosis.severity}}" data-diagnosis-state="{{diagnosis.state}}">
+    <p class="diagnosis-brief">{{diagnosis.brief|capfirst}}</p>
+    <details class="diagnosis-details"{% if diagnosis.urgent %} open{% endif %}>
+        <summary>Details</summary>
+        <p class="diagnosis-headline">{{diagnosis.headline}}</p>
+        <ul class="diagnosis-evidence">{% for item in diagnosis.evidence %}<li>{{item.text}}{% if item.link %} <a href="{{item.link.href}}">{{item.link.label}}</a>{% endif %}</li>{% endfor %}</ul>
+    </details>
+</div>

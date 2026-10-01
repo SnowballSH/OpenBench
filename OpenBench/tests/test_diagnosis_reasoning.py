@@ -8,6 +8,7 @@ from OpenBench.diagnosis.domain import (
     Activity,
     Diagnosis,
     DiagnosisState,
+    Evidence,
     EvidenceKind,
     Fleet,
     Link,
@@ -17,7 +18,7 @@ from OpenBench.diagnosis.domain import (
 )
 from OpenBench.diagnosis.eligibility import obstacles
 from OpenBench.diagnosis.fleet import group_workers
-from OpenBench.diagnosis.reasoning import diagnose
+from OpenBench.diagnosis.reasoning import diagnose, verdict
 from OpenBench.diagnosis.standing import FleetJudge
 from OpenBench.models import Engine, EngineConfig, LogEvent, Machine, SPSARun, Test
 from OpenBench.tests.fixtures import system_info
@@ -396,3 +397,18 @@ class HeldWorkloadTests(SimpleTestCase):
         activity = Activity(preparing=(Preparing(1, minutes_ago(4)),), errors=(error(1, 'x build failed', 3),))
         found = diagnose(test, fleet([machine(seen=4, holds=10)], [test], frozenset({(10, 1)})), activity, NOW)
         self.assertEqual(found.state, DiagnosisState.FAILING)
+
+
+class VerdictAssemblyTests(SimpleTestCase):
+    def test_evidence_without_text_is_never_reported(self) -> None:
+        stated = Evidence(EvidenceKind.LIMIT, 'A fact.')
+        blanks = [Evidence(EvidenceKind.ELIGIBLE, ''), Evidence(EvidenceKind.ELIGIBLE, ' \n')]
+        found = verdict(DiagnosisState.WAITING, 'Queued.', 'next in line', [blanks[0], stated, blanks[1]])
+        self.assertEqual(found.evidence, [stated])
+
+    def test_only_states_that_need_a_person_are_urgent(self) -> None:
+        urgent = {state for state in DiagnosisState if verdict(state, 'headline', 'brief').urgent}
+        self.assertEqual(
+            urgent,
+            {DiagnosisState.STOPPED_BY_ERROR, DiagnosisState.FAILING, DiagnosisState.NO_ELIGIBLE_WORKERS},
+        )

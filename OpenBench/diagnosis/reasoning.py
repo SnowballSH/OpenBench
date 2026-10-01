@@ -10,6 +10,7 @@ from OpenBench.diagnosis.domain import (
     SHOWN_RIVALS,
     STALL_FACTOR,
     STALL_FLOOR,
+    URGENT_STATES,
     Activity,
     Diagnosis,
     DiagnosisState,
@@ -73,7 +74,8 @@ def event_link(event: LogEvent) -> Link:
 
 
 def verdict(state: DiagnosisState, headline: str, brief: str, evidence: Sequence[Evidence] = ()) -> Diagnosis:
-    return Diagnosis(state, SEVERITY[state], headline, brief, list(evidence))
+    stated = [item for item in evidence if item.text.strip()]
+    return Diagnosis(state, SEVERITY[state], headline, brief, stated, state in URGENT_STATES)
 
 
 def settled_status(workload: Test) -> WorkloadStatus:
