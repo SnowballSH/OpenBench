@@ -2548,3 +2548,160 @@ th[aria-sort="descending"] .sort-button::after {
 .insights-download {
     font-size: var(--text-sm);
 }
+
+/* ==========================================================================
+   Pages: error triage (errors, error event, workload error line)
+   ========================================================================== */
+
+.triage {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+    min-width: 0;
+}
+
+.triage > p {
+    margin: 0;
+}
+
+.triage-controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-3);
+}
+
+.triage-empty {
+    padding: var(--space-5);
+    border: 1px dashed var(--border);
+    border-radius: var(--radius-lg);
+    color: var(--text-muted);
+    text-align: center;
+}
+
+.triage-groups :is(.triage-error, .triage-workload, .triage-hosts) {
+    white-space: normal;
+}
+
+.triage-error {
+    min-width: 16ch;
+}
+
+.triage-workload > a {
+    display: inline-block;
+    min-width: 18ch;
+    max-width: 40ch;
+    overflow-wrap: anywhere;
+}
+
+.triage-hosts {
+    min-width: 14ch;
+}
+
+.triage-summary {
+    max-width: 48ch;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.triage-log,
+.triage-key {
+    min-width: 0;
+}
+
+.triage-log > .card-header {
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-start;
+}
+
+.triage-log-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    margin-left: auto;
+}
+
+.key-lines {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.key-lines > li {
+    display: grid;
+    grid-template-columns: 5ch max-content minmax(0, 1fr);
+    gap: var(--space-2);
+    align-items: baseline;
+}
+
+.key-line-number {
+    text-align: right;
+}
+
+.key-line-text {
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+}
+
+.log {
+    max-height: 70vh;
+    overflow: auto;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius);
+    background-color: var(--surface-2);
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+    line-height: var(--leading-tight);
+}
+
+.log-lines {
+    width: max-content;
+    min-width: 100%;
+}
+
+.log-line {
+    min-height: 1lh;
+    padding: 0 var(--space-3) 0 0;
+    white-space: pre;
+}
+
+.log-line::before {
+    content: attr(data-line);
+    display: inline-block;
+    width: 6ch;
+    margin-right: var(--space-3);
+    padding-right: var(--space-2);
+    border-right: 1px solid var(--border-subtle);
+    color: var(--text-subtle);
+    text-align: right;
+    user-select: none;
+}
+
+.log-line:target,
+.log-line-target {
+    background-color: var(--accent-soft);
+}
+
+.log-fold > summary,
+.log-omitted {
+    margin: 0;
+    padding: var(--space-2) var(--space-3);
+    border-block: 1px solid var(--border-subtle);
+    background-color: var(--surface-3);
+    font-family: var(--font-sans);
+}
+
+.log-fold > summary {
+    position: sticky;
+    left: 0;
+    color: var(--accent);
+    cursor: pointer;
+}
+
+.workload-errors {
+    margin: 0;
+    font-size: var(--text-sm);
+}

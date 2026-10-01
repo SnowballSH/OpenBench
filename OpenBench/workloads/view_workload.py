@@ -36,6 +36,7 @@ from OpenBench.diagnosis.report import diagnose_workload
 from OpenBench.insights.grouping import sum_by_key
 from OpenBench.machine_info import text_of
 from OpenBench.insights.speed import nodes_per_second
+from OpenBench.triage.sources import worker_error_count
 from OpenBench.models import *
 
 def view_workload(request, workload, workload_type):
@@ -47,7 +48,8 @@ def view_workload(request, workload, workload_type):
     # aggregate summary is fetched automatically once the page loads.
 
     data = {
-        'workload' : workload,
+        'workload'      : workload,
+        'worker_errors' : worker_error_count(workload.id),
     }
 
     if workload_type == 'TEST':

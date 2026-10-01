@@ -23,6 +23,7 @@ import OpenBench.compare.views
 import OpenBench.diagnosis.views
 import OpenBench.navigation.views
 import OpenBench.security.robots
+import OpenBench.triage.views
 
 urlpatterns = [
 
@@ -54,9 +55,10 @@ urlpatterns = [
 
     # Links for viewing general information tables
     django.urls.path(r'users/', OpenBench.views.users),
-    django.urls.path(r'event/<id:pk>/', OpenBench.views.event),
-    django.urls.re_path(r'^events(?:/(?P<page>[0-9]{1,10}))?/$', OpenBench.views.events_actions),
-    django.urls.re_path(r'^errors(?:/(?P<page>[0-9]{1,10}))?/$', OpenBench.views.events_errors),
+    django.urls.path(r'event/<id:pk>/', OpenBench.triage.views.event),
+    django.urls.re_path(r'^event/(?P<pk>[0-9]{1,18})/raw/?$', OpenBench.triage.views.event_raw),
+    django.urls.re_path(r'^events(?:/(?P<page>[0-9]{1,10}))?/$', OpenBench.triage.views.events),
+    django.urls.re_path(r'^errors(?:/(?P<page>[0-9]{1,10}))?/$', OpenBench.triage.views.errors),
     django.urls.re_path(r'^machines(?:/(?P<pk>[0-9]{1,18}))?/$', OpenBench.views.machines),
 
     # Links to create, view or manage Workloads (Tests, Tunes, Datagen)
@@ -117,6 +119,8 @@ urlpatterns = [
     django.urls.path(r'api/storage/', OpenBench.storage.views.api_storage),
     django.urls.path(r'api/progress/', OpenBench.progress.views.api_progress),
     django.urls.path(r'api/jump/', OpenBench.navigation.views.api_jump),
+    django.urls.path(r'api/errors/', OpenBench.triage.views.api_errors),
+    django.urls.path(r'api/errors/<id:event_id>/log/', OpenBench.triage.views.api_error_log),
 
     # Liveness and database readiness, for the reverse proxy and deployers
     django.urls.path(r'health/', OpenBench.views.health),

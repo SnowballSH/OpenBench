@@ -40,7 +40,8 @@ PAGE_QUERIES = {
     '/search/?q=branch': 7,
     '/api/jump/?q=branch': 6,
     '/events/': 7,
-    '/errors/': 7,
+    '/errors/': 9,
+    '/errors/?view=list': 7,
     '/networks/': 5,
     '/api/insights/server/': 11,
     '/machines/': 11,
@@ -54,7 +55,7 @@ PAGE_QUERIES = {
 MACHINE_QUERIES = 11
 
 WORKLOAD_QUERIES = {
-    '/test/{}/': 16,
+    '/test/{}/': 17,
     '/api/workload/{}/summary/': 5,
     '/api/workload/{}/results/': 5,
     '/api/workload/{}/insights/': 12,
@@ -138,7 +139,8 @@ class EventWorkloadTests(TestCase):
         content = self.client.get('/events/').content.decode()
 
         self.assertIn(
-            f'<a class="row-link" href="/tune/{test.id}/"><span class="row-id">#{test.id}</span> dev</a>', content
+            f'<a class="row-link" href="/tune/{test.id}/" title="dev"><span class="row-id">#{test.id}</span> dev</a>',
+            content,
         )
         self.assertIn('<td class="mono">N=25000</td>', content)
 
