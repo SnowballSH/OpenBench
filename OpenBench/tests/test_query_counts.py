@@ -37,6 +37,8 @@ PAGE_QUERIES = {
     '/greens/': 6,
     '/search/?keywords=branch': 7,
     '/search/2/?authors=user1+user2': 7,
+    '/search/?q=branch': 7,
+    '/api/jump/?q=branch': 6,
     '/events/': 7,
     '/errors/': 7,
     '/networks/': 5,

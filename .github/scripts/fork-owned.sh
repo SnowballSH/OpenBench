@@ -8,6 +8,7 @@ fork_owned=(
     OpenBench/insights
     OpenBench/listing_rows.py
     OpenBench/machine_info.py
+    OpenBench/navigation
     OpenBench/progress
     OpenBench/security
     OpenBench/storage
