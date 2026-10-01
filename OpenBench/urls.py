@@ -20,6 +20,7 @@
 
 import django.urls, OpenBench.converters, OpenBench.views, OpenBench.insights.views, OpenBench.progress.views, OpenBench.storage.views
 import OpenBench.compare.views
+import OpenBench.security.robots
 
 urlpatterns = [
 
@@ -112,6 +113,9 @@ urlpatterns = [
 
     # Liveness and database readiness, for the reverse proxy and deployers
     django.urls.path(r'health/', OpenBench.views.health),
+
+    # Every page needs a login, so crawlers are asked to stay out
+    django.urls.path(r'robots.txt', OpenBench.security.robots.robots_txt),
 
     # Redirect anything else to the Index
     django.urls.path(r'', OpenBench.views.index),

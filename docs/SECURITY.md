@@ -61,7 +61,7 @@ anonymous `GET` or `HEAD` with a plain redirect to `/login/` before any view
 runs: no database query, and no flash message, so a cookieless request never
 creates a session row. The login page shows no "requires login" banner for
 these redirects. Paths that authenticate by themselves or must stay reachable
-are left to their views: `/login/`, `/register/`, `/logout/`, `/health/`,
+are left to their views: `/login/`, `/register/`, `/logout/`, `/health/`, `/robots.txt` (which asks every crawler to stay out),
 `/static/`, `/admin/` (Django's own login), `/scripts/`, `/api/` and every
 `/client*/` endpoint. Other methods also reach the view, and `render()` still
 refuses anonymous viewers as before.
