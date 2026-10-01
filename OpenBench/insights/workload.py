@@ -7,6 +7,7 @@ from django.utils import timezone
 from OpenBench.insights.contributions import Contributions, ResultRow, summarize_contributions
 from OpenBench.insights.domain import Pentanomial, ProgressPoint, Trinomial, WorkloadFacts, WorkloadMode, WorkloadStatus
 from OpenBench.insights.eta import Eta, timing_and_eta
+from OpenBench.insights.results.analysis import ResultsAnalysis, analyse_results
 from OpenBench.insights.series import SeriesPoint, build_series
 from OpenBench.insights.sources import result_rows, snapshot_points, workload_facts
 from OpenBench.insights.strength import StrengthSummary, summarize_strength
@@ -53,6 +54,7 @@ class WorkloadInsights:
     strength: StrengthSummary | None
     history: History
     contributions: Contributions
+    results: ResultsAnalysis | None
 
 
 def current_point(facts: WorkloadFacts) -> ProgressPoint:
@@ -118,6 +120,7 @@ def build_insights(
 
     timing, eta = timing_and_eta(facts, timeline(facts, snapshots), now)
     elapsed = timing.elapsed_seconds if timing else None
+    strength = summarize_strength(facts.outcomes) if has_elo(facts) else None
 
     return WorkloadInsights(
         generated_at=now,
@@ -127,9 +130,10 @@ def build_insights(
         progress=summarize_progress(facts),
         timing=timing,
         eta=eta,
-        strength=summarize_strength(facts.outcomes) if has_elo(facts) else None,
+        strength=strength,
         history=build_history(facts, snapshots),
         contributions=summarize_contributions(rows, facts.outcomes.use_penta, elapsed),
+        results=analyse_results(facts, strength, rows) if strength else None,
     )
 
 

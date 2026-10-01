@@ -74,5 +74,6 @@ class InsightsPageTests(TestCase):
         test = create_test(self.author)
         content = self.client.get(f'/test/{test.id}/').content.decode()
         self.assertIn('data-workload-insights', content)
+        self.assertIn('data-insights-results', content)
         self.assertIn('vendor/chartjs-4.5.1/chart.umd.min.js', content)
         self.assertIn('summary-container', content)

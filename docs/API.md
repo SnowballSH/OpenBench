@@ -161,7 +161,7 @@ The read endpoints and `POST api/active/` change nothing and do not check CSRF.
 | GET, POST | `/api/workload/<id>/results/` | view | Per-machine results |
 | GET, POST | `/api/workload/<id>/info/` | view | The workload's fields |
 | GET, POST | `/api/workload/<id>/summary/` | view | Results grouped by user, CPU, ISA |
-| GET, POST | `/api/workload/<id>/insights/` | view | Progress, ETA, strength, history, diagnosis |
+| GET, POST | `/api/workload/<id>/insights/` | view | Progress, ETA, strength, history, diagnosis, results analysis |
 | GET, POST | `/api/workload/<id>/history.csv` | view | The insights history as CSV |
 | GET, POST | `/api/workload/<id>/games/` | view | Per-game statistics from the PGN archive |
 | GET, POST | `/api/spsa/<id>/<inputs\|outputs\|digest\|perturbation>/` | view | SPSA tune parameters |
@@ -642,9 +642,11 @@ shows formatted text (`penta`, `elo`, `percent`).
 #### `insights`
 
 Progress, throughput, ETA, strength, history and contributions, all as JSON
-numbers, and `diagnosis`: what the workload is waiting for, as a state, a
+numbers; `diagnosis`: what the workload is waiting for, as a state, a
 headline and the evidence behind it
-([INSIGHTS.md](INSIGHTS.md#workload-diagnosis)). The full schema, including every `eta.kind` and `reason`, is in
+([INSIGHTS.md](INSIGHTS.md#workload-diagnosis)); and `results`: the results
+analysis (verdict, outcome breakdown, SPRT outlook, search speed,
+consistency; [INSIGHTS.md](INSIGHTS.md#results)). The full schema, including every `eta.kind` and `reason`, is in
 [INSIGHTS.md](INSIGHTS.md#api).
 
 ```json
@@ -749,7 +751,8 @@ headline and the evidence behind it
 ```
 
 (`history.points` trimmed from 150 entries to the last, `machines` from 5 and
-`cpus` from 4 to the first; objects reformatted compactly.)
+`cpus` from 4 to the first; objects reformatted compactly. The `results`
+object is left out here; its schema is in [INSIGHTS.md](INSIGHTS.md#api).)
 
 Each `machines` entry is one physical machine: the Machine registrations of a
 host are pooled, `machine_id` is the newest of them that played this workload,
