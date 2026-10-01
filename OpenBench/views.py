@@ -36,6 +36,7 @@ from OpenBench.workloads.modify_workload import modify_workload
 from OpenBench.workloads.verify_workload import verify_workload
 from OpenBench.workloads.view_workload import view_workload, fetch_results, fetch_result_summaries
 from OpenBench.insights.api import workload_payload
+from OpenBench.diagnosis.engine_support import missing_requirements
 from OpenBench.fleet.housekeeping import registration_housekeeping
 from OpenBench.fleet.machine_detail import load_host_detail
 from OpenBench.fleet.machines import load_machines_page
@@ -868,31 +869,9 @@ def client_worker_info(request):
 
 def supported_engines(info):
 
-    supported = []
-    for config in EngineConfig.objects.all():
-
-        build = config.build()
-
-        # Must have all CPU flags, for both Public and Private engines
-        if any([flag not in info['cpu_flags'] for flag in build['cpuflags']]):
-            continue
-
-        # Private engines must have, or think they have, a Git Token
-        if config.private and config.name not in info['tokens'].keys():
-            continue
-
-        # Public engines must have a compiler of a sufficient version
-        if not config.private and config.name not in info['compilers'].keys():
-            continue
-
-        # Must match the Operating Systems supported by the engine
-        if info['os_name'] not in build['systems']:
-            continue
-
-        # All requirements are met, and this Machine can play with the given engine
-        supported.append(config.name)
-
-    return supported
+    # Engines that the Machine meets every build requirement of: the CPU flags,
+    # a Git Token if private or else a compiler, and the Operating System
+    return [config.name for config in EngineConfig.objects.all() if not missing_requirements(config, info)]
 
 @csrf_exempt
 def client_get_network(request, engine, name):

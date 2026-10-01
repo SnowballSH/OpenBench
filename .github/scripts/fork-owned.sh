@@ -4,6 +4,7 @@
 fork_owned=(
     OpenBench/compare
     OpenBench/converters.py
+    OpenBench/diagnosis
     OpenBench/fleet
     OpenBench/insights
     OpenBench/listing_rows.py
