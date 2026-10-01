@@ -104,6 +104,16 @@ class Commit:
 
 
 @dataclass(frozen=True, slots=True)
+class HostCounters:
+    host: str
+    counted_games: int
+    dev_nodes: int
+    dev_ms: int
+    base_nodes: int
+    base_ms: int
+
+
+@dataclass(frozen=True, slots=True)
 class RunRow:
     id: int
     engine: str
@@ -120,6 +130,12 @@ class RunRow:
     finished_at: datetime | None
     games: int
     outcomes: Outcomes
+    dev_threads: int = 1
+    base_threads: int = 1
+    started_at: datetime | None = None
+    dev_bench: int = 0
+    base_bench: int = 0
+    hosts: tuple[HostCounters, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -132,6 +148,43 @@ class Run:
     finished_at: datetime | None
     games: int
     elo: EloInterval | None
+    started_at: datetime | None = None
+    counted_games: int = 0
+    core_hours: float | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class SpeedRatio:
+    ratio: float
+    lower: float | None
+    upper: float | None
+    hosts: int
+    games: int
+
+
+@dataclass(frozen=True, slots=True)
+class ClassSpeed:
+    time_class: TimeClass
+    speed: SpeedRatio
+
+
+@dataclass(frozen=True, slots=True)
+class StepSpeed:
+    pooled: SpeedRatio
+    classes: list[ClassSpeed]
+    classes_differ: bool
+
+
+@dataclass(frozen=True, slots=True)
+class StepCost:
+    runs: int
+    games: int
+    decision_seconds: float | None
+    core_hours: float | None
+    counted_games: int
+
+
+NO_COST = StepCost(0, 0, None, None, 0)
 
 
 @dataclass(frozen=True, slots=True)
@@ -157,6 +210,10 @@ class Step:
     last_tested_at: datetime
     measured_at: datetime
     measurements: list[Measurement]
+    base_bench: int | None = None
+    dev_bench: int | None = None
+    speed: StepSpeed | None = None
+    cost: StepCost = NO_COST
 
     def measurement(self, time_class: TimeClass) -> Measurement | None:
         return next((found for found in self.measurements if found.time_class == time_class), None)
@@ -249,6 +306,87 @@ class LineageReport:
     detached: list[Step]
     detached_omitted: int
     others: list[OtherLineage]
+
+
+@dataclass(frozen=True, slots=True)
+class RatioInterval:
+    ratio: float
+    lower: float | None
+    upper: float | None
+
+
+@dataclass(frozen=True, slots=True)
+class SpeedPoint:
+    index: int
+    step: SpeedRatio | None
+    cumulative: RatioInterval | None
+
+
+@dataclass(frozen=True, slots=True)
+class SpeedSeries:
+    points: list[SpeedPoint]
+    total: RatioInterval | None
+    measured: int
+    unbounded: int
+    steps: int
+
+
+@dataclass(frozen=True, slots=True)
+class CostBucket:
+    steps: int
+    runs: int
+    games: int
+    core_hours: float
+    counted_games: int
+    estimated_core_hours: float | None
+    games_share: float | None
+    core_share: float | None
+
+
+@dataclass(frozen=True, slots=True)
+class ClassEconomics:
+    time_class: TimeClass
+    passed: int
+    failed: int
+    pass_rate: float | None
+    median_games_to_pass: float | None
+    median_games_to_fail: float | None
+    games: int
+    finished_games: int
+    core_hours: float
+    chained_elo: EloInterval | None
+    games_per_elo: float | None
+
+
+@dataclass(frozen=True, slots=True)
+class WeeklySteps:
+    week_start: date
+    steps: int
+
+
+@dataclass(frozen=True, slots=True)
+class Cadence:
+    weekly: list[WeeklySteps]
+    joined: int
+    span_days: int
+    steps_per_week: float | None
+    acceptance_samples: int
+    median_acceptance_seconds: float | None
+    mean_acceptance_seconds: float | None
+    confirmation_samples: int
+    median_confirmation_seconds: float | None
+
+
+@dataclass(frozen=True, slots=True)
+class Economics:
+    trunk: CostBucket
+    failed: CostBucket
+    other: CostBucket
+    counter_coverage: float | None
+    core_hours_estimated: bool
+    classes: list[ClassEconomics]
+    speed: SpeedSeries
+    cadence: Cadence
 
 
 @dataclass(frozen=True, slots=True)
@@ -345,6 +483,7 @@ class ProgressReport:
     end: date
     summary: Summary
     lineage: LineageReport | None
+    economics: Economics | None
     lineage_engines: list[str]
     weekly_outcomes: list[WeeklyOutcomes]
     daily_games: list[DailyGames]
