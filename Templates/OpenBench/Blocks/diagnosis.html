@@ -1,6 +1,6 @@
-<div class="diagnosis diagnosis-{{diagnosis.severity}}" data-diagnosis-state="{{diagnosis.state}}">
+<div class="diagnosis diagnosis-{{diagnosis.severity}}" data-diagnosis-state="{{diagnosis.state}}"{% if not diagnosis.urgent %} hidden{% endif %}>
     <p class="diagnosis-brief">{{diagnosis.brief|capfirst}}</p>
-    <details class="diagnosis-details"{% if diagnosis.urgent %} open{% endif %}>
+    <details class="diagnosis-details" open>
         <summary>Details</summary>
         <p class="diagnosis-headline">{{diagnosis.headline}}</p>
         <ul class="diagnosis-evidence">{% for item in diagnosis.evidence %}<li>{{item.text}}{% if item.link %} <a href="{{item.link.href}}">{{item.link.label}}</a>{% endif %}</li>{% endfor %}</ul>

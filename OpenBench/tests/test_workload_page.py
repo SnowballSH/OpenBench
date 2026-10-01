@@ -56,8 +56,6 @@ SCRIPT_HOOKS = (
     'data-insights-announcer',
     'data-insights-verdict',
     'data-insights-forecast',
-    'data-verdict-label',
-    'data-verdict-figures',
     'data-verdict-text',
     'data-summary-meter',
     'data-summary-timing',
@@ -437,43 +435,32 @@ class RenderedWorkloadPageTests(WorkloadPageCase):
         self.assertIn('<li>SPRT [0, 3]</li>', content)
         self.assertIn('<p class="workload-details">avl:6b10ec947ac0</p>', content)
 
-    def test_the_verdict_is_rendered_once_by_the_server(self) -> None:
+    def test_the_verdict_is_rendered_once_in_the_results_section(self) -> None:
         content = self.html(create_test(self.author, finished=True, passed=True, **PLAYED))
         self.assertEqual(content.count('data-insights-verdict'), 1)
-        self.assertIn('class="status-verdict status-verdict-positive" data-insights-verdict>', content)
-        self.assertIn('<p class="status-label" data-verdict-label>Passed</p>', content)
-        self.assertIn('<p data-verdict-text>Passed: after', content)
+        results = content.split('id="results"', 1)[1].split('</section>', 1)[0]
+        self.assertIn('class="results-verdict results-verdict-positive" data-insights-verdict>', results)
+        self.assertIn('<p data-verdict-text>Passed: after', results)
+        self.assertIn('<div class="results-forecast" data-insights-forecast></div>', results)
 
-    def test_the_status_card_states_the_verdict_in_figures_not_a_sentence(self) -> None:
-        content = self.html(create_test(self.author, **PLAYED))
-        card = content.split('class="card status-card"', 1)[1].split('</section>', 1)[0]
-        visible = card.split('<details class="status-explain">', 1)[0]
-        self.assertIn('<p class="status-label" data-verdict-label>Likely a gain</p>', visible)
-        self.assertEqual(re.findall(r'<dt>([^<]+)</dt>', visible), ['Elo', 'LOS'])
-        self.assertNotIn('Likely a gain:', visible)
-        self.assertIn('<div class="status-forecast" data-insights-forecast></div>', card)
-
-    def test_the_worker_status_is_one_line_with_its_explanation_folded(self) -> None:
-        content = self.html(create_test(self.author, **PLAYED))
-        card = content.split('class="card status-card"', 1)[1].split('</section>', 1)[0]
-        self.assertRegex(card, r'<p class="diagnosis-brief">[A-Z][^<]{3,60}</p>')
-        self.assertIn('<details class="diagnosis-details">', card)
-        self.assertNotRegex(content, r'<li>\s*</li>')
-
-    def test_the_summary_holds_numbers_only_and_the_cards_sit_beside_it(self) -> None:
+    def test_the_top_holds_numbers_and_actions_without_a_status_card(self) -> None:
         content = self.html(create_test(self.author, **PLAYED))
         summary = content.split('class="workload-summary"', 1)[1].split('</section>', 1)[0]
-        self.assertNotIn('diagnosis', summary)
         self.assertNotIn('verdict', summary)
-        side = content.split('<div class="workload-side">', 1)[1]
-        self.assertLess(side.index('id="status-title"'), side.index('id="actions"'))
+        self.assertNotIn('status-card', content)
+        self.assertNotIn('workload-side', content)
+        self.assertLess(content.index('id="long-statblock"'), content.index('id="actions"'))
+        self.assertLess(content.index('id="actions"'), content.index('id="results"'))
 
-    def test_a_settled_workload_with_nothing_to_judge_has_no_status_card(self) -> None:
-        self.assertNotIn('status-card', self.html(create_test(self.author, finished=True)))
-        self.assertIn('status-card', self.html(create_test(self.author, approved=False)))
+    def test_a_diagnosis_that_is_not_urgent_stays_hidden(self) -> None:
+        idle = self.html(create_test(self.author, **PLAYED))
+        self.assertIn('data-diagnosis-state="no_workers" hidden>', idle)
+        pending = self.html(create_test(self.author, approved=False))
+        self.assertIn('data-diagnosis-state="awaiting_approval" hidden>', pending)
+        self.assertNotRegex(idle + pending, r'<li>\s*</li>')
 
     def test_no_verdict_is_shown_before_games(self) -> None:
-        self.assertIn('class="status-verdict" data-insights-verdict hidden>', self.html(create_test(self.author)))
+        self.assertIn('class="results-verdict" data-insights-verdict hidden>', self.html(create_test(self.author)))
 
     def test_a_running_workload_shows_its_meter_and_time_left(self) -> None:
         test = create_test(self.author, **PLAYED)
