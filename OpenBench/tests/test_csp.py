@@ -231,6 +231,7 @@ class RenderedPageTests(TestCase):
             a_ratio=0.1,
         )
         self.datagen = create_test(user, test_mode='DATAGEN')
+        self.uploading = create_test(user, upload_pgns='COMPACT')
         self.machine = Machine.objects.create(user=user, info={**system_info(), 'supported': ['Avalanche']})
         Network.objects.create(sha256='ABCDEF01', name='r1', engine='Avalanche', author='admin')
 
@@ -245,6 +246,7 @@ class RenderedPageTests(TestCase):
             '/greens/',
             '/search/?go=1&keywords=x',
             f'/test/{self.test.id}/',
+            f'/test/{self.uploading.id}/',
             f'/tune/{self.tune.id}/',
             f'/datagen/{self.datagen.id}/',
             '/test/new/',
