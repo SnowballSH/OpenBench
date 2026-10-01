@@ -2232,11 +2232,6 @@ td.games-opening {
     font-weight: 400;
 }
 
-.status-card .diagnosis-evidence {
-    max-height: 8rem;
-    overflow-y: auto;
-}
-
 .status-card .diagnosis-evidence:empty {
     display: none;
 }

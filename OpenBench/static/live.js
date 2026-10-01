@@ -461,7 +461,7 @@
         section.dataset.diagnosisState = diagnosis.state;
         set_text(section.querySelector('.diagnosis-brief'), sentence_case(diagnosis.brief));
         set_text(section.querySelector('.diagnosis-headline'), diagnosis.headline);
-        if (moved) section.querySelector('.diagnosis-details').open = diagnosis.urgent;
+        if (moved && diagnosis.urgent) section.querySelector('.diagnosis-details').open = true;
         section.querySelector('.diagnosis-evidence').replaceChildren(...stated(diagnosis.evidence).map(evidence_item));
     }
 

@@ -330,10 +330,10 @@ raw summary.
      diagnosis' `brief` ("Next in line for a worker", "Running on 3
      workers"). Each has a closed `<details>`: "Explain" holds the verdict
      sentence and "About the forecast"; "Details" holds the diagnosis
-     headline and its evidence, in a list that scrolls beyond a few lines. Only
+     headline and its evidence, shown in full. Only
      a diagnosis marked `urgent` (stopped by a worker error, failing, no
-     capable worker) starts open; other warnings keep their amber edge and
-     stay closed. A healthy workload's card is five or six short lines. A
+     capable worker) starts open, and a change to an urgent state opens it;
+     other warnings keep their amber edge and stay as the viewer left them. A healthy workload's card is five or six short lines. A
      settled workload with no verdict and no diagnosis (a stopped test without
      games, a finished tune) has no card.
    - **Actions** (`#actions`): Approve, Restart or Restore, Confirm at LTC or

@@ -3,10 +3,6 @@
     <details class="diagnosis-details"{% if diagnosis.urgent %} open{% endif %}>
         <summary>Details</summary>
         <p class="diagnosis-headline">{{diagnosis.headline}}</p>
-        <ul class="diagnosis-evidence">
-            {% for item in diagnosis.evidence %}
-                <li>{{item.text}}{% if item.link %} <a href="{{item.link.href}}">{{item.link.label}}</a>{% endif %}</li>
-            {% endfor %}
-        </ul>
+        <ul class="diagnosis-evidence">{% for item in diagnosis.evidence %}<li>{{item.text}}{% if item.link %} <a href="{{item.link.href}}">{{item.link.label}}</a>{% endif %}</li>{% endfor %}</ul>
     </details>
 </div>
