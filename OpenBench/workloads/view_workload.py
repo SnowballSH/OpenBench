@@ -30,6 +30,7 @@ import datetime
 from django.db.models import BooleanField, ExpressionWrapper, F, Q
 from django.utils import timezone
 
+import OpenBench.page_queries
 import OpenBench.views
 import OpenBench.stats
 from OpenBench.diagnosis.report import diagnose_workload
@@ -37,6 +38,7 @@ from OpenBench.insights.grouping import sum_by_key
 from OpenBench.machine_info import text_of
 from OpenBench.insights.speed import nodes_per_second
 from OpenBench.models import *
+from OpenBench.workloads.confirmation import confirmation_for
 
 def view_workload(request, workload, workload_type):
 
@@ -65,6 +67,9 @@ def view_workload(request, workload, workload_type):
     # What an unfinished Workload is waiting for, or the Worker error that stopped it; see docs/INSIGHTS.md
     if (diagnosis := diagnose_workload(workload)).shown:
         data['diagnosis'] = diagnosis
+
+    # A passed STC test offers its LTC confirmation as a prefilled create form; see docs/WORKLOADS.md
+    data['confirmation'] = confirmation_for(workload, OpenBench.page_queries.request_profile(request))
 
     return OpenBench.views.render(request, 'workload.html', data)
 

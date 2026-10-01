@@ -434,7 +434,11 @@ def credit_profiles(users: Iterable[User]) -> None:
 
 def create_engine_config() -> None:
     presets: dict[str, dict[str, dict[str, Any]]] = {
-        'test_presets': {'default': {}},
+        'test_presets': {
+            'default': {'book_name': BOOK_NAME, 'test_bounds': '[0.00, 3.00]', 'test_confidence': '[0.05, 0.05]'},
+            'STC': {'both_options': 'Threads=1 Hash=16', 'both_time_control': STC},
+            'LTC': {'both_options': f'Threads=1 Hash={LTC_HASH_MB}', 'both_time_control': LTC},
+        },
         'tune_presets': {'default': {}},
         'datagen_presets': {'default': {}},
     }

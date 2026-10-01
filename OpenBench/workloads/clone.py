@@ -5,8 +5,9 @@ from typing import Literal
 
 from django.core.exceptions import ObjectDoesNotExist
 
-from OpenBench.models import Engine, SPSARun, Test
+from OpenBench.models import Engine, EngineConfig, SPSARun, Test
 from OpenBench.spsa_utils import spsa_original_input
+from OpenBench.workloads.presets import run_settings, test_preset
 
 type WorkloadType = Literal['TEST', 'TUNE', 'DATAGEN']
 type Side = Literal['dev', 'base']
@@ -69,6 +70,7 @@ FORM_FIELDS: dict[WorkloadType, tuple[str, ...]] = {
 NOT_APPLICABLE = 'N/A'
 
 MAX_WORKLOAD_ID = 2**31 - 1
+MAX_PRESET_NAME_LENGTH = 64
 
 
 class CloneError(Exception):
@@ -82,6 +84,7 @@ class CloneSource:
     url: str
     fields: FormFields
     bench_hints: FormFields
+    preset: str | None = None
 
 
 def workload_type_of(workload: Test) -> WorkloadType:
@@ -263,7 +266,26 @@ def parse_workload_id(raw_id: str) -> int | None:
     return workload_id if 1 <= workload_id <= MAX_WORKLOAD_ID else None
 
 
-def load_clone_source(raw_id: str, workload_type: WorkloadType) -> CloneSource:
+def preset_fields(workload: Test, preset_name: str) -> FormFields:
+
+    if workload_type_of(workload) != 'TEST':
+        raise CloneError('Nothing was cloned: only a test can be cloned with a preset')
+
+    config = EngineConfig.objects.filter(name=workload.dev_engine).first()
+    preset = test_preset(config, preset_name) if config and len(preset_name) <= MAX_PRESET_NAME_LENGTH else None
+    if preset is None:
+        raise CloneError(f'Nothing was cloned: {workload.dev_engine} has no test preset with that name')
+
+    # The clone keeps its own test mode, so a preset moves the bounds of an SPRT or the length of a fixed run
+    unused = {name for name, value in test_mode_fields(workload).items() if value == NOT_APPLICABLE}
+    return {
+        name: value
+        for name, value in run_settings(preset).items()
+        if name in FORM_FIELDS['TEST'] and name not in unused
+    }
+
+
+def load_clone_source(raw_id: str, workload_type: WorkloadType, preset_name: str | None = None) -> CloneSource:
     if (workload_id := parse_workload_id(raw_id)) is None:
         raise CloneError('Nothing was cloned: the clone parameter is not a workload id')
 
@@ -281,7 +303,15 @@ def load_clone_source(raw_id: str, workload_type: WorkloadType) -> CloneSource:
     except ObjectDoesNotExist as error:
         raise CloneError(f'Nothing was cloned: workload #{workload.id} is incomplete') from error
 
+    if preset_name:
+        fields |= preset_fields(workload, preset_name)
+
     url = f'/{workload.workload_type_str()}/{workload.id}/'
     return CloneSource(
-        id=workload.id, name=workload.dev.name, url=url, fields=fields, bench_hints=bench_hints(workload)
+        id=workload.id,
+        name=workload.dev.name,
+        url=url,
+        fields=fields,
+        bench_hints=bench_hints(workload),
+        preset=preset_name or None,
     )
