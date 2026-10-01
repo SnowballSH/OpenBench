@@ -137,6 +137,30 @@ Machine info (the fleet, `/api/insights/server/`, a workload's insights and
 summary) also coerce each field as they read it, so a Machine stored before
 this check cannot break them.
 
+### Worker logs
+
+A build log or PGN uploaded with `clientSubmitError`, and the error summary
+itself, are text chosen by whoever runs a worker. The error pages
+(`OpenBench/triage/`) treat them as hostile:
+
+- **One file per event.** The log of event `<id>` is read from
+  `MEDIA_ROOT/event<id>.log` and nowhere else. The name is rebuilt from the
+  id; the `log_file` column is only compared with it, so a row that names
+  another file, a path or a traversal has no log. A symlink at that name is
+  refused. Operator events (no Machine) never have a log page.
+- **Bounded reads.** The page reads at most 2 MiB of a log and says when it
+  cut it; it renders at most 5,240 lines. `/event/<id>/raw` streams the file
+  without loading it.
+- **Text only.** Everything is escaped by the template; nothing in a log
+  becomes a link. ANSI colour sequences are removed, and control characters
+  and bidirectional overrides are replaced with U+FFFD, so a log cannot
+  reorder or hide what a reader sees. `triage.js` reads `textContent` to copy
+  and never writes markup.
+- **Download.** The raw log is served as
+  `text/plain; charset=utf-8` with `Content-Disposition: attachment` and
+  `X-Content-Type-Options: nosniff`, so a browser saves it and never renders
+  it. Like every page, it needs a login when `require_login_to_view` is set.
+
 ## Input bounds
 
 - `/search/` takes at most 20 space-separated `keywords` and 20 `authors`.
