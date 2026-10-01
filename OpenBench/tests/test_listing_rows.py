@@ -232,6 +232,7 @@ class RenderedRowTests(TestCase):
             '/errors/': '/test/',
             '/errors/?view=list': '/test/',
             '/progress/?window=all': '/',
+            '/digest/?since=7d': '/test/',
         }
         for url, prefix in pages.items():
             with self.subTest(url=url):

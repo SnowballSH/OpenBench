@@ -3,6 +3,7 @@ import re
 from typing import Any, ClassVar
 from unittest import mock
 
+from django.core.cache import cache
 from django.test import TestCase
 from django.utils import timezone
 
@@ -73,6 +74,12 @@ LIVE_POLLS = {
     '/api/live/workload/{}/?': (10, 4),
 }
 
+DIGEST_QUERIES = {
+    '/digest/': 24,
+    '/digest/?since=7d': 24,
+    '/api/digest/?since=3d': 23,
+}
+
 
 class QueryBudgetTests(TestCase):
     # The same budgets hold for every size, so no page costs a query per row
@@ -115,6 +122,11 @@ class QueryBudgetTests(TestCase):
     def test_compare_page(self) -> None:
         other = next(test for test in self.data.tests if test.test_mode == 'SPRT' and test != self.data.workload)
         self.assert_page_queries(f'/compare/?a={self.data.workload.id}&b={other.id}', COMPARE_QUERIES)
+
+    def test_digest(self) -> None:
+        for url, queries in DIGEST_QUERIES.items():
+            cache.clear()
+            self.assert_page_queries(url, queries)
 
 
 class LargerQueryBudgetTests(QueryBudgetTests):

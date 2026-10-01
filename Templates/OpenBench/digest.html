@@ -1,0 +1,331 @@
+{% extends "OpenBench/base.html" %}
+
+{% load static %}
+{% load mytags %}
+
+{% block title %}Digest · OpenBench{% endblock %}
+
+{% block page_heading %}{% endblock %}
+
+{% block scripts %}
+    <script src="{% static 'vendor/chartjs-4.5.1/chart.umd.min.js' %}" defer></script>
+    <script src="{% static 'digest.js' %}?{{ static_version }}" defer></script>
+{% endblock %}
+
+{% block content %}
+
+    <div class="progress-page digest-page" data-digest data-digest-generated="{{page.generated_at|date:'c'}}">
+
+        <header class="progress-heading">
+            <div class="progress-heading-text">
+                <h1>Digest</h1>
+                <p class="muted">
+                    <time datetime="{{page.window.since|date:'c'}}">{{page.window.since|date:"M j, H:i"}}</time> to
+                    <time datetime="{{page.window.until|date:'c'}}">{{page.window.until|date:"M j, H:i"}}</time> UTC{% if page.window.clamped %}; a digest reaches back 30 days at most{% endif %}
+                </p>
+            </div>
+
+            <nav class="fleet-filter" aria-label="Time window">
+                {% for option in page.options %}
+                    <a href="{{option.url}}" class="fleet-filter-option"{% if option.current %} aria-current="true"{% endif %}>{{option.label}}</a>
+                {% endfor %}
+                <a href="/digest/" class="fleet-filter-option" data-digest-last-visit hidden>Since my last visit</a>
+            </nav>
+        </header>
+
+        <section class="card digest-headline" aria-label="Summary">
+            {% for sentence in page.headline %}
+                <p>{{sentence}}</p>
+            {% endfor %}
+        </section>
+
+        <section class="stat-tiles" aria-label="Window summary">
+            {% for tile in page.tiles %}
+                <div class="stat-tile{% if tile.tone %} stat-tile-{{tile.tone}}{% endif %}">
+                    <span class="stat-label">{{tile.label}}</span>
+                    <span class="stat-value">{{tile.value}}</span>
+                    <span class="stat-meta">{{tile.meta}}</span>
+                </div>
+            {% endfor %}
+        </section>
+
+        <section class="card progress-section" aria-labelledby="digest-finished-title">
+            <div class="card-header">
+                <h2 id="digest-finished-title" class="card-title">Finished</h2>
+                <span class="muted">Newest first, by the time of the last recorded report{% if page.finished_omitted %}; {{page.finished_omitted}} older ones are not listed{% endif %}</span>
+            </div>
+            {% if page.finished %}
+                <div class="table-wrap w-100">
+                    <table class="hoverable w-100 digest-table">
+                        <caption class="visually-hidden">Workloads that finished in the window</caption>
+                        <thead>
+                            <tr class="table-header">
+                                <th scope="col">Workload</th>
+                                <th scope="col">Class</th>
+                                <th scope="col">Verdict</th>
+                                <th scope="col">Elo (95%)</th>
+                                <th scope="col" class="numeric">Games</th>
+                                <th scope="col">Took</th>
+                                <th scope="col">Finished</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for line in page.finished %}
+                                <tr data-row-href="{{line.workload.url}}">
+                                    <td class="digest-workload">
+                                        <a class="row-link" href="{{line.workload.url}}" title="{{line.workload.title}}"><span class="row-id">#{{line.workload.id}}</span> {{line.workload.title}}</a>
+                                        {% if line.workload.commits %}<div class="row-meta mono">{{line.workload.commits}}</div>{% endif %}
+                                    </td>
+                                    <td>{{line.time_class}}<div class="row-meta mono">{{line.workload.time_control}}</div></td>
+                                    <td>
+                                        <span class="badge{% if line.tone %} badge-{{line.tone}}{% endif %}">{{line.verdict}}</span>
+                                        {% if line.stop_reason %}<div class="row-meta">{{line.stop_reason}}</div>{% endif %}
+                                    </td>
+                                    <td class="mono">{{line.elo}}</td>
+                                    <td class="numeric">{{line.games}}</td>
+                                    <td>{{line.took}}</td>
+                                    <td><time datetime="{{line.finished_at|date:'c'}}" title="{{line.finished_at|date:'c'}}">{{line.ago}}</time></td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% else %}
+                <p class="insights-empty">Nothing finished in {{page.span}}.</p>
+            {% endif %}
+        </section>
+
+        <section class="card progress-section" aria-labelledby="digest-running-title">
+            <div class="card-header">
+                <h2 id="digest-running-title" class="card-title">Started and still running</h2>
+                <span class="muted">Every unfinished workload, newest first; “new” marks one that started in the window{% if page.running_omitted %}; {{page.running_omitted}} older ones are not listed{% endif %}</span>
+            </div>
+            {% if page.running %}
+                <div class="table-wrap w-100">
+                    <table class="hoverable w-100 digest-table">
+                        <caption class="visually-hidden">Workloads that have not finished</caption>
+                        <thead>
+                            <tr class="table-header">
+                                <th scope="col">Workload</th>
+                                <th scope="col">Class</th>
+                                <th scope="col">Status</th>
+                                <th scope="col">LLR</th>
+                                <th scope="col">Elo (95%)</th>
+                                <th scope="col" class="numeric">Games</th>
+                                <th scope="col">Time left</th>
+                                <th scope="col">Started</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for line in page.running %}
+                                <tr data-row-href="{{line.workload.url}}">
+                                    <td class="digest-workload">
+                                        <a class="row-link" href="{{line.workload.url}}" title="{{line.workload.title}}"><span class="row-id">#{{line.workload.id}}</span> {{line.workload.title}}</a>
+                                        {% if line.new %} <span class="badge badge-accent">new</span>{% endif %}
+                                        {% if line.workload.commits %}<div class="row-meta mono">{{line.workload.commits}}</div>{% endif %}
+                                    </td>
+                                    <td>{{line.time_class}}<div class="row-meta mono">{{line.workload.time_control}}</div></td>
+                                    <td class="digest-state"><span class="row-reason row-reason-{{line.severity}}" title="{{line.state_detail}}">{{line.state}}</span></td>
+                                    <td class="digest-llr">
+                                        {% if line.llr %}
+                                            <span class="mono">{{line.llr.value}}</span>
+                                            <div class="row-progress row-progress-llr" role="meter" aria-valuemin="0" aria-valuemax="1" aria-valuenow="{{line.llr.fraction|stringformat:'.3f'}}" aria-valuetext="{{line.llr.label}}" title="{{line.llr.label}}" data-fraction="{{line.llr.fraction|stringformat:'.4f'}}"></div>
+                                        {% else %}
+                                            <span class="muted">—</span>
+                                        {% endif %}
+                                    </td>
+                                    <td class="mono">{{line.elo}}</td>
+                                    <td class="numeric">{{line.games}}</td>
+                                    <td>{% if line.estimate %}<span aria-hidden="true">&asymp; </span><span class="visually-hidden">estimated </span>{% endif %}{{line.time_left}}{% if line.rate %}<div class="row-meta">{{line.rate}}</div>{% endif %}</td>
+                                    <td><time datetime="{{line.started_at|date:'c'}}" title="{{line.started_at|date:'c'}}">{{line.ago}}</time></td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% else %}
+                <p class="insights-empty">Nothing is running or waiting for approval.</p>
+            {% endif %}
+        </section>
+
+        <section class="card progress-section" aria-labelledby="digest-trunk-title">
+            <div class="card-header">
+                <h2 id="digest-trunk-title" class="card-title">Trunk movement</h2>
+                <span class="muted">Trunk steps whose pooled measurement finished in the window, chained as on the progress page; a provisional step is still running and adds nothing</span>
+            </div>
+            {% for block in page.trunk %}
+                {% for found in block.classes %}
+                    <h3 class="progress-subheading" id="{{found.id}}"><a href="{{block.url}}">{{block.engine}}</a> · {{found.label}}</h3>
+                    <p class="muted progress-note">{{found.summary}}{% if found.omitted %} {{found.omitted}} older steps are not listed.{% endif %}</p>
+                    <div class="table-wrap w-100">
+                        <table class="hoverable w-100 digest-table" aria-labelledby="{{found.id}}">
+                            <thead>
+                                <tr class="table-header">
+                                    <th scope="col" class="numeric">Step</th>
+                                    <th scope="col">Base → dev</th>
+                                    <th scope="col">Elo (95%)</th>
+                                    <th scope="col">Verdict</th>
+                                    <th scope="col">Measured</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for line in found.lines %}
+                                    <tr{% if line.row_url %} data-row-href="{{line.row_url}}"{% endif %}>
+                                        <td class="numeric">{{line.position}}</td>
+                                        <td class="digest-workload">
+                                            <span class="mono">{% if line.base.url %}<a href="{{line.base.url}}">{{line.base.label}}</a>{% else %}{{line.base.label}}{% endif %} → {% if line.dev.url %}<a href="{{line.dev.url}}">{{line.dev.label}}</a>{% else %}{{line.dev.label}}{% endif %}</span>
+                                            {% if line.subject %}<div class="row-meta">{{line.subject}}</div>{% endif %}
+                                        </td>
+                                        <td><span class="mono{% if line.provisional %} lineage-provisional{% endif %}">{{line.elo}}</span>{% if line.provisional %} <span class="muted">provisional</span>{% endif %}{% if line.remeasured %} <span class="badge">re-measured</span>{% endif %}<div class="row-meta">{{line.games}} ·{% for run in line.runs %} <a{% if run.primary %} class="row-link"{% endif %} href="{{run.url}}"><span class="visually-hidden">Workload </span>{{run.label}}</a>{% endfor %}</div></td>
+                                        <td><span class="badge{% if line.tone %} badge-{{line.tone}}{% endif %}">{{line.verdict}}</span></td>
+                                        <td>{% if line.measured_at %}<time datetime="{{line.measured_at|date:'c'}}" title="{{line.measured_at|date:'c'}}">{{line.ago}}</time>{% else %}<span class="muted">running</span>{% endif %}</td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% endfor %}
+            {% empty %}
+                <p class="insights-empty">No trunk step was measured in {{page.span}}.</p>
+            {% endfor %}
+        </section>
+
+        <section class="card progress-section" aria-labelledby="digest-fleet-title">
+            <div class="card-header">
+                <h2 id="digest-fleet-title" class="card-title">Fleet</h2>
+                <span class="muted">Games from workload history; hosts and pools from results reported in the window</span>
+            </div>
+
+            <figure class="chart-card digest-chart">
+                <figcaption class="chart-caption">
+                    <span class="card-title">Games per hour</span>
+                    <span class="chart-subtitle" id="digest-games-description">Games reported in each {{page.fleet.bucket}} of the window, as an hourly rate, stacked by time-control class. Games a workload played before its history began count in the hour of its first recorded report. Tunes, datagen, tests between two engines and deleted workloads count as Other.</span>
+                </figcaption>
+                {% if page.fleet.played %}
+                    <p class="chart-legend">
+                        {% for key in page.fleet.series %}
+                            <span class="chart-legend-item"><span class="chart-legend-swatch digest-series-{{key.name}}"></span><span>{{key.label}}</span></span>
+                        {% endfor %}
+                    </p>
+                    <div class="chart-box" data-digest-chart>
+                        <canvas role="img" aria-label="Games per hour chart" aria-describedby="digest-games-description" aria-details="digest-games-table"></canvas>
+                    </div>
+                    <p class="chart-empty" hidden></p>
+                    <details class="progress-data-table">
+                        <summary>Data table</summary>
+                        <div class="table-wrap w-100">
+                            <table class="stripes w-100" id="digest-games-table">
+                                <caption class="visually-hidden">Games reported in each {{page.fleet.bucket}}, by time-control class; periods without games are left out</caption>
+                                <thead>
+                                    <tr class="table-header">
+                                        <th scope="col">From (UTC)</th>
+                                        {% for key in page.fleet.series %}
+                                            <th scope="col" class="numeric">{{key.label}}</th>
+                                        {% endfor %}
+                                        <th scope="col" class="numeric">Per hour</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for line in page.fleet.lines %}
+                                        <tr>
+                                            <td><time datetime="{{line.start|date:'c'}}">{{line.start|date:"M j, H:i"}}</time></td>
+                                            {% for games in line.games %}
+                                                <td class="numeric">{{games}}</td>
+                                            {% endfor %}
+                                            <td class="numeric">{{line.per_hour}}</td>
+                                        </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </details>
+                {% else %}
+                    <p class="chart-empty">No games were recorded in {{page.span}}.</p>
+                {% endif %}
+            </figure>
+
+            {% if page.fleet.pools %}
+                <h3 class="progress-subheading" id="digest-pools-title">Pools</h3>
+                <div class="table-wrap">
+                    <table class="stripes" aria-labelledby="digest-pools-title">
+                        <thead>
+                            <tr class="table-header">
+                                <th scope="col">Pool</th>
+                                <th scope="col">CPU</th>
+                                <th scope="col">Owner</th>
+                                <th scope="col" class="numeric">Hosts</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for pool in page.fleet.pools %}
+                                <tr>
+                                    <td class="mono">{{pool.label}}</td>
+                                    <td>{{pool.cpu_name}}</td>
+                                    <td><a href="/user/{{pool.owner}}/">{{pool.owner|capfirst}}</a></td>
+                                    <td class="numeric">{{pool.hosts|insertCommas}}</td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% if page.fleet.pools_omitted %}<p class="muted progress-note">{{page.fleet.pools_omitted}} smaller pools are not listed.</p>{% endif %}
+            {% endif %}
+            <p class="muted progress-note digest-note">{{page.fleet.hours_note}}</p>
+        </section>
+
+        <section class="card progress-section" aria-labelledby="digest-errors-title">
+            <div class="card-header">
+                <h2 id="digest-errors-title" class="card-title">Errors</h2>
+                <span class="muted">Worker error groups seen in the window, unresolved first · <a href="{{page.errors_url}}">open error triage</a></span>
+            </div>
+            {% if page.errors.truncated %}
+                <p class="muted progress-note">Grouping the 500 most recently seen summaries; older errors are in <a href="/errors/?view=list">every event</a>.</p>
+            {% endif %}
+            {% if page.errors.lines %}
+                <div class="table-wrap w-100">
+                    <table class="hoverable w-100 triage-groups digest-table">
+                        <caption class="visually-hidden">Worker error groups seen in the window</caption>
+                        <thead>
+                            <tr class="table-header">
+                                <th scope="col">Error</th>
+                                <th scope="col">Workload</th>
+                                <th scope="col" class="numeric">Count</th>
+                                <th scope="col" class="numeric">Hosts</th>
+                                <th scope="col">Last seen</th>
+                                <th scope="col">Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for line in page.errors.lines %}
+                                {% with row=line.row %}
+                                <tr{% if row.log_event_id %} data-row-href="/event/{{row.log_event_id}}/"{% elif row.workload %} data-row-href="{{row.workload|workload_url}}"{% endif %}>
+                                    <td class="triage-error">
+                                        <span class="badge">{{row.group.signature.kind.label}}</span>
+                                        {% if line.new %}<span class="badge badge-accent">new</span>{% endif %}
+                                        {% if row.log_event_id %}<a class="row-link" href="/event/{{row.log_event_id}}/">{{row.group.signature.title}}<span class="visually-hidden">: newest log</span></a>{% else %}<a href="/event/{{row.group.latest_event_id}}/">{{row.group.signature.title}}</a>{% endif %}
+                                        {% if row.group.signature.subject %}<div class="row-meta mono">{{row.group.signature.subject}}</div>{% endif %}
+                                    </td>
+                                    <td class="triage-workload">{% include "OpenBench/Blocks/event_workload.html" with workload=row.workload test_id=row.group.test_id primary=row.log_event_id|yesno:",1" %}</td>
+                                    <td class="numeric"><a href="/errors/{{row.events_querystring}}" title="List these events">&times;{{row.group.count|insertCommas}}<span class="visually-hidden"> events, listed</span></a></td>
+                                    <td class="numeric">{{row.affected.hosts|insertCommas}}{% if row.affected.sampled %}+{% endif %}</td>
+                                    <td><time datetime="{{row.group.last_seen|date:'c'}}" title="{{row.group.last_seen|date:'c'}}">{{row.last_ago}}</time></td>
+                                    <td>
+                                        <span class="badge {{row.verdict.standing.badge}}">{{row.verdict.standing.label}}</span>
+                                        <div class="row-meta">{{row.verdict.reason}}</div>
+                                    </td>
+                                </tr>
+                                {% endwith %}
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% if page.errors.omitted %}<p class="muted progress-note digest-note">{{page.errors.omitted}} more groups are on the <a href="/errors/">errors page</a>.</p>{% endif %}
+            {% else %}
+                <p class="insights-empty">No worker error was reported in {{page.span}}.</p>
+            {% endif %}
+        </section>
+    </div>
+
+    {{ payload|json_script:"digest-data" }}
+
+{% endblock %}

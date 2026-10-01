@@ -6,7 +6,18 @@ from django.test import TestCase
 from OpenBench.config import OPENBENCH_CONFIG
 from OpenBench.tests.fixtures import create_engine_config, create_test, create_user, ensure_book, register_payload
 
-PAGES = ('/', '/index/', '/index/2/', '/greens/', '/users/', '/machines/', '/progress/', '/Ethereal/', '/nowhere/')
+PAGES = (
+    '/',
+    '/index/',
+    '/index/2/',
+    '/greens/',
+    '/users/',
+    '/machines/',
+    '/progress/',
+    '/digest/',
+    '/Ethereal/',
+    '/nowhere/',
+)
 
 
 class LoginRequiredTests(TestCase):
