@@ -488,7 +488,9 @@ while `approved` is true and `finished` and `deleted` are false.
 
 #### `results`
 
-One entry per machine that played games for the workload, or is on it now.
+One entry per Machine registration that played games for the workload, or is
+on it now; a Client that restarted mid-workload appears once per start (the
+insights payload below pools them per physical machine).
 `active` is true when the machine reported within the last minute and is
 still assigned this workload.
 
@@ -626,6 +628,7 @@ numbers. The full schema, including every `eta.kind` and `reason`, is in
                     "machine_name": "demo-4",
                     "owner": "home-worker",
                     "cpu_name": "Apple M4",
+                    "registrations": [{ "machine_id": 4, "games": 1994, "pairs": 997 }],
                     "stats": {
                         "games": 1994,
                         "pairs": 997,
@@ -655,6 +658,11 @@ numbers. The full schema, including every `eta.kind` and `reason`, is in
 
 (`history.points` trimmed from 150 entries to the last, `machines` from 5 and
 `cpus` from 4 to the first; objects reformatted compactly.)
+
+Each `machines` entry is one physical machine: the Machine registrations of a
+host are pooled, `machine_id` is the newest of them that played this workload,
+and `registrations` lists each one's share. See
+[INSIGHTS.md](INSIGHTS.md#hosts).
 
 ### `GET|POST /api/workload/<id>/history.csv`
 

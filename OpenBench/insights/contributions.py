@@ -1,6 +1,7 @@
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
+from OpenBench.fleet.hosts import HostKey
 from OpenBench.insights.domain import Outcomes
 from OpenBench.insights.grouping import sum_by_key
 from OpenBench.insights.strength import EloInterval, elo_interval
@@ -11,6 +12,7 @@ UNKNOWN_CPU = 'Unknown'
 @dataclass(frozen=True, slots=True)
 class ResultRow:
     machine_id: int
+    host: HostKey
     machine_name: str | None
     owner: str
     cpu_name: str | None
@@ -27,11 +29,19 @@ class Contribution:
 
 
 @dataclass(frozen=True, slots=True)
+class Registration:
+    machine_id: int
+    games: int
+    pairs: int
+
+
+@dataclass(frozen=True, slots=True)
 class MachineContribution:
     machine_id: int
     machine_name: str | None
     owner: str
     cpu_name: str
+    registrations: list[Registration]
     stats: Contribution
 
 
@@ -78,25 +88,41 @@ def by_games[T](items: list[T], games_of: Callable[[T], int]) -> list[T]:
     return sorted(items, key=games_of, reverse=True)
 
 
+def registrations_by_host(rows: Sequence[ResultRow]) -> dict[HostKey, list[ResultRow]]:
+    hosts: dict[HostKey, list[ResultRow]] = {}
+    for row in sorted(rows, key=lambda row: row.machine_id, reverse=True):
+        hosts.setdefault(row.host, []).append(row)
+    return hosts
+
+
+def machine_contribution(newest_first: Sequence[ResultRow], stats: Contribution) -> MachineContribution:
+    newest = newest_first[0]
+    return MachineContribution(
+        machine_id=newest.machine_id,
+        machine_name=newest.machine_name,
+        owner=newest.owner,
+        cpu_name=newest.cpu_name or UNKNOWN_CPU,
+        registrations=[Registration(row.machine_id, row.outcomes.games, row.outcomes.pairs) for row in newest_first],
+        stats=stats,
+    )
+
+
 def summarize_contributions(rows: Sequence[ResultRow], use_penta: bool, elapsed_seconds: float | None) -> Contributions:
 
     total = sum(row.outcomes.games for row in rows)
-    first = {row.machine_id: row for row in reversed(rows)}
+    hosts = registrations_by_host(rows)
+    pooled = grouped(rows, lambda row: row.host, HostKey(''), use_penta)
 
     machines = [
-        MachineContribution(
-            machine_id=machine_id,
-            machine_name=first[machine_id].machine_name,
-            owner=first[machine_id].owner,
-            cpu_name=first[machine_id].cpu_name or UNKNOWN_CPU,
-            stats=contribution(outcomes, total, elapsed_seconds),
-        )
-        for machine_id, outcomes in grouped(rows, lambda row: row.machine_id, 0, use_penta).items()
+        machine_contribution(registrations, contribution(pooled[host], total, elapsed_seconds))
+        for host, registrations in hosts.items()
     ]
 
-    machine_counts = sum_by_key(first.values(), lambda row: row.cpu_name, lambda _: (1,), UNKNOWN_CPU)
+    host_counts = sum_by_key(
+        (registrations[0] for registrations in hosts.values()), lambda row: row.cpu_name, lambda _: (1,), UNKNOWN_CPU
+    )
     cpus = [
-        CpuContribution(cpu_name, machine_counts[cpu_name][0], contribution(outcomes, total, elapsed_seconds))
+        CpuContribution(cpu_name, host_counts[cpu_name][0], contribution(outcomes, total, elapsed_seconds))
         for cpu_name, outcomes in grouped(rows, lambda row: row.cpu_name, UNKNOWN_CPU, use_penta).items()
     ]
 

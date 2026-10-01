@@ -139,6 +139,29 @@ class InsightsApiTests(TestCase):
         self.assertAlmostEqual(sum(m['stats']['share'] for m in machines), 1.0)
         self.assertEqual([c['cpu_name'] for c in insights['contributions']['cpus']], ['Ryzen 9', 'Apple M4'])
 
+    def test_contributions_group_a_hosts_registrations(self):
+        again = Machine.objects.create(user=self.worker, info=self.fast.info, mnps=1.5)
+        extra = (1, 4, 9, 5, 1)
+        result(self.test, again, extra)
+        self.login()
+        contributions = self.insights()['insights']['contributions']
+
+        self.assertEqual([m['machine_name'] for m in contributions['machines']], ['fast-box', None])
+        host = contributions['machines'][0]
+        self.assertEqual((host['stats']['games'], host['stats']['pairs']), (292 + 2 * sum(extra), 146 + sum(extra)))
+        self.assertEqual(set(host), {'machine_id', 'machine_name', 'owner', 'cpu_name', 'registrations', 'stats'})
+        self.assertEqual(host['machine_id'], again.id)
+        self.assertEqual(
+            host['registrations'],
+            [
+                {'machine_id': again.id, 'games': 2 * sum(extra), 'pairs': sum(extra)},
+                {'machine_id': self.fast.id, 'games': 292, 'pairs': 146},
+            ],
+        )
+        self.assertEqual(
+            [(c['cpu_name'], c['machines']) for c in contributions['cpus']], [('Ryzen 9', 1), ('Apple M4', 1)]
+        )
+
     def test_legacy_workload_without_history(self):
         WorkloadSnapshot.objects.all().delete()
         self.login()
