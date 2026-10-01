@@ -181,6 +181,7 @@ class RenderedPageAccessibilityTests(TestCase):
             '/user/admin/',
             '/search/',
             '/search/?go=1&keywords=dev',
+            '/search/?q=dev',
             f'/test/{self.test.id}/',
             f'/tune/{self.tune.id}/',
             f'/datagen/{self.datagen.id}/',

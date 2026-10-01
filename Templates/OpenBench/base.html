@@ -21,6 +21,7 @@
         <link rel="stylesheet" href="{% static 'style.css' %}?{{ static_version }}">
 
         <script src="{% static 'site.js' %}?{{ static_version }}" defer></script>
+        <script src="{% static 'jump.js' %}?{{ static_version }}" defer></script>
 
         <title>{% block title %}OpenBench{% endblock %}</title>
 
@@ -112,6 +113,16 @@
                     <img class="site-logo" src="{% static 'logo.svg' %}?{{ static_version }}" alt="">
                     <span>OpenBench <span class="site-title-sub">Testing Framework</span></span>
                 </a>
+                {% if user.is_authenticated or not config.require_login_to_view %}
+                <form id="quick-jump" class="quick-jump" method="get" action="/go/" role="search" data-suggest-url="/api/jump/">
+                    <label class="visually-hidden" for="quick-jump-input">Jump to a workload, commit or text</label>
+                    <div class="quick-jump-field">
+                        <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
+                        <input id="quick-jump-input" type="search" name="q" maxlength="100" placeholder="Jump to #id, commit or text" autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="go" aria-keyshortcuts="/">
+                        <kbd aria-hidden="true">/</kbd>
+                    </div>
+                </form>
+                {% endif %}
                 <button id="theme-toggle" class="icon-button" type="button" aria-label="Switch theme">
                     <i class="fa-solid fa-sun theme-icon-light" aria-hidden="true"></i>
                     <i class="fa-solid fa-moon theme-icon-dark" aria-hidden="true"></i>
