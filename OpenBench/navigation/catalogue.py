@@ -1,9 +1,9 @@
 from django.contrib.auth.models import User
 from django.db.models import Q, QuerySet
 
-from OpenBench.listing_rows import COMMIT_NAME, commit_pair, split_info
 from OpenBench.models import EngineConfig, Machine, Test
 from OpenBench.navigation.resolve import WorkloadRef
+from OpenBench.workload_names import COMMIT_NAME, commit_pair, split_info
 
 NAME_FIELDS = ('dev__name', 'base__name')
 COMMIT_NAME_PATTERN = f'^(?:{COMMIT_NAME.pattern})$'

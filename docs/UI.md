@@ -271,7 +271,7 @@ being given a session.
 Search's `Text` field (`q`) is what the fallback fills in. Every
 whitespace-separated term must match the info text or a dev or base branch
 name (as substrings), or the start of the dev or base commit sha. A name
-that is itself a commit (`listing_rows.COMMIT_NAME`) is matched by its start
+that is itself a commit (`workload_names.COMMIT_NAME`) is matched by its start
 only: forty hex digits contain almost any short term by accident. It combines
 with the other search fields and pages like them. `Keywords` still matches
 only the dev branch name.
