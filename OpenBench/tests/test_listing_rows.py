@@ -9,7 +9,7 @@ from django.utils import timezone
 from OpenBench.listing_rows import is_commit_name, listing_moment, short_name, workload_label
 from OpenBench.models import LogEvent, Test, WorkloadSnapshot
 from OpenBench.page_queries import listing_tests
-from OpenBench.templatetags.mytags import prettyDevName
+from OpenBench.templatetags.mytags import prettyDevName, prettyName
 from OpenBench.tests.datasets import SMALL, Dataset, build_dataset
 from OpenBench.tests.fixtures import create_engine_config, create_test, create_user, ensure_book, present
 
@@ -94,6 +94,12 @@ class CommitNameTests(SimpleTestCase):
                 self.assertTrue(is_commit_name(name))
                 self.assertEqual(short_name(name), '76f2da3c'[: len(name)])
 
+    def test_agrees_with_pretty_name_on_a_full_sha_without_digits(self) -> None:
+        name = 'abcdef' * 6 + 'abcd'
+        self.assertNotEqual(prettyName(name), name)
+        self.assertTrue(is_commit_name(name))
+        self.assertFalse(is_commit_name(name[:39]))
+
     def test_leaves_branch_names_alone(self) -> None:
         for name in ('master', 'lmr-tweak', 'deadbeef', 'defaced', '76f2da', DEV_SHA + '0', '1234567-fix', ''):
             with self.subTest(name=name):
@@ -113,34 +119,39 @@ class WorkloadLabelTests(TestCase):
         test.dev.name, test.base.name = DEV_SHA, base
         return test
 
-    def label(self, test: Test) -> tuple[str, str | None, bool]:
+    def label(self, test: Test) -> tuple[str, str | None, str]:
         label = workload_label(test, prettyDevName(test))
-        return label.title, label.commits, label.repeats_info
+        return label.title, label.commits, label.info
 
     def test_a_branch_keeps_its_pretty_name(self) -> None:
-        self.assertEqual(self.label(create_test(self.author, info='Some notes')), ('dev', None, False))
+        self.assertEqual(self.label(create_test(self.author, info='Some notes')), ('dev', None, 'Some notes'))
 
     def test_a_pinned_commit_is_titled_by_its_subject(self) -> None:
         test = self.pinned(' Scale LMR by history \n')
-        self.assertEqual(self.label(test), ('Scale LMR by history', '76f2da3c vs 8c308d43', True))
+        self.assertEqual(self.label(test), ('Scale LMR by history', '76f2da3c vs 8c308d43', ''))
 
-    def test_only_the_first_info_line_is_the_title(self) -> None:
-        test = self.pinned('Scale LMR by history\n\nBench: 123')
-        self.assertEqual(self.label(test), ('Scale LMR by history', '76f2da3c vs 8c308d43', False))
+    def test_the_info_lines_after_the_subject_stay_in_the_info_column(self) -> None:
+        test = self.pinned('Scale LMR by history, LTC confirmation of #5\navl:6b10ec947ac0\n\nBench: 123\n')
+        self.assertEqual(
+            self.label(test),
+            ('Scale LMR by history, LTC confirmation of #5', '76f2da3c vs 8c308d43', 'avl:6b10ec947ac0\n\nBench: 123'),
+        )
 
     def test_a_pinned_commit_without_info_shows_both_commits(self) -> None:
-        self.assertEqual(self.label(self.pinned()), ('76f2da3c vs 8c308d43', None, False))
-        self.assertEqual(self.label(self.pinned(base='master')), ('76f2da3c vs master', None, False))
+        self.assertEqual(self.label(self.pinned()), ('76f2da3c vs 8c308d43', None, ''))
+        self.assertEqual(self.label(self.pinned(base='master')), ('76f2da3c vs master', None, ''))
 
     def test_a_commit_against_itself_is_named_once(self) -> None:
-        self.assertEqual(self.label(self.pinned('Sanity run', base=DEV_SHA)), ('Sanity run', '76f2da3c', True))
+        self.assertEqual(self.label(self.pinned('Sanity run', base=DEV_SHA)), ('Sanity run', '76f2da3c', ''))
 
     def test_another_engine_or_a_network_still_names_the_row(self) -> None:
-        self.assertEqual(self.label(self.pinned('Subject', base_engine='Other')), (f'[Other] {BASE_SHA}', None, False))
+        self.assertEqual(
+            self.label(self.pinned('Subject', base_engine='Other')), (f'[Other] {BASE_SHA}', None, 'Subject')
+        )
         network_test = self.pinned(
             'Subject', base=DEV_SHA, dev_network='AAAAAAAA', base_network='BBBBBBBB', dev_netname='net-7'
         )
-        self.assertEqual(self.label(network_test), ('net-7', None, False))
+        self.assertEqual(self.label(network_test), ('net-7', None, 'Subject'))
 
 
 class ListingMomentTests(TestCase):
@@ -184,7 +195,9 @@ class RenderedRowTests(TestCase):
     @classmethod
     def setUpTestData(cls) -> None:
         cls.data = build_dataset(SMALL)
-        cls.pinned = create_test(cls.data.users[0], info='Scale LMR by <history>', finished=True, passed=True)
+        cls.pinned = create_test(
+            cls.data.users[0], info='Scale LMR by <history>\navl:76f2da3c0b1e', finished=True, passed=True
+        )
         cls.pinned.dev.name, cls.pinned.base.name = DEV_SHA, BASE_SHA
         cls.pinned.dev.save()
         cls.pinned.base.save()
@@ -243,10 +256,16 @@ class RenderedRowTests(TestCase):
         html = self.client.get('/greens/').content.decode()
         row = html.split(f'<tr data-row-href="/test/{self.pinned.id}/">', 1)[1].split('</tr>', 1)[0]
         self.assertIn(f'<span class="row-id">#{self.pinned.id}</span>', row)
-        self.assertIn('>Scale LMR by &lt;history&gt;</span></a>', row)
+        self.assertIn('title="Scale LMR by &lt;history&gt;">', row)
+        self.assertIn('</span> Scale LMR by &lt;history&gt;</a>', row)
         self.assertIn('<div class="row-meta mono">76f2da3c vs 8c308d43</div>', row)
-        self.assertIn('<td class="test-info"></td>', row)
+        self.assertIn('<td class="test-info"><div title="avl:76f2da3c0b1e">avl:76f2da3c0b1e</div></td>', row)
         self.assertRegex(row, r'<time datetime="[^"]+" title="[^"]+">finished [^<]+</time>')
+
+    def test_authors_are_named_in_full(self) -> None:
+        author = self.data.users[0].username
+        html = self.client.get('/greens/').content.decode()
+        self.assertIn(f'title="{author.capitalize()}">{author.capitalize()}</a>', html)
 
     def test_the_index_offers_a_filter_wired_to_its_table(self) -> None:
         html = self.client.get('/index/').content.decode()

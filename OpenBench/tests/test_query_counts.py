@@ -97,7 +97,7 @@ class SearchPagingTests(TestCase):
 
     def shown_ids(self, url: str) -> list[int]:
         content = self.client.get(url).content.decode()
-        return [int(test_id) for test_id in re.findall(r'<a class="row-link" href="/test/(\d+)/">', content)]
+        return [int(test_id) for test_id in re.findall(r'<a class="row-link row-title" href="/test/(\d+)/"', content)]
 
     def test_pages_list_the_newest_matches_first(self) -> None:
         newest = [test.id for test in reversed(self.tests)]

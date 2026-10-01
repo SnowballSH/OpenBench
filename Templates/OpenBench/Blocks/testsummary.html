@@ -1,11 +1,13 @@
 {% load mytags %}
-<td><a href="/user/{{test.author}}">{{test.author|capfirst|slice:":6"}}</a></td>
+<td><a class="row-author" href="/user/{{test.author}}" title="{{test.author|capfirst}}">{{test.author|capfirst}}</a></td>
 <td>{{test.dev_engine}}</td>
 {% with label=test|workload_label %}
 <td class="row-name">
-    <a class="row-link" href="{{test|workload_url}}"><span class="row-id">#{{test.id}}</span> <span class="row-title" title="{{label.title}}">{{label.title}}</span></a>
+    <div class="row-heading">
+    <a class="row-link row-title" href="{{test|workload_url}}" title="{{label.title}}"><span class="row-id">#{{test.id}}</span> {{label.title}}</a>
     {% if test.error %} <span class="flag flag-error" title="Crash or illegal move"><span aria-hidden="true">*</span><span class="visually-hidden">(Crash or illegal move)</span></span> {% endif %}
     {% if test|test_is_fischer %} <span class="flag flag-fischer" title="Fischer random chess"><span aria-hidden="true">*</span><span class="visually-hidden">(Fischer random chess)</span></span> {% endif %}
+    </div>
     {% if label.commits %}<div class="row-meta mono">{{label.commits}}</div>{% endif %}
     {% with moment=test|listing_moment %}{% if moment %}<div class="row-meta"><time datetime="{{moment.at|date:'c'}}" title="{{moment.at|date:'c'}}">{{moment.verb}} {{moment.ago}}</time></div>{% endif %}{% endwith %}
 </td>
@@ -22,5 +24,5 @@
     {% endif %}{% endwith %}{% endif %}
     {% with timing=test|listing_timing %}{% if timing %}{% include "OpenBench/Blocks/row_timing.html" %}{% endif %}{% endwith %}
 </td>
-<td class="test-info">{% if not label.repeats_info %}<div>{{test.info}}</div>{% endif %}</td>
+<td class="test-info">{% if label.info %}<div title="{{label.info}}">{{label.info}}</div>{% endif %}</td>
 {% endwith %}

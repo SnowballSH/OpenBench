@@ -171,7 +171,8 @@ The markup is two attributes, and `site.js` does the rest on every page:
   tab (`window.open` with `noopener`); Shift- and Alt-click do nothing, since
   the browser gives them meanings a row cannot honour. A click that ends a
   text selection inside the row does not navigate, so figures can still be
-  copied out of a stat block.
+  copied out of a stat block. A double-click navigates on its first click,
+  like a double-click on a link does; drag to select a word instead.
 - Only same-origin destinations are followed.
 - `tr[data-row-href]` shows a pointer cursor and takes the `--row-hover`
   background on hover and on `:focus-within`, so the row a keyboard user is
@@ -194,17 +195,28 @@ A listing row starts with `#<id>`, so a test can be referred to by number, and
 then a label from `OpenBench/listing_rows.py` (`workload_label`):
 
 - A branch-named workload keeps the name `prettyDevName` gives it.
-- A commit-pinned workload (the dev name is 7 to 40 hex digits with at least
-  one decimal digit, so `deadbeef` stays a branch) is titled by the first line
-  of its info text, normally the commit subject, with `76f2da3c vs 8c308d43`
-  (8-character SHAs, dev then base) in monospace beneath. Without info the
-  commit pair is the title. When the info is nothing but that subject the
-  info column is left empty rather than repeating it.
+- A commit-pinned workload is titled by the first line of its info text,
+  normally the commit subject, with `76f2da3c vs 8c308d43` (8-character SHAs,
+  dev then base) in monospace beneath. Without info the commit pair is the
+  title. The info column then shows only the lines after the subject (the lab
+  agent's `avl:<sha>` tag, for instance), and is empty when there are none.
+  A dev name counts as a commit when it is a full 40-digit hex SHA, as
+  `prettyName` decides it, or 7 to 39 hex digits with at least one decimal
+  digit, so `deadbeef` stays a branch.
 - When a network or another engine names the row, that name wins as before.
 
-The title is capped by `.row-title` with an ellipsis and carries the full text
-in `title`. Events, errors and machine pages use `#<id>` and the `short_name`
-filter.
+The title link (`.row-title`) wraps to at most two lines, between 26ch and
+44ch wide, and carries the full text in `title`, so a long subject never
+forces the table to scroll. The info cell and the author link (`.row-author`,
+shown in full up to 14ch) carry their full text in `title` as well. At 1100px
+and narrower the stat block leaves too little room for everything, so the
+listing tightens: cell padding shrinks, the title's floor drops to 11ch, the
+author is cut at 7ch, the commit pair may wrap, and the info column is
+hidden. The search results' date column is already hidden from 1350px down,
+where it would squeeze the info column to nothing; the row's own
+`finished ... ago` line still dates it. That keeps the table inside its card down to 1024px; below
+that it scrolls inside `.table-wrap` as before. Events, errors and
+machine pages use `#<id>` and the `short_name` filter.
 
 Below the name, `listing_moment` adds `finished 3d ago`, `started 2h ago`
 (first recorded report) or `created 5m ago`, as a `<time>` whose `datetime`
