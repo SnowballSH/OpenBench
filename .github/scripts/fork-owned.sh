@@ -5,6 +5,7 @@ fork_owned=(
     OpenBench/compare
     OpenBench/converters.py
     OpenBench/fleet
+    OpenBench/games
     OpenBench/insights
     OpenBench/listing_rows.py
     OpenBench/machine_info.py
