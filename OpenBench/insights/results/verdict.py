@@ -35,10 +35,18 @@ class VerdictTone(StrEnum):
 
 
 @dataclass(frozen=True, slots=True)
+class Figure:
+    label: str
+    value: str
+
+
+@dataclass(frozen=True, slots=True)
 class Verdict:
     kind: VerdictKind
     tone: VerdictTone
     text: str
+    label: str
+    figures: list[Figure]
 
 
 GAIN_KINDS = (
@@ -97,9 +105,13 @@ def signed(value: float) -> str:
     return ('+' if value > 0 else MINUS) + text
 
 
-def elo_text(elo: EloInterval) -> str:
+def elo_value(elo: EloInterval) -> str:
     margin = max(elo.upper - elo.value, elo.value - elo.lower)
-    return f'{signed(elo.value)} ± {margin:.1f} Elo'
+    return f'{signed(elo.value)} ± {margin:.1f}'
+
+
+def elo_text(elo: EloInterval) -> str:
+    return f'{elo_value(elo)} Elo'
 
 
 def percent_text(probability: float) -> str:
@@ -107,6 +119,14 @@ def percent_text(probability: float) -> str:
         return 'above 99%'
     if probability < CERTAINTY_MARGIN:
         return 'below 1%'
+    return f'{100 * probability:.0f}%'
+
+
+def compact_percent(probability: float) -> str:
+    if probability > 1.0 - CERTAINTY_MARGIN:
+        return '>99%'
+    if probability < CERTAINTY_MARGIN:
+        return '<1%'
     return f'{100 * probability:.0f}%'
 
 
@@ -145,6 +165,28 @@ def outlook_sentence(outlook: SprtOutlook | None) -> str:
     )
 
 
+def measured_figures(elo: EloInterval, los: float) -> list[Figure]:
+    return [Figure('Elo', elo_value(elo)), Figure('LOS', compact_percent(los))]
+
+
+def outlook_figures(outlook: SprtOutlook | None) -> list[Figure]:
+    if outlook is None:
+        return []
+    games = outlook.remaining_games
+    spread = f'{games_text(games.lower)}–{games_text(games.upper)}'
+    return [
+        Figure('Chance to pass', compact_percent(outlook.pass_probability)),
+        Figure('Games to decide', f'~{games_text(games.median)} ({spread})'),
+    ]
+
+
+def games_figure(facts: WorkloadFacts) -> Figure:
+    played = games_text(facts.outcomes.games)
+    if facts.finished or facts.target_games is None:
+        return Figure('Games', played)
+    return Figure('Games', f'{played} of {games_text(facts.target_games)}')
+
+
 def progress_sentence(facts: WorkloadFacts) -> str:
     played = games_text(facts.outcomes.games)
     if facts.finished or facts.target_games is None:
@@ -168,28 +210,44 @@ def decided_text(facts: WorkloadFacts, bounds: SprtBounds, elo: EloInterval, los
     )
 
 
-def leaning_text(kind: VerdictKind, facts: WorkloadFacts, elo: EloInterval, los: float, tail: str) -> str:
-    headline = HEADLINES[kind].format(size=size_word(elo))
+def leaning_text(label: str, elo: EloInterval, los: float, tail: str) -> str:
+    return f'{label}: {measurement(elo, los)}. {tail}'
+
+
+def leaning_label(kind: VerdictKind, facts: WorkloadFacts, elo: EloInterval) -> str:
     suffix = ' yet' if kind == VerdictKind.INCONCLUSIVE and not facts.finished else ''
-    return f'{headline}{suffix}: {measurement(elo, los)}. {tail}'
+    return HEADLINES[kind].format(size=size_word(elo)) + suffix
 
 
-def verdict_of(kind: VerdictKind, text: str) -> Verdict:
-    return Verdict(kind, TONES.get(kind, VerdictTone.NEUTRAL), text)
+def verdict_of(kind: VerdictKind, text: str, label: str, figures: list[Figure]) -> Verdict:
+    return Verdict(kind, TONES.get(kind, VerdictTone.NEUTRAL), text, label, figures)
+
+
+def too_early(text: str) -> Verdict:
+    return verdict_of(VerdictKind.TOO_EARLY, text, 'Too early to tell', [])
 
 
 def give_verdict(facts: WorkloadFacts, strength: StrengthSummary, outlook: SprtOutlook | None) -> Verdict:
 
     elo, los = strength.elo, strength.los
     if elo is None or los is None or facts.outcomes.games < MIN_GAMES:
-        return verdict_of(VerdictKind.TOO_EARLY, f'No verdict yet: fewer than {MIN_GAMES} games have been played.')
+        return too_early(f'No verdict yet: fewer than {MIN_GAMES} games have been played.')
     if strength.normalized_elo is None:
-        return verdict_of(VerdictKind.TOO_EARLY, 'No verdict yet: every result so far is the same.')
+        return too_early('No verdict yet: every result so far is the same.')
 
+    measured = measured_figures(elo, los)
     if facts.sprt and facts.status in (WorkloadStatus.PASSED, WorkloadStatus.FAILED):
-        kind = VerdictKind.PASSED if facts.status == WorkloadStatus.PASSED else VerdictKind.FAILED
-        return verdict_of(kind, decided_text(facts, facts.sprt, elo, los))
+        passed = facts.status == WorkloadStatus.PASSED
+        return verdict_of(
+            VerdictKind.PASSED if passed else VerdictKind.FAILED,
+            decided_text(facts, facts.sprt, elo, los),
+            'Passed' if passed else 'Failed',
+            [*measured, games_figure(facts)],
+        )
 
     kind = leaning(los)
-    tail = outlook_sentence(outlook) if facts.sprt and not facts.finished else progress_sentence(facts)
-    return verdict_of(kind, leaning_text(kind, facts, elo, los, tail))
+    label = leaning_label(kind, facts, elo)
+    forecasting = facts.sprt is not None and not facts.finished
+    tail = outlook_sentence(outlook) if forecasting else progress_sentence(facts)
+    figures = [*measured, *(outlook_figures(outlook) if forecasting else [games_figure(facts)])]
+    return verdict_of(kind, leaning_text(label, elo, los, tail), label, figures)

@@ -286,6 +286,8 @@ class DiagnosisPageTests(ClientProtocolCase):
         content = self.client.get(f'/test/{test.id}/').content.decode()
         self.assertIn('class="diagnosis diagnosis-ok" data-diagnosis-state="running"', content)
         self.assertIn('<details class="diagnosis-details">', content)
+        self.assertIn('<p class="diagnosis-brief">Running on 1 worker</p>', content)
+        self.assertNotRegex(content, r'<li>\s*</li>')
 
     def test_index_row_shows_the_reason_when_there_is_no_rate(self) -> None:
         create_test(self.author)
@@ -424,7 +426,7 @@ class WorkloadsApiTests(ClientProtocolCase):
         Test.objects.filter(id=self.active.id).update(dev_options='Threads=8 Hash=16', base_options='Threads=8 Hash=16')
         self.client.force_login(self.author)
         diagnosis = self.client.get(f'/api/workload/{self.active.id}/insights/').json()['insights']['diagnosis']
-        self.assertEqual(set(diagnosis), {'state', 'severity', 'headline', 'brief', 'evidence'})
+        self.assertEqual(set(diagnosis), {'state', 'severity', 'headline', 'brief', 'evidence', 'urgent'})
         self.assertEqual((diagnosis['state'], diagnosis['severity']), ('no_eligible_workers', 'warning'))
         self.assertEqual(set(diagnosis['evidence'][0]), {'kind', 'text', 'link'})
         self.assertEqual(diagnosis['evidence'][0]['kind'], 'ineligible')

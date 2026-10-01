@@ -1808,21 +1808,6 @@ td.contribution-name {
     background-color: var(--series-1);
 }
 
-.insights-verdict {
-    --edge: var(--neutral-edge);
-    max-width: 60rem;
-    padding: var(--space-2) var(--space-3);
-    border: 1px solid var(--border-subtle);
-    border-left: 3px solid var(--edge);
-    border-radius: var(--radius);
-    background-color: var(--surface);
-    color: var(--text);
-    font-size: var(--text-sm);
-}
-
-.insights-verdict-positive { --edge: var(--pass); }
-.insights-verdict-negative { --edge: var(--fail); }
-
 .insights-details {
     max-width: 60rem;
     color: var(--text-muted);
@@ -2131,20 +2116,133 @@ td.games-opening {
     margin: 0;
 }
 
-.workload-summary > .insights-verdict {
-    max-width: none;
-}
-
-.workload-summary > .insights-verdict[hidden],
-.summary-forecast:empty,
 .summary-meter:empty,
 .summary-timing:empty,
 .summary-progress:not(:has(> :not(:empty))) {
     display: none;
 }
 
-.summary-forecast {
-    margin-top: calc(-1 * var(--space-2));
+.workload-side {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+    min-width: 0;
+}
+
+.status-card {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    padding: var(--space-4);
+}
+
+.status-verdict {
+    --edge: var(--neutral-edge);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    padding-left: var(--space-3);
+    border-left: 3px solid var(--edge);
+}
+
+.status-verdict[hidden] {
+    display: none;
+}
+
+.status-verdict-positive { --edge: var(--pass); }
+.status-verdict-negative { --edge: var(--fail); }
+
+.status-label {
+    margin: 0;
+    color: var(--text);
+    font-weight: 600;
+}
+
+.status-figures {
+    display: grid;
+    gap: var(--space-1);
+    margin: 0;
+    font-size: var(--text-sm);
+}
+
+.status-figures:empty {
+    display: none;
+}
+
+.status-figures > div {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--space-3);
+}
+
+.status-figures dt {
+    color: var(--text-muted);
+}
+
+.status-figures dd {
+    margin: 0;
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+}
+
+.status-explain {
+    margin: 0;
+    color: var(--text-muted);
+    font-size: var(--text-xs);
+}
+
+.status-explain > summary {
+    width: fit-content;
+    cursor: pointer;
+}
+
+.status-explain > p {
+    margin: var(--space-1) 0 0;
+}
+
+.status-forecast:empty {
+    display: none;
+}
+
+.status-forecast > .insights-details {
+    margin-top: var(--space-2);
+}
+
+.status-card > .diagnosis {
+    padding: 0 0 0 var(--space-3);
+    border: 0;
+    border-left: 3px solid var(--banner);
+    border-radius: 0;
+    background: none;
+    font-size: var(--text-sm);
+}
+
+.status-card > .diagnosis[hidden] {
+    display: none;
+}
+
+.diagnosis-brief {
+    margin: 0;
+    color: var(--text);
+    font-weight: 500;
+}
+
+.status-card .diagnosis-headline {
+    margin: var(--space-1) 0 0;
+    font-weight: 400;
+}
+
+.status-card .diagnosis-evidence {
+    max-height: 8rem;
+    overflow-y: auto;
+}
+
+.status-card .diagnosis-evidence:empty {
+    display: none;
+}
+
+.status-card .diagnosis-details {
+    font-size: var(--text-xs);
 }
 
 .summary-progress {

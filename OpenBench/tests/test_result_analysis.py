@@ -29,7 +29,14 @@ from OpenBench.insights.results.outlook import (
     sprt_outlook,
 )
 from OpenBench.insights.results.speeds import compare_speed
-from OpenBench.insights.results.verdict import VerdictKind, VerdictTone, games_text, give_verdict, percent_text
+from OpenBench.insights.results.verdict import (
+    Figure,
+    VerdictKind,
+    VerdictTone,
+    games_text,
+    give_verdict,
+    percent_text,
+)
 from OpenBench.insights.serialize import to_json
 from OpenBench.insights.speed import SpeedCounters
 from OpenBench.insights.sprt import LlrIncrement, expected_exit, llr_increment
@@ -627,6 +634,39 @@ class VerdictTests(SimpleTestCase):
             'with roughly 24k more games needed (80% range 8.9k to 99k).',
         )
 
+    def test_compact_form_of_an_active_sprt(self):
+        verdict = verdict_for(outlook=OUTLOOK)
+        self.assertEqual(verdict.label, 'Likely a gain')
+        self.assertEqual(
+            [(figure.label, figure.value) for figure in verdict.figures],
+            [
+                ('Elo', '+2.9 ± 4.4'),
+                ('LOS', '90%'),
+                ('Chance to pass', '61%'),
+                ('Games to decide', '~24k (8.9k–99k)'),
+            ],
+        )
+
+    def test_compact_form_without_a_forecast_has_only_the_measurement(self):
+        verdict = verdict_for((2, 22, 50, 24, 2))
+        self.assertEqual(verdict.label, 'No clear difference yet')
+        self.assertEqual([figure.label for figure in verdict.figures], ['Elo', 'LOS'])
+
+    def test_compact_form_of_a_decided_sprt(self):
+        passed = verdict_for(status=WorkloadStatus.PASSED)
+        self.assertEqual(passed.label, 'Passed')
+        self.assertEqual([figure.label for figure in passed.figures], ['Elo', 'LOS', 'Games'])
+
+    def test_compact_extremes_are_bounded_not_rounded(self):
+        verdict = verdict_for((40, 300, 700, 340, 60))
+        self.assertEqual(verdict.figures[1], Figure('LOS', '>99%'))
+
+    def test_too_early_has_a_label_and_no_figures(self):
+        verdict = verdict_for((0, 1, 2, 1, 0))
+        self.assertEqual(
+            (verdict.kind, verdict.label, verdict.figures), (VerdictKind.TOO_EARLY, 'Too early to tell', [])
+        )
+
     def test_active_sprt_without_a_forecast(self):
         verdict = verdict_for((2, 22, 50, 24, 2))
         self.assertEqual(verdict.kind, VerdictKind.INCONCLUSIVE)
@@ -763,7 +803,7 @@ class AnalysisTests(SimpleTestCase):
         self.assertEqual(set(results), {'verdict', 'outcomes', 'outlook', 'speed', 'consistency'})
         verdict = results['verdict']
         assert isinstance(verdict, dict)
-        self.assertEqual(set(verdict), {'kind', 'tone', 'text'})
+        self.assertEqual(set(verdict), {'kind', 'tone', 'text', 'label', 'figures'})
         self.assertEqual((verdict['kind'], verdict['tone']), ('likely_gain', 'positive'))
         outlook = results['outlook']
         assert isinstance(outlook, dict)

@@ -293,7 +293,9 @@ class EndpointTests(LiveCase):
 
         self.assertEqual(payload['workload']['id'], test.id)
         self.assertEqual(payload['workload']['result']['status'], 'active')
-        self.assertEqual(set(payload['workload']['diagnosis']), {'state', 'severity', 'headline', 'brief', 'evidence'})
+        diagnosis = payload['workload']['diagnosis']
+        self.assertEqual(set(diagnosis), {'state', 'severity', 'headline', 'brief', 'evidence', 'urgent'})
+        self.assertTrue(all(item['text'].strip() for item in diagnosis['evidence']))
         self.assertEqual(unchanged, {'token': payload['token'], 'changed': False})
 
     def test_a_finished_workload_reports_its_verdict(self) -> None:

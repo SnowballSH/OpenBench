@@ -57,6 +57,10 @@ SEVERITY: dict[DiagnosisState, Severity] = {
 }
 
 
+# The states that need a person: their explanation stays open on the workload page
+URGENT_STATES = frozenset({DiagnosisState.STOPPED_BY_ERROR, DiagnosisState.FAILING, DiagnosisState.NO_ELIGIBLE_WORKERS})
+
+
 class EvidenceKind(StrEnum):
     WORKERS = 'workers'
     LAST_RESULT = 'last_result'
@@ -106,6 +110,7 @@ class Diagnosis:
     headline: str
     brief: str
     evidence: list[Evidence] = field(default_factory=list)
+    urgent: bool = False
 
     @property
     def calm(self) -> bool:

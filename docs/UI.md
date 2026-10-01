@@ -93,8 +93,8 @@ without relying on fill alone.
   `.chart-empty` fallback; `.insights-empty` is a full-width dashed notice.
   `.contribution-table` is a full-width `.table-wrap` with a caption, and
   `.share-bar` a small horizontal bar set by `--share`. `.insights-error` is
-  the inline failure banner. `.insights-verdict` (`-positive`, `-negative`)
-  is the one-paragraph verdict with a toned left edge; `.insights-details`
+  the inline failure banner. `.status-verdict` (`-positive`, `-negative`)
+  is the Status card's verdict, a label over `dl.status-figures`, with a toned left edge; `.insights-details`
   a small `<details>` note under the tiles; `.results-grid` lays
   the outcome table beside the By CPU table, `.results-wide` spans it; and
   `.results-outcome-bar-{loss,loss-soft,level,win-soft,win}` recolour a `.share-bar`
@@ -156,9 +156,9 @@ without relying on fill alone.
 - **Banners**: `.error-message`, `.warning-message`, `.status-message` render
   the session messages in `base.html`.
 - **Diagnosis**: `.diagnosis` with `.diagnosis-{ok,info,warning}` is the
-  workload page's "what is this waiting for" (or "what stopped this") banner (`Blocks/diagnosis.html`):
-  a `<section>` with a hidden `<h2>`, the headline, and the evidence in a
-  `<details>` that starts open only for a warning. `.row-reason` is the same
+  workload page's "what is this waiting for" (or "what stopped this") block in the Status card (`Blocks/diagnosis.html`):
+  the `brief` as one line, then the headline and the evidence in a
+  `<details>` that starts open only for an `urgent` diagnosis. `.row-reason` is the same
   verdict in a few words on a listing row's `.row-meta` line,
   `.row-reason-warning` in `--warn-text`; its hidden "Status:" prefix and its
   `title` carry the meaning without the colour.
@@ -316,22 +316,42 @@ raw summary.
    link, engine, time class with the time control, mode (`SPRT [0, 3]`,
    `Fixed 4,000 games`, `SPSA tune`), author, creation. The rest of the info
    text follows as plain text, so nobody has to open the edit form to read
-   it. Under it the **summary** (`.workload-summary`): the diagnosis banner
-   when there is one, the verdict of
-   [INSIGHTS.md](INSIGHTS.md#verdict) in one line, a meter (the LLR between
-   its bounds, or games over the target, captioned "LLR" or "Games") with the
-   time left and rate of the index row, and the stat block, which stays the one place for the exact
-   counters and the text that Copy Stat Block copies. All of it is rendered by
-   the server; `insights.js` and `live.js` then keep it current.
-2. **What should I do next?** One Actions card (`#actions`) beside the
-   summary: Approve, Restart or Restore, Confirm at LTC or the link to the
-   existing confirmation, Clone; the compare form; the copy and download
-   tools and the notify toggle; the info, priority and throughput form folded
-   into a `<details>` whose summary states the current priority and
-   throughput; and, apart under a rule and right-aligned, Stop and Delete. A
-   button that cannot apply in the current state (Approve on an approved
-   workload) is not drawn; one the viewer lacks the right for is drawn
-   disabled, as before.
+   it. Under it the **summary** (`.workload-summary`) holds numbers and no
+   prose: a meter (the LLR between its bounds, or games over the target,
+   captioned "LLR" or "Games") with the time left and rate of the index row,
+   and the stat block, which stays the one place for the exact counters and
+   the text that Copy Stat Block copies.
+2. **How is it going, and what should I do next?** A side column
+   (`.workload-side`) with two cards.
+   - **Status** (`.status-card`): the verdict of
+     [INSIGHTS.md](INSIGHTS.md#verdict) in its compact form, a label
+     ("Likely a gain", "Passed") over a few label and value rows (Elo, LOS,
+     chance to pass, games to decide); and the worker status as one line, the
+     diagnosis' `brief` ("Next in line for a worker", "Running on 3
+     workers"). Each has a closed `<details>`: "Explain" holds the verdict
+     sentence and "About the forecast"; "Details" holds the diagnosis
+     headline and its evidence, in a list that scrolls beyond a few lines. Only
+     a diagnosis marked `urgent` (stopped by a worker error, failing, no
+     capable worker) starts open; other warnings keep their amber edge and
+     stay closed. A healthy workload's card is five or six short lines. A
+     settled workload with no verdict and no diagnosis (a stopped test without
+     games, a finished tune) has no card.
+   - **Actions** (`#actions`): Approve, Restart or Restore, Confirm at LTC or
+     the link to the existing confirmation, Clone; the compare form; the copy
+     and download tools and the notify toggle; the info, priority and
+     throughput form folded into a `<details>` whose summary states the
+     current priority and throughput; and, apart under a rule and
+     right-aligned, Stop and Delete. A button that cannot apply in the
+     current state (Approve on an approved workload) is not drawn; one the
+     viewer lacks the right for is drawn disabled, as before.
+
+   Status comes before Actions in both layouts. Below 1024px the column
+   follows the summary, so the page reads title, numbers, status, actions:
+   what to press depends on how the test stands, and the Status card is
+   short enough that Actions still starts within the second screen at 375px.
+   At 1440x900 the header, summary and both cards fit without scrolling.
+   All of it is rendered by the server; `insights.js` and `live.js` then keep
+   it current.
 3. **Why?** The evidence, each an `<h2>` section with an anchor, reached from
    a section nav (`nav[aria-label="Page sections"]`, styled as
    `.fleet-filter`) that sticks under the header above 1024px and wraps in
@@ -380,9 +400,9 @@ A quantity is stated in the summary and at most once more below it.
 | Elo with its interval | stat block, verdict; the Elo chart | the Elo tile |
 | LLR and its bounds | stat block, summary meter; the LLR chart | the LLR tile |
 | Games, W/L/D | stat block; the games chart | the Games tile, the W/D/L line of the draw-ratio tile |
-| Chance to pass, games to decide | verdict, with "About the forecast" under it | the two forecast tiles |
+| Chance to pass, games to decide | Status card, with "About the forecast" under Explain | the two forecast tiles |
 | Time left, games per hour | summary line; Progress tiles (with the date and the window) | |
-| Verdict | summary | the copy inside the Results group |
+| Verdict | Status card (label and figures; the sentence under Explain) | the copy inside the Results group, the sentence at the top of the page |
 | Games, Elo, share per CPU | Workers "By CPU" (share, games, pairs/h, Elo, deviation, crashes, time losses, speed) | "Contributions by CPU" beside "Consistency by CPU": now one table. A tune has no consistency, and keeps the contributions table |
 | Author, creation | header | the two configuration rows |
 
@@ -394,6 +414,7 @@ other tables are derived from.
 Scripts find their targets by attribute, inside
 `.workload-container[data-workload-id][data-workload-insights]`:
 `data-insights-{evidence,status,error,announcer,verdict,forecast,tiles,charts,results,contributions,workers-note}`,
+`data-verdict-{label,figures,text}`, `.diagnosis` with `.diagnosis-{brief,headline,details,evidence}`,
 `data-summary-{meter,timing}`, `data-section` and `data-section-link`,
 `data-live-{workload,status,games,badge,outcome,indicator,notify,notify-note}`,
 `data-workload-action`, `data-workload-announcer`, `data-games-insights`,
@@ -444,7 +465,7 @@ and `createElement`.
   block is dimmed, its hidden result reads "Out of date" and its meta line
   "changed since this page loaded", so it no longer claims to be running.
 - **Workload page**: the stat block, its hidden "Result:" text, the state
-  badge beside the title (`data-live-badge`) and the diagnosis banner follow
+  badge beside the title (`data-live-badge`) and the Status card's diagnosis follow
   the payload. Each change raises
   `openbench:workload-change` on `document`; `workload_utils.js` reloads the
   results summary on it, and `insights.js` refreshes on it, coalesced to one

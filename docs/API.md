@@ -592,7 +592,7 @@ One workload:
 
 `result.statblock` is the page's long block (the short one for a tune).
 `diagnosis` is the banner of [INSIGHTS.md](INSIGHTS.md#workload-diagnosis)
-with `state`, `severity`, `headline`, `brief` and `evidence`, and `null` once
+with `state`, `severity`, `headline`, `brief`, `evidence` and `urgent`, and `null` once
 the workload has finished.
 
 | Error | Status | Body |
