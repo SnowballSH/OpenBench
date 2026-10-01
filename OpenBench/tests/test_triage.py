@@ -258,7 +258,7 @@ class GroupingTests(TriageCase):
 
     def test_the_flat_list_links_only_registered_machines(self) -> None:
         self.error(self.pinned(), 'Disconnect')
-        machine_id = LogEvent.objects.values_list('machine_id', flat=True).first()
+        machine_id = LogEvent.objects.values_list('machine_id', flat=True).get()
         self.assertContains(self.client.get('/errors/?view=list'), f'href="/machines/{machine_id}/"')
 
         Machine.objects.filter(id=machine_id).delete()
