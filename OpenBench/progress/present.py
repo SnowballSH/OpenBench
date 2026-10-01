@@ -73,6 +73,7 @@ class Cell:
     label: str
     elo: str
     detail: str
+    provisional: bool
     verdict: str
     tone: str | None
     runs: list[RunLink]
@@ -116,6 +117,7 @@ class LineagePage:
     checks: list[CheckLine]
     detached: list[StepLine]
     detached_hidden: int
+    others: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -207,16 +209,21 @@ def plural(value: int, noun: str) -> str:
     return f'{count(value)} {noun}{"" if value == 1 else "s"}'
 
 
+def chained_tone(total: EloInterval) -> str | None:
+    if total.value > 0:
+        return 'pass'
+    return 'fail' if total.value < 0 else None
+
+
 def chained_tile(time_class: TimeClass, series: ChainSeries | None) -> Tile:
     label = f'Chained Elo · {time_class.label}'
-    if series is None or series.total is None:
+    if series is None:
         return Tile(label, DASH, f'no trunk step measured at {time_class.label}')
-    return Tile(
-        label,
-        elo_text(series.total, 1),
-        f'{count(series.measured)} of {plural(series.steps, "trunk step")} measured',
-        'pass',
-    )
+    running = f' · {count(series.provisional)} running' if series.provisional else ''
+    meta = f'{count(series.measured)} of {plural(series.steps, "trunk step")} measured{running}'
+    if series.total is None:
+        return Tile(label, DASH, meta)
+    return Tile(label, elo_text(series.total, 1), meta, chained_tone(series.total))
 
 
 def summary_tiles(summary: Summary, series: Iterable[ChainSeries] = ()) -> list[Tile]:
@@ -228,8 +235,8 @@ def summary_tiles(summary: Summary, series: Iterable[ChainSeries] = ()) -> list[
     return [
         *(chained_tile(time_class, by_class.get(time_class)) for time_class in HEADLINE_CLASSES),
         Tile(
-            'Steps accepted',
-            count(lineage.steps_accepted),
+            'Trunk steps',
+            count(lineage.trunk_steps),
             f'{plural(lineage.candidates, "candidate")} off the trunk',
         ),
         Tile('Measurements', count(lineage.measurements), f'pooled from {plural(lineage.runs, "run")}'),
@@ -269,6 +276,7 @@ def measurement_cell(measurement: Measurement) -> Cell:
         label=measurement.time_class.label,
         elo=elo_text(measurement.elo),
         detail=' · '.join([f'{count(measurement.games)} games', *controls]),
+        provisional=measurement.provisional,
         verdict=measurement.verdict.value,
         tone=VERDICT_TONES[measurement.verdict],
         runs=[RunLink(f'/test/{run.id}/', f'#{run.id}') for run in runs],
@@ -310,7 +318,7 @@ def lineage_lines(lineage: LineageReport) -> list[StepLine]:
 
 
 def difference_text(check: DirectCheck) -> str:
-    if check.direct.elo is None or check.chained is None:
+    if check.direct.elo is None or check.direct.provisional or check.chained is None:
         return DASH
     margin = (half_width(check.direct.elo) ** 2 + half_width(check.chained) ** 2) ** 0.5
     return f'{signed(check.direct.elo.value - check.chained.value)} ± {fixed(margin)}'
@@ -329,6 +337,17 @@ def check_line(check: DirectCheck) -> CheckLine:
     )
 
 
+def network_changes(lineage: LineageReport) -> bool:
+    return any(row.step.base.network != row.step.dev.network for row in lineage.steps)
+
+
+def others_note(lineage: LineageReport) -> str:
+    if not lineage.others:
+        return ''
+    steps = sum(other.steps for other in lineage.others)
+    return f'{plural(steps, "step")} in {plural(len(lineage.others), "other lineage")}'
+
+
 def repo_of(lineage: LineageReport) -> str:
     steps = [row.step for row in lineage.steps] + [found.step for found in lineage.origin_candidates]
     return steps[0].repo if steps else ''
@@ -341,12 +360,13 @@ def lineage_page(lineage: LineageReport) -> LineagePage:
         classes=[time_class.label for time_class in lineage.classes],
         columns=2 + len(lineage.classes),
         lines=lineage_lines(lineage),
-        origin=commit_link(lineage.origin, repo_of(lineage), with_network=True),
+        origin=commit_link(lineage.origin, repo_of(lineage), with_network=network_changes(lineage)),
         steps_hidden=lineage.steps_omitted + len(lineage.steps) - len(listed),
         candidates_hidden=lineage.origin_candidates_omitted + sum(row.candidates_omitted for row in listed),
         checks=[check_line(check) for check in lineage.direct],
         detached=[step_line(step, [found.time_class for found in step.measurements]) for step in lineage.detached],
         detached_hidden=lineage.detached_omitted,
+        others=others_note(lineage),
     )
 
 

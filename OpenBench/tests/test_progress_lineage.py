@@ -1,13 +1,17 @@
 import math
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
+from unittest import mock
 
 from django.test import SimpleTestCase
 
 from OpenBench.insights.domain import Outcomes
+from OpenBench.insights.strength import EloInterval
 from OpenBench.progress.conditions import time_class
 from OpenBench.progress.domain import (
     CANDIDATES_SENT,
+    ChainPoint,
+    ChainSeries,
     Commit,
     Lineage,
     RunMode,
@@ -25,6 +29,7 @@ from OpenBench.progress.lineage import (
     lineage_report,
     summarize_lineage,
 )
+from OpenBench.progress.present import chained_tile, elo_text, lineage_page
 from OpenBench.stats import Elo
 from OpenBench.tests.fixtures import present
 
@@ -115,6 +120,13 @@ class TimeClassTests(SimpleTestCase):
         self.assertEqual(time_class('8.0+0.08', '8.0+0.08', 'Hash=16', 'Hash=16'), TimeClass.OTHER)
         self.assertEqual(time_class('fast', 'fast', 'Threads=1', 'Threads=1'), TimeClass.OTHER)
 
+    def test_threads_is_matched_as_a_whole_option_name(self):
+        syzygy = 'SyzygyThreads=4 Threads=1 Hash=16'
+        self.assertEqual(time_class('8.0+0.08', '8.0+0.08', syzygy, syzygy), TimeClass.STC)
+        only_syzygy = 'Hash=16 SyzygyThreads=4'
+        self.assertEqual(time_class('8.0+0.08', '8.0+0.08', only_syzygy, only_syzygy), TimeClass.OTHER)
+        self.assertEqual(time_class('8.0+0.08', '8.0+0.08', 'Hash=16 Threads=2', 'Threads=2'), TimeClass.SMP)
+
     def test_only_other_is_left_out_of_chains(self):
         self.assertEqual([found for found in TimeClass if not found.chained], [TimeClass.OTHER])
 
@@ -190,10 +202,29 @@ class StepTests(SimpleTestCase):
         graph.rows[0] = replace(row, dev=Commit('a', 'NET2'))
         self.assertEqual(len(build_steps(graph.rows)), 1)
 
-    def test_too_few_games_leave_a_measurement_without_an_estimate(self):
+    def test_tiny_or_one_sided_samples_have_no_estimate(self):
+        for penta in ((0, 0, 1, 0, 0), (0, 0, 0, 0, 2), (0, 0, 0, 0, 500), (1, 5, 10, 9, 4)):
+            graph = Graph()
+            graph.run('a', 'b', RunStatus.RUNNING, penta=penta)
+            measurement = build_steps(graph.rows)[0].measurements[0]
+            self.assertIsNone(measurement.elo, penta)
+            self.assertIsNone(measurement.runs[0].elo, penta)
+
+    def test_a_measurement_is_provisional_until_a_run_finishes(self):
         graph = Graph()
-        graph.run('a', 'b', RunStatus.RUNNING, penta=(0, 0, 1, 0, 0))
-        self.assertIsNone(build_steps(graph.rows)[0].measurements[0].elo)
+        graph.run('a', 'b', RunStatus.RUNNING, penta=WEAK)
+        (running,) = build_steps(graph.rows)[0].measurements
+        self.assertTrue(running.provisional)
+        self.assertAlmostEqual(present(running.elo).value, Elo(WEAK)[1])
+
+        graph.run('a', 'b', RunStatus.PASSED, penta=STRONG)
+        graph.run('a', 'b', RunStatus.STOPPED, penta=PENTA)
+        (settled,) = build_steps(graph.rows)[0].measurements
+        finished = tuple(a + b for a, b in zip(STRONG, PENTA, strict=True))
+        self.assertFalse(settled.provisional)
+        self.assertEqual(settled.games, 2 * sum(finished))
+        self.assertAlmostEqual(present(settled.elo).value, Elo(finished)[1])
+        self.assertEqual(len(settled.runs), 3)
 
 
 class TrunkTests(SimpleTestCase):
@@ -271,25 +302,63 @@ class TrunkTests(SimpleTestCase):
         self.assertEqual(path(lineage.trunk), ['a>b', 'b>x'])
         self.assertEqual(path([found.step for found in lineage.branches[Commit('b')]]), ['b>c', 'c>d'])
 
-    def test_two_roots_leave_the_older_tree_detached(self):
+    def test_a_passed_tip_on_an_old_base_does_not_displace_a_line_that_continues(self):
+        graph = Graph()
+        graph.run('8c30', '76f2')
+        graph.run('8c30', '76f2', time_class=TimeClass.LTC)
+        graph.run('76f2', '874c')
+        graph.run('76f2', '874c', RunStatus.RUNNING, TimeClass.LTC)
+        graph.run('874c', '741d', RunStatus.RUNNING)
+        graph.run('8c30', 'stry')
+        lineage = graph.lineage()
+        self.assertEqual(path(lineage.trunk), ['8c30>76f2', '76f2>874c'])
+        self.assertEqual(path([found.step for found in lineage.branches[Commit('8c30')]]), ['8c30>stry'])
+
+    def test_a_passing_test_in_another_tree_does_not_replace_the_trunk(self):
+        graph = Graph()
+        graph.run('8c30', '76f2')
+        graph.run('76f2', '874c')
+        graph.run('874c', '741d', RunStatus.RUNNING)
+        graph.run('f45c', 'f131')
+        lineage = graph.lineage()
+        self.assertEqual(path(lineage.trunk), ['8c30>76f2', '76f2>874c'])
+        self.assertEqual(path(lineage.detached), ['f45c>f131'])
+        (other,) = lineage.others
+        self.assertEqual((other.root, other.steps, other.taken), (Commit('f45c'), 1, 1))
+        self.assertEqual(lineage_report('Avalanche', lineage, None).others, [other])
+
+    def test_trees_with_equal_taken_steps_rank_by_games_then_recency(self):
+        graph = Graph()
+        graph.run('p', 'q', penta=(10, 80, 200, 90, 20))
+        graph.run('a', 'b')
+        self.assertEqual(path(graph.lineage().trunk), ['p>q'])
         graph = Graph()
         graph.run('p', 'q')
-        graph.run('q', 'r')
+        graph.run('a', 'b')
+        self.assertEqual(path(graph.lineage().trunk), ['a>b'])
+
+    def test_two_roots_leave_the_smaller_tree_detached(self):
+        graph = Graph()
         graph.run('a', 'b')
         graph.run('b', 'c')
+        graph.run('c', 'd')
+        graph.run('p', 'q')
+        graph.run('q', 'r')
         lineage = graph.lineage()
-        self.assertEqual(path(lineage.trunk), ['a>b', 'b>c'])
+        self.assertEqual(path(lineage.trunk), ['a>b', 'b>c', 'c>d'])
         self.assertEqual(path(lineage.detached), ['p>q', 'q>r'])
+        self.assertEqual([(other.steps, other.taken) for other in lineage.others], [(2, 2)])
 
-    def test_a_tree_without_an_accepted_step_does_not_take_the_trunk(self):
+    def test_a_tree_without_a_taken_step_does_not_take_the_trunk(self):
         graph = Graph()
         graph.run('a', 'b')
         graph.run('p', 'q', RunStatus.FAILED)
         lineage = graph.lineage()
         self.assertEqual(path(lineage.trunk), ['a>b'])
         self.assertEqual(path(lineage.detached), ['p>q'])
+        self.assertEqual(lineage.others, [])
 
-    def test_nothing_accepted_leaves_an_empty_trunk_at_the_newest_base(self):
+    def test_nothing_taken_leaves_an_empty_trunk_at_the_root(self):
         graph = Graph()
         graph.run('a', 'b', RunStatus.FAILED)
         graph.run('a', 'c', RunStatus.RUNNING)
@@ -326,11 +395,24 @@ class TrunkTests(SimpleTestCase):
         self.assertEqual(path(lineage.trunk), ['a>b', 'b>c'])
         self.assertEqual(path(lineage.detached), ['c>a'])
 
-    def test_a_long_chain_does_not_recurse(self):
+    def test_a_cycle_keeps_the_passed_edge_whatever_the_test_order(self):
         graph = Graph()
-        for index in range(3000):
+        graph.run('b', 'a', RunStatus.FAILED)
+        graph.run('a', 'b')
+        lineage = graph.lineage()
+        self.assertEqual(path(lineage.trunk), ['a>b'])
+        self.assertEqual(path(lineage.detached), ['b>a'])
+
+    def test_a_long_chain_neither_recurses_nor_goes_quadratic(self):
+        graph = Graph()
+        for index in range(6000):
             graph.run(str(index), str(index + 1))
-        self.assertEqual(len(graph.lineage().trunk), 3000)
+        lineage = graph.lineage()
+        self.assertEqual(len(lineage.trunk), 6000)
+        with mock.patch('OpenBench.progress.lineage.half_width', wraps=half_width) as widths:
+            series = chain_series(lineage.trunk, TimeClass.STC, 1)
+        self.assertEqual(series.measured, 6000)
+        self.assertLess(widths.call_count, 3 * 6000)
 
 
 class ChainTests(SimpleTestCase):
@@ -362,6 +444,24 @@ class ChainTests(SimpleTestCase):
         self.assertAlmostEqual(present(series.points[2].cumulative).value, Elo(STRONG)[1] + Elo(PENTA)[1])
         self.assertIsNone(chain_series(self.chain_graph().lineage().trunk, TimeClass.VLTC, 1).total)
         self.assertIsNone(chain([]))
+
+    def test_a_running_step_is_projected_but_never_in_the_total(self):
+        graph = Graph()
+        graph.run('a', 'b')
+        graph.run('a', 'b', time_class=TimeClass.LTC)
+        graph.run('b', 'c')
+        graph.run('b', 'c', RunStatus.RUNNING, TimeClass.LTC, STRONG)
+        graph.run('c', 'd', RunStatus.RUNNING, TimeClass.LTC, (0, 0, 0, 0, 2))
+        graph.run('c', 'd')
+        series = chain_series(graph.lineage().trunk, TimeClass.LTC, 1)
+        self.assertAlmostEqual(present(series.total).value, Elo(PENTA)[1])
+        self.assertEqual((series.measured, series.provisional, series.steps), (1, 1, 3))
+        running = series.points[1]
+        self.assertIsNone(running.cumulative)
+        self.assertAlmostEqual(present(running.elo).value, Elo(STRONG)[1])
+        self.assertAlmostEqual(present(running.projected).value, Elo(PENTA)[1] + Elo(STRONG)[1])
+        self.assertEqual(series.points[2], ChainPoint(3, None, None, None))
+        self.assertIsNone(series.points[0].projected)
 
     def test_classes_are_separate_series(self):
         report = lineage_report('Avalanche', self.chain_graph().lineage(), None)
@@ -405,13 +505,13 @@ class WindowTests(SimpleTestCase):
         self.assertEqual([point.index for point in report.series[0].points], [3, 4])
         self.assertAlmostEqual(present(report.series[0].total).value, 2 * Elo(PENTA)[1])
         self.assertEqual((report.direct[0].first_index, report.direct[0].steps), (1, 4))
-        self.assertEqual(summarize_lineage(lineage, since).steps_accepted, 2)
+        self.assertEqual(summarize_lineage(lineage, since).trunk_steps, 2)
 
         everything = lineage_report('Avalanche', lineage, None)
         self.assertEqual([row.index for row in everything.steps], [1, 2, 3, 4])
         self.assertEqual(path([found.step for found in everything.steps[0].candidates]), ['b>x'])
         summary = summarize_lineage(lineage, None)
-        self.assertEqual((summary.steps_accepted, summary.candidates, summary.measurements, summary.runs), (4, 1, 6, 6))
+        self.assertEqual((summary.trunk_steps, summary.candidates, summary.measurements, summary.runs), (4, 1, 6, 6))
 
     def test_a_window_without_steps_shows_the_head_and_its_candidates(self):
         graph = Graph()
@@ -430,3 +530,60 @@ class WindowTests(SimpleTestCase):
         (row, _) = lineage_report('Avalanche', graph.lineage(), None).steps
         self.assertEqual((len(row.candidates), row.candidates_omitted), (CANDIDATES_SENT, 5))
         self.assertEqual(row.candidates[0].step.dev.sha, 'x5')
+
+
+class PresentLineageTests(SimpleTestCase):
+    def live(self) -> Graph:
+        graph = Graph()
+        graph.run('8c30', '76f2')
+        graph.run('8c30', '76f2', time_class=TimeClass.LTC)
+        graph.run('76f2', '874c')
+        graph.run('76f2', '874c', RunStatus.RUNNING, TimeClass.LTC, (0, 0, 0, 0, 2))
+        graph.run('874c', '741d', RunStatus.RUNNING)
+        graph.run('f45c', 'f131', RunStatus.RUNNING, penta=(0, 0, 0, 0, 0))
+        return graph
+
+    def test_a_confirmation_that_just_started_does_not_move_the_headline(self):
+        report = lineage_report('Avalanche', self.live().lineage(), None)
+        stc, ltc = (chained_tile(series.time_class, series) for series in report.series)
+        self.assertEqual(ltc.value, elo_text(EloInterval(*Elo(PENTA)), 1))
+        self.assertEqual(ltc.meta, '1 of 2 trunk steps measured')
+        self.assertEqual(stc.meta, '2 of 2 trunk steps measured')
+
+    def test_a_running_step_is_named_in_the_tile_and_marked_in_its_cell(self):
+        graph = self.live()
+        graph.rows[3] = replace(graph.rows[3], outcomes=Outcomes((60, 200, 40), WEAK, True))
+        report = lineage_report('Avalanche', graph.lineage(), None)
+        tile = chained_tile(TimeClass.LTC, report.series[1])
+        self.assertEqual(tile.meta, '1 of 2 trunk steps measured · 1 running')
+        self.assertEqual(tile.value, elo_text(EloInterval(*Elo(PENTA)), 1))
+        cell = present(lineage_page(report).lines[1].cells[1])
+        self.assertTrue(cell.provisional)
+
+    def test_the_tile_tone_follows_the_sign(self):
+        series = ChainSeries(TimeClass.STC, [], EloInterval(-9.0, -4.0, 1.0), 1, 0, 1)
+        self.assertEqual(chained_tile(TimeClass.STC, series).tone, 'fail')
+        self.assertEqual(chained_tile(TimeClass.STC, series).meta, '1 of 1 trunk step measured')
+        self.assertEqual(chained_tile(TimeClass.STC, replace(series, total=EloInterval(1.0, 4.0, 7.0))).tone, 'pass')
+        self.assertIsNone(chained_tile(TimeClass.STC, replace(series, total=None, measured=0)).tone)
+
+    def test_the_origin_shows_a_network_only_when_networks_change(self):
+        graph = self.live()
+        graph.rows = [
+            replace(row, base=Commit(row.base.sha, 'NET1'), dev=Commit(row.dev.sha, 'NET1')) for row in graph.rows
+        ]
+        page = lineage_page(lineage_report('Avalanche', graph.lineage(), None))
+        self.assertEqual(page.origin.label, '8c30')
+        graph.rows[0] = replace(graph.rows[0], dev=Commit('76f2', 'NET2'))
+        graph.rows[1] = replace(graph.rows[1], dev=Commit('76f2', 'NET2'))
+        graph.rows[2] = replace(graph.rows[2], base=Commit('76f2', 'NET2'))
+        graph.rows[3] = replace(graph.rows[3], base=Commit('76f2', 'NET2'))
+        page = lineage_page(lineage_report('Avalanche', graph.lineage(), None))
+        self.assertEqual(page.origin.label, '8c30 · NET1')
+
+    def test_other_lineages_are_named_on_the_page(self):
+        graph = self.live()
+        graph.run('f45c', 'f131')
+        page = lineage_page(lineage_report('Avalanche', graph.lineage(), None))
+        self.assertEqual(page.others, '1 step in 1 other lineage')
+        self.assertEqual([line.position for line in page.lines if line.on_trunk], ['2', '1'])

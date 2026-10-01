@@ -10,6 +10,7 @@ ENGINE_NAME_LIMIT = 64
 TRUNK_STEPS_SENT = 500
 CANDIDATES_SENT = 50
 DETACHED_SENT = 50
+MINIMUM_SAMPLE = 30
 
 
 class Window(StrEnum):
@@ -139,6 +140,7 @@ class Measurement:
     verdict: RunStatus
     games: int
     pooling: Pooling
+    provisional: bool
     elo: EloInterval | None
     runs: list[Run]
 
@@ -182,6 +184,13 @@ class DirectRun:
 
 
 @dataclass(frozen=True, slots=True)
+class OtherLineage:
+    root: Commit
+    steps: int
+    taken: int
+
+
+@dataclass(frozen=True, slots=True)
 class Lineage:
     root: Commit
     head: Commit
@@ -189,6 +198,7 @@ class Lineage:
     branches: dict[Commit, list[Candidate]]
     direct: list[DirectRun]
     detached: list[Step]
+    others: list[OtherLineage]
 
 
 @dataclass(frozen=True, slots=True)
@@ -196,6 +206,7 @@ class ChainPoint:
     index: int
     elo: EloInterval | None
     cumulative: EloInterval | None
+    projected: EloInterval | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -204,6 +215,7 @@ class ChainSeries:
     points: list[ChainPoint]
     total: EloInterval | None
     measured: int
+    provisional: int
     steps: int
 
 
@@ -236,11 +248,12 @@ class LineageReport:
     direct: list[DirectCheck]
     detached: list[Step]
     detached_omitted: int
+    others: list[OtherLineage]
 
 
 @dataclass(frozen=True, slots=True)
 class LineageSummary:
-    steps_accepted: int
+    trunk_steps: int
     candidates: int
     measurements: int
     runs: int

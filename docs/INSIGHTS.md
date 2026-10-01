@@ -648,12 +648,22 @@ the sum by `OpenBench.stats.Elo`, the same function behind the number on a
 test page. Game pairs from separate runs of the same two builds under the same
 conditions are independent draws from one distribution, so the summed counts
 are the sufficient statistic and the pooled interval is the correct, narrower
-one. Pooling also removes a bias that picking one run would add: a failed SPRT
-followed by a passing repeat is, pooled, an honest estimate, where the passing
-run alone is the lucky half. If any run in the pool recorded only trinomial
-results (`use_tri`), the pool is computed from the trinomial counts of all of
-them, and `pooling` says which was used. A pool with fewer than two pairs (or
-games) has no estimate. A running test contributes the games it has so far.
+one. Pooling also avoids the bias of picking one run: a failed SPRT followed
+by a passing repeat is, pooled, closer to the truth than the passing run
+alone, though each run still stopped on its own rule. If any run in the pool
+recorded only trinomial results (`use_tri`), the pool is computed from the
+trinomial counts of all of them, and `pooling` says which was used.
+
+Only **finished** runs are pooled (passed, failed, stopped, or a completed
+GAMES run). A run that is still going, or awaiting approval, is listed but adds
+no games while any run of the measurement has finished. A measurement none of
+whose runs has finished is **provisional**: it shows the estimate so far,
+marked as such, and is never part of a chained total (below).
+
+An estimate needs a sample: a pool of fewer than 30 pairs (or games, for
+trinomial), or one whose results all fall in a single outcome, has no estimate
+(`elo` is `null`). Two won pairs would otherwise read as +1200 Elo with a
+four-point margin. The same rule applies to each run's own `elo`.
 
 The measurement's **verdict** is the status of its newest decided run
 (`passed` or `failed`, SPRT only). Without a decided run it is the first of
@@ -669,27 +679,39 @@ because each accepted dev becomes the base of the next test.
 1. **One parent per commit.** A commit may have been tested against several
    bases (its predecessor, and later an old release). Its parent is the base
    that gives it the longest chain back to a root; ties go to the step tested
-   first. Depths are computed over the graph with cycle-closing steps removed
-   (a depth-first search finds them, so `A→B`, `B→A` cannot loop). The steps to
-   a commit from its parent are the **forest**; every other step is either a
-   direct check or detached, see below.
-2. **Accepted steps.** A step is accepted when the chain continues from it
-   (some step in the forest uses its dev as base), or when it is a tip that
-   passed: at least one of its measurements has the verdict `passed` and none
-   has `failed`.
-3. **The head.** Take the forest's steps from the most recently tested. The
-   first one that is accepted gives its dev; the first one that is not accepted
-   but sits on a commit that has a parent gives its base (the commit it was
-   tested against). From that commit, follow accepted steps forward while there
-   are any, taking the most recently measured when several are accepted. Where
-   that walk ends is the head. If no step is accepted anywhere, the head is the
-   base of the newest step and the trunk is empty.
-4. **The trunk** is the path from the root to the head. Its steps are numbered
+   first. Depths are computed over the graph with cycle-closing steps removed:
+   a depth-first search visits passed steps before the others and older steps
+   before newer, so of `B→A` (failed) and `A→B` (passed) it keeps `A→B`
+   whichever was tested first. The steps to a commit from its parent are the
+   **forest**; every other step is either a direct check or detached, see
+   below.
+2. **Taken steps.** A step is taken when the chain continues from it (some
+   step in the forest uses its dev as base), or when it is a tip that passed:
+   at least one of its measurements has the verdict `passed` and none has
+   `failed`. Continuation says the commit was built on, not that its test
+   passed: a failed step that was continued anyway is on the trunk with its
+   failed badge and its (negative) estimate in the chain. The tile therefore
+   counts "trunk steps", not accepted ones.
+3. **The tree.** The forest may have several roots. The lineage shown is the
+   tree with the most taken steps; ties go to the most games, then to the
+   newest test. A passing test between two commits that link to nothing can
+   therefore not replace an established chain. Other trees that have taken
+   steps are named in a notice above the table (`others`), and their tests are
+   in the detached list.
+4. **The head.** From the tree's root, follow taken steps forward while there
+   are any. Where several are taken, a step the chain continues from beats a
+   tip that merely passed, and among equals the one with the newest test in its
+   subtree wins. Where that walk ends is the head. If no step is taken, the
+   trunk is empty and the head is the root.
+5. **The trunk** is the path from the root to the head. Its steps are numbered
    from 1; commit 0 is the root.
 
-Rule 3 means the trunk is the line the newest work builds on, and a stray test
-against an old commit does not cut the trunk short, because the walk forward
-passes it.
+Rule 4 means the trunk follows the line the newest work builds on. A stray
+test against an old commit does not cut it short, since the walk passes that
+commit; a passed candidate on an old base does not displace it either, since a
+line that continues beats an uncontinued tip. The trunk moves to another
+branch once something is tested on top of that branch and it is the more
+recently active.
 
 Everything else is placed relative to the trunk:
 
@@ -709,7 +731,8 @@ Everything else is placed relative to the trunk:
 ### Chained estimate
 
 For one class, along trunk steps `1..n` with pooled estimates `e_i` and 95%
-intervals `[l_i, u_i]`, over the steps that have a measurement at that class:
+intervals `[l_i, u_i]`, over the steps that have a finished measurement with an
+estimate at that class:
 
 ```
 value   = Σ e_i
@@ -722,7 +745,12 @@ Each class is its own series. STC and LTC are never added together, and a step
 with no measurement at a class is a **gap**: it contributes nothing, its point
 has no cumulative value, the line breaks there and resumes from the same sum,
 and the series says how many steps it covers (`measured` of `steps`). Nothing
-is borrowed from another class.
+is borrowed from another class. A **provisional** step (its tests at that class
+are all still running) is not in the sum either: its point carries `projected`,
+the chain so far plus its estimate so far, which the chart draws as a dashed
+segment to a hollow marker, and the tile names it ("1 running") without moving
+the total. Half-width means `(upper − lower) / 2` everywhere, in the tiles, the
+table, the chart and the JSON-derived tooltips.
 
 Caveats, stated on the page:
 
@@ -807,9 +835,10 @@ has steps; with several, the page lists them (`lineage_engines`) and
 - **Top authors**: Workloads of any mode created in the window (not deleted),
   counted by `author`; the ten largest are listed with their share.
 - **Tiles**: the chained Elo at STC and at LTC over the window's trunk steps,
-  each with its margin and coverage (a dash when no step was measured at that
-  class); steps accepted (trunk steps in the window) and the candidates that
-  branched from them; measurements (pooled step-and-class cells of those steps
+  each with its margin, its coverage and the number of steps still running (a
+  dash when no step has a finished measurement at that class; the tile's edge is
+  green for a positive total and red for a negative one); trunk steps in the
+  window and the candidates that branched from them; measurements (pooled step-and-class cells of those steps
   and candidates) and the runs behind them; the SPRT pass rate; games played
   and the mean per day. No tile adds classes together or counts a commit twice.
 
@@ -863,7 +892,7 @@ estimate is `{ "lower", "value", "upper" }` (a 95% interval) or `null`.
     "end": "2026-09-30",              // today, UTC
     "summary": {
       "lineage": {
-        "steps_accepted": 6,          // trunk steps in the window
+        "trunk_steps": 6,             // trunk steps in the window
         "candidates": 5,              // steps branching off them, not on the trunk
         "measurements": 17,           // pooled (step, class) cells of both
         "runs": 18                    // tests behind those cells
@@ -900,8 +929,9 @@ estimate is `{ "lower", "value", "upper" }` (a 95% interval) or `null`.
             "measurements": [         // one per class, in class order
               { "time_class": "stc",  // stc | ltc | vltc | smp | other
                 "verdict": "passed",  // passed | failed | running | pending | completed | stopped
-                "games": 29800,       // all runs
+                "games": 29800,       // the pooled (finished) runs
                 "pooling": "pentanomial",              // or trinomial
+                "provisional": false, // true while no run has finished: elo is "so far"
                 "elo": { "lower": 1.06, "value": 3.70, "upper": 6.34 },
                 "runs": [             // oldest first
                   { "id": 5, "mode": "SPRT",           // SPRT | GAMES
@@ -925,10 +955,12 @@ estimate is `{ "lower", "value", "upper" }` (a 95% interval) or `null`.
           "points": [                 // one per step in "steps"
             { "index": 1,
               "elo": { "lower": 1.06, "value": 3.70, "upper": 6.34 },         // the step, or null
-              "cumulative": { "lower": 1.06, "value": 3.70, "upper": 6.34 } } // null at a gap
+              "cumulative": { "lower": 1.06, "value": 3.70, "upper": 6.34 }, // null at a gap or a provisional step
+              "projected": null }     // provisional step: the chain so far plus its estimate so far
           ],
           "total": { "lower": 18.2, "value": 25.8, "upper": 33.4 },   // whole window, or null
-          "measured": 6,              // steps with an estimate at this class
+          "measured": 6,              // steps with a finished estimate at this class
+          "provisional": 0,           // steps whose estimate is still provisional
           "steps": 6 }                // trunk steps in the window
       ],
       "direct": [                     // runs spanning several trunk steps
@@ -944,7 +976,10 @@ estimate is `{ "lower", "value", "upper" }` (a 95% interval) or `null`.
           "steps": 5 }
       ],
       "detached": [ /* steps, as above, newest first */ ],
-      "detached_omitted": 0
+      "detached_omitted": 0,
+      "others": [                     // other trees that have taken steps
+        { "root": { "sha": "f45c…", "network": "" }, "steps": 1, "taken": 1 }
+      ]
     },
     "lineage_engines": ["Avalanche"], // engines that have steps
     "weekly_outcomes": [              // every week from start's Monday, zeros included
@@ -976,7 +1011,7 @@ fields, which nothing else consumed.
 server; `OpenBench/static/progress.js` only draws the charts from the data
 island and submits the engine form when the selection changes (its button
 stays for visitors without scripts). The trunk chart has trunk step numbers on
-its x axis, one line per class in a fixed colour per class (`--series-1` STC,
+its x axis (`s1`, `s2`, so they cannot be mistaken for workload ids), one line per class in a fixed colour per class (`--series-1` STC,
 `--series-2` LTC, `--series-3` VLTC, `--series-4` SMP) with its band, and a
 legend; the lineage table below it is its data table (`aria-details`), newest
 step first, with candidates above the commit they branched from, a verdict

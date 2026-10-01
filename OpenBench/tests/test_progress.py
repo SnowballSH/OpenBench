@@ -124,7 +124,7 @@ class AnalysisTests(SimpleTestCase):
         self.assertEqual([author.username for author in authors], ['c', 'a', 'b'])
 
     def test_summary(self):
-        lineage = LineageSummary(steps_accepted=3, candidates=1, measurements=5, runs=6)
+        lineage = LineageSummary(trunk_steps=3, candidates=1, measurements=5, runs=6)
         daily = [DailyGames(date(2026, 9, day), 10 * day) for day in (1, 2, 3)]
         summary = analysis.summarize(
             lineage,
@@ -142,7 +142,7 @@ class AnalysisTests(SimpleTestCase):
 
     def test_empty_summary(self):
         summary = analysis.summarize(NO_LINEAGE, [], [], {}, {})
-        self.assertEqual(summary.lineage.steps_accepted, 0)
+        self.assertEqual(summary.lineage.trunk_steps, 0)
         self.assertIsNone(summary.sprt_pass_rate)
         self.assertIsNone(summary.games_per_day)
 
@@ -282,7 +282,7 @@ class ProgressDataTests(TestCase):
         lineage = present(report.lineage)
         self.assertEqual([(row.index, row.step.first_run) for row in lineage.steps], [(2, recent.id)])
         self.assertEqual((lineage.trunk_length, lineage.origin.sha), (2, '2' * 40))
-        self.assertEqual(report.summary.lineage.steps_accepted, 1)
+        self.assertEqual(report.summary.lineage.trunk_steps, 1)
         self.assertEqual(len(present(self.report(Window.ALL, 'Avalanche').lineage).steps), 2)
 
     def test_all_engines_show_a_lineage_only_when_one_engine_has_steps(self):
@@ -394,7 +394,7 @@ class ProgressDataTests(TestCase):
         with self.assertNumQueries(6):
             self.report()
         self.assertIsNone(small.lineage)
-        self.assertEqual(len(present(self.report(engine='Avalanche').lineage).detached), 25)
+        self.assertEqual(present(self.report(engine='Avalanche').lineage).trunk_length, 25)
         with self.assertNumQueries(5):
             self.report(Window.ALL)
 
@@ -553,7 +553,7 @@ class ProgressViewTests(TestCase):
         self.assertEqual(len(payload['daily_games']), 90)
         self.assertRegex(payload['start'], r'^\d{4}-\d{2}-\d{2}$')
         self.assertEqual(
-            payload['summary']['lineage'], {'steps_accepted': 1, 'candidates': 0, 'measurements': 1, 'runs': 1}
+            payload['summary']['lineage'], {'trunk_steps': 1, 'candidates': 0, 'measurements': 1, 'runs': 1}
         )
 
         lineage = payload['lineage']
@@ -573,6 +573,7 @@ class ProgressViewTests(TestCase):
                 'direct',
                 'detached',
                 'detached_omitted',
+                'others',
             },
         )
         self.assertEqual((lineage['engine'], lineage['classes']), ('Avalanche', ['stc']))
@@ -598,7 +599,7 @@ class ProgressViewTests(TestCase):
             },
         )
         (measurement,) = step['measurements']
-        self.assertEqual(set(measurement), {'time_class', 'verdict', 'games', 'pooling', 'elo', 'runs'})
+        self.assertEqual(set(measurement), {'time_class', 'verdict', 'games', 'pooling', 'provisional', 'elo', 'runs'})
         self.assertEqual((measurement['time_class'], measurement['verdict']), ('stc', 'passed'))
         self.assertEqual(set(measurement['elo']), {'lower', 'value', 'upper'})
         (run,) = measurement['runs']
@@ -608,8 +609,11 @@ class ProgressViewTests(TestCase):
         self.assertTrue(re.match(r'^\d{4}-\d{2}-\d{2}T', run['finished_at']))
 
         (series,) = lineage['series']
-        self.assertEqual(set(series), {'time_class', 'points', 'total', 'measured', 'steps'})
-        self.assertEqual(series['points'], [{'index': 1, 'elo': measurement['elo'], 'cumulative': series['total']}])
+        self.assertEqual(set(series), {'time_class', 'points', 'total', 'measured', 'provisional', 'steps'})
+        self.assertEqual(
+            series['points'],
+            [{'index': 1, 'elo': measurement['elo'], 'cumulative': series['total'], 'projected': None}],
+        )
         self.assertEqual(set(payload['summary']['sprt']), {'passed', 'failed', 'stopped'})
         self.assertEqual(
             set(payload['weekly_outcomes'][0]),

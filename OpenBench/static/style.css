@@ -2235,6 +2235,11 @@ th[aria-sort="descending"] .sort-button::after {
     border-left: 2px solid var(--series-1);
 }
 
+.lineage-provisional {
+    color: var(--text-muted);
+    font-style: italic;
+}
+
 .lineage-measurement {
     display: block;
 }

@@ -1,12 +1,14 @@
 import math
 from collections import defaultdict
 from collections.abc import Iterable, Iterator, Mapping, Sequence
+from dataclasses import dataclass, replace
 from datetime import datetime
 
-from OpenBench.insights.strength import EloInterval, elo_interval
+from OpenBench.insights.strength import EloInterval, elo_interval, score_moments
 from OpenBench.progress.domain import (
     CANDIDATES_SENT,
     DETACHED_SENT,
+    MINIMUM_SAMPLE,
     TRUNK_STEPS_SENT,
     Candidate,
     ChainPoint,
@@ -18,6 +20,7 @@ from OpenBench.progress.domain import (
     LineageReport,
     LineageSummary,
     Measurement,
+    OtherLineage,
     Pooling,
     Run,
     RunRow,
@@ -32,6 +35,14 @@ type Children = Mapping[Commit, Sequence[Step]]
 
 UNDECIDED_ORDER = (RunStatus.RUNNING, RunStatus.PENDING, RunStatus.COMPLETED, RunStatus.STOPPED)
 DECIDED = (RunStatus.PASSED, RunStatus.FAILED)
+UNFINISHED = (RunStatus.RUNNING, RunStatus.PENDING)
+
+
+def estimate(results: Sequence[int]) -> EloInterval | None:
+    moments = score_moments(results)
+    if moments is None or moments.count < MINIMUM_SAMPLE or moments.variance == 0.0:
+        return None
+    return elo_interval(results)
 
 
 def run_of(row: RunRow) -> Run:
@@ -43,7 +54,7 @@ def run_of(row: RunRow) -> Run:
         created_at=row.created_at,
         finished_at=row.finished_at,
         games=row.games,
-        elo=elo_interval(row.outcomes.primary()),
+        elo=estimate(row.outcomes.primary()),
     )
 
 
@@ -57,14 +68,17 @@ def pooled_verdict(rows: Sequence[RunRow]) -> RunStatus:
 
 def pool(time_class: TimeClass, rows: Sequence[RunRow]) -> Measurement:
     ordered = sorted(rows, key=lambda row: (row.created_at, row.id))
-    use_penta = all(row.outcomes.use_penta for row in ordered)
-    counts = [row.outcomes.pentanomial if use_penta else row.outcomes.trinomial for row in ordered]
+    finished = [row for row in ordered if row.status not in UNFINISHED]
+    pooled = finished or ordered
+    use_penta = all(row.outcomes.use_penta for row in pooled)
+    counts = [row.outcomes.pentanomial if use_penta else row.outcomes.trinomial for row in pooled]
     return Measurement(
         time_class=time_class,
         verdict=pooled_verdict(ordered),
-        games=sum(row.games for row in ordered),
+        games=sum(row.games for row in pooled),
         pooling=Pooling.PENTANOMIAL if use_penta else Pooling.TRINOMIAL,
-        elo=elo_interval([sum(column) for column in zip(*counts, strict=True)]),
+        provisional=not finished,
+        elo=estimate([sum(column) for column in zip(*counts, strict=True)]),
         runs=[run_of(row) for row in ordered],
     )
 
@@ -116,6 +130,15 @@ def children_of(steps: Iterable[Step]) -> dict[Commit, list[Step]]:
     return dict(children)
 
 
+def passed_unopposed(step: Step) -> bool:
+    verdicts = {measurement.verdict for measurement in step.measurements}
+    return RunStatus.PASSED in verdicts and RunStatus.FAILED not in verdicts
+
+
+def keep_order(step: Step) -> tuple[bool, int]:
+    return not passed_unopposed(step), step.first_run
+
+
 def topological(steps: Sequence[Step], children: Children) -> tuple[list[Commit], set[Edge]]:
     finished: dict[Commit, bool] = {}
     postorder: list[Commit] = []
@@ -144,8 +167,9 @@ def topological(steps: Sequence[Step], children: Children) -> tuple[list[Commit]
 
 
 def primary_steps(steps: Sequence[Step]) -> dict[Commit, Step]:
-    children = children_of(steps)
-    order, cyclic = topological(steps, children)
+    preferred = sorted(steps, key=keep_order)
+    children = children_of(preferred)
+    order, cyclic = topological(preferred, children)
     depth: dict[Commit, int] = {}
     primary: dict[Commit, Step] = {}
 
@@ -161,28 +185,57 @@ def primary_steps(steps: Sequence[Step]) -> dict[Commit, Step]:
     return primary
 
 
-def passed_unopposed(step: Step) -> bool:
-    verdicts = {measurement.verdict for measurement in step.measurements}
-    return RunStatus.PASSED in verdicts and RunStatus.FAILED not in verdicts
-
-
-def accepted(step: Step, children: Children) -> bool:
+def taken(step: Step, children: Children) -> bool:
     return step.dev in children or passed_unopposed(step)
 
 
-def find_head(forest: Sequence[Step], primary: Mapping[Commit, Step], children: Children) -> Commit:
-    newest_first = sorted(forest, key=lambda step: (step.last_tested_at, step.first_run), reverse=True)
-    anchor = next(
-        (
-            step.dev if accepted(step, children) else step.base
-            for step in newest_first
-            if accepted(step, children) or step.base in primary
-        ),
-        newest_first[0].base,
-    )
-    while taken := [step for step in children.get(anchor, ()) if accepted(step, children)]:
-        anchor = max(taken, key=lambda step: (step.measured_at, step.first_run)).dev
-    return anchor
+def descendants(node: Commit, children: Children) -> list[Step]:
+    found: list[Step] = []
+    stack = list(reversed(children.get(node, ())))
+    while stack:
+        step = stack.pop()
+        found.append(step)
+        stack.extend(reversed(children.get(step.dev, ())))
+    return found
+
+
+@dataclass(frozen=True, slots=True)
+class Tree:
+    root: Commit
+    steps: list[Step]
+    taken: int
+
+    @property
+    def rank(self) -> tuple[int, int, datetime]:
+        games = sum(measurement.games for step in self.steps for measurement in step.measurements)
+        return self.taken, games, max(step.last_tested_at for step in self.steps)
+
+
+def trees(forest: Sequence[Step], primary: Mapping[Commit, Step], children: Children) -> list[Tree]:
+    roots = dict.fromkeys(step.base for step in forest if step.base not in primary)
+    return [
+        Tree(root, steps, sum(taken(step, children) for step in steps))
+        for root in roots
+        for steps in [descendants(root, children)]
+    ]
+
+
+def subtree_activity(tree: Tree) -> dict[Commit, datetime]:
+    activity: dict[Commit, datetime] = {}
+    for step in reversed(tree.steps):
+        newest = max(step.last_tested_at, activity.get(step.dev, step.last_tested_at))
+        activity[step.dev] = newest
+        activity[step.base] = max(newest, activity.get(step.base, newest))
+    return activity
+
+
+def find_head(tree: Tree, children: Children) -> Commit:
+    activity = subtree_activity(tree)
+    head = tree.root
+    while options := [step for step in children.get(head, ()) if taken(step, children)]:
+        continued = [step for step in options if step.dev in children]
+        head = max(continued or options, key=lambda step: (activity[step.dev], step.first_run)).dev
+    return head
 
 
 def trunk_to(head: Commit, primary: Mapping[Commit, Step]) -> list[Step]:
@@ -211,12 +264,13 @@ def build_lineage(steps: Sequence[Step]) -> Lineage | None:
     primary = primary_steps(steps)
     forest = sorted(primary.values(), key=lambda step: step.first_run)
     children = children_of(forest)
-    head = find_head(forest, primary, children)
+    ranked = sorted(trees(forest, primary, children), key=lambda tree: tree.rank, reverse=True)
+    chosen = ranked[0]
+    head = find_head(chosen, children)
     trunk = trunk_to(head, primary)
-    root = trunk[0].base if trunk else head
 
     on_trunk = {edge(step) for step in trunk}
-    position = {node: index for index, node in enumerate([root, *(step.dev for step in trunk)])}
+    position = {node: index for index, node in enumerate([chosen.root, *(step.dev for step in trunk)])}
     branches = {node: found for node in position if (found := branch(node, children, on_trunk))}
 
     in_forest = {edge(step) for step in forest}
@@ -229,12 +283,13 @@ def build_lineage(steps: Sequence[Step]) -> Lineage | None:
     placed |= {edge(run.step) for run in direct}
 
     return Lineage(
-        root=root,
+        root=chosen.root,
         head=head,
         trunk=trunk,
         branches=branches,
         direct=direct,
         detached=[step for step in steps if edge(step) not in placed],
+        others=[OtherLineage(tree.root, len(tree.steps), tree.taken) for tree in ranked[1:] if tree.taken],
     )
 
 
@@ -242,29 +297,58 @@ def half_width(interval: EloInterval) -> float:
     return (interval.upper - interval.lower) / 2
 
 
+@dataclass(slots=True)
+class RunningChain:
+    count: int = 0
+    value: float = 0.0
+    variance: float = 0.0
+
+    def add(self, interval: EloInterval) -> None:
+        self.count += 1
+        self.value += interval.value
+        self.variance += half_width(interval) ** 2
+
+    def interval(self, extra: EloInterval | None = None) -> EloInterval | None:
+        if extra is None and not self.count:
+            return None
+        value = self.value + (extra.value if extra else 0.0)
+        margin = math.sqrt(self.variance + (half_width(extra) ** 2 if extra else 0.0))
+        return EloInterval(value - margin, value, value + margin)
+
+
 def chain(estimates: Iterable[EloInterval]) -> EloInterval | None:
-    found = list(estimates)
-    if not found:
-        return None
-    value = sum(interval.value for interval in found)
-    margin = math.sqrt(sum(half_width(interval) ** 2 for interval in found))
-    return EloInterval(value - margin, value, value + margin)
+    running = RunningChain()
+    for interval in estimates:
+        running.add(interval)
+    return running.interval()
 
 
 def step_estimate(step: Step, time_class: TimeClass) -> EloInterval | None:
     measurement = step.measurement(time_class)
-    return measurement.elo if measurement else None
+    return measurement.elo if measurement and not measurement.provisional else None
+
+
+def chain_point(index: int, step: Step, time_class: TimeClass, running: RunningChain) -> ChainPoint:
+    measurement = step.measurement(time_class)
+    if measurement is None or measurement.elo is None:
+        return ChainPoint(index, None, None, None)
+    if measurement.provisional:
+        return ChainPoint(index, measurement.elo, None, running.interval(measurement.elo))
+    running.add(measurement.elo)
+    return ChainPoint(index, measurement.elo, running.interval(), None)
 
 
 def chain_series(steps: Sequence[Step], time_class: TimeClass, first_index: int) -> ChainSeries:
-    points: list[ChainPoint] = []
-    measured: list[EloInterval] = []
-    for index, step in enumerate(steps, start=first_index):
-        estimate = step_estimate(step, time_class)
-        if estimate is not None:
-            measured.append(estimate)
-        points.append(ChainPoint(index, estimate, chain(measured) if estimate is not None else None))
-    return ChainSeries(time_class, points, chain(measured), len(measured), len(steps))
+    running = RunningChain()
+    points = [chain_point(index, step, time_class, running) for index, step in enumerate(steps, start=first_index)]
+    return ChainSeries(
+        time_class=time_class,
+        points=points,
+        total=running.interval(),
+        measured=running.count,
+        provisional=sum(point.projected is not None for point in points),
+        steps=len(steps),
+    )
 
 
 def window_offset(trunk: Sequence[Step], since: datetime | None) -> int:
@@ -339,7 +423,7 @@ def lineage_report(engine: str, lineage: Lineage, since: datetime | None) -> Lin
         | classes_measured(found.step for found in origin_candidates)
     )
     series = [
-        ChainSeries(full.time_class, full.points[omitted:], full.total, full.measured, full.steps)
+        replace(full, points=full.points[omitted:])
         for time_class in TimeClass
         if time_class in on_trunk and time_class.chained
         for full in [chain_series(shown, time_class, offset + 1)]
@@ -360,6 +444,7 @@ def lineage_report(engine: str, lineage: Lineage, since: datetime | None) -> Lin
         direct=direct_checks(lineage, offset),
         detached=detached[:DETACHED_SENT],
         detached_omitted=max(0, len(detached) - DETACHED_SENT),
+        others=lineage.others,
     )
 
 
@@ -370,7 +455,7 @@ def summarize_lineage(lineage: Lineage, since: datetime | None) -> LineageSummar
     candidates = [found.step for node in nodes for found in lineage.branches.get(node, [])]
     measurements = [measurement for step in [*shown, *candidates] for measurement in step.measurements]
     return LineageSummary(
-        steps_accepted=len(shown),
+        trunk_steps=len(shown),
         candidates=len(candidates),
         measurements=len(measurements),
         runs=sum(len(measurement.runs) for measurement in measurements),

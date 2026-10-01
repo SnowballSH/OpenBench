@@ -40,10 +40,13 @@
         return is_number(fraction) ? `${Math.round(100 * fraction)}%` : DASH;
     }
 
+    const half_width = interval => (interval.upper - interval.lower) / 2;
+
+    const plural = (value, noun) => `${value} ${noun}${value === 1 ? '' : 's'}`;
+
     function format_interval(interval) {
         if (!interval || ![interval.lower, interval.value, interval.upper].every(is_number)) return DASH;
-        const half = Math.max(interval.upper - interval.value, interval.value - interval.lower);
-        return `${format_signed(interval.value, 2)} ± ${format_fixed(half)}`;
+        return `${format_signed(interval.value, 2)} ± ${format_fixed(half_width(interval))}`;
     }
 
     const day_ms = iso => Date.parse(`${iso}T00:00:00Z`);
@@ -188,6 +191,31 @@
         ];
     }
 
+    function projected_datasets(series, origin, color, palette) {
+        const points = chain_points(series, origin);
+        const label = CLASS_LABELS[series.time_class] ?? series.time_class;
+        return series.points.flatMap((point, position) => {
+            if (!point.projected) return [];
+            const before = points.slice(0, position + 1).findLast(found => is_number(found.y));
+            return [{
+                label: `${label} running`,
+                provisional: true,
+                data: [{ x: before.x, y: before.y }, { x: point.index, y: point.projected.value, point }],
+                clip: false,
+                borderColor: color,
+                borderWidth: 2,
+                borderDash: [4, 4],
+                backgroundColor: palette.surface,
+                pointRadius: context => (context.raw && context.raw.point ? 4 : 0),
+                pointHoverRadius: context => (context.raw && context.raw.point ? 6 : 0),
+                pointHitRadius: 12,
+                pointBorderWidth: 2,
+                pointBorderColor: color,
+                tension: 0,
+            }];
+        });
+    }
+
     function step_title(row) {
         const step = row.step;
         const commits = `${step.base.sha.slice(0, SHORT_SHA)} → ${step.dev.sha.slice(0, SHORT_SHA)}`;
@@ -196,27 +224,32 @@
 
     function chain_summary(series) {
         const label = CLASS_LABELS[series.time_class] ?? series.time_class;
-        if (!series.total) return `${label}: no step measured`;
-        return `${label} ${format_interval(series.total)} over ${series.measured} of ${series.steps} steps`;
+        const running = series.provisional ? `, ${series.provisional} still running` : '';
+        if (!series.total) return `${label}: no step measured${running}`;
+        return `${label} ${format_interval(series.total)} over ${series.measured} of ${plural(series.steps, 'step')}${running}`;
     }
 
     function trunk_chart(report, palette, quiet) {
         const lineage = report.lineage;
-        if (!lineage) return { empty: 'A lineage follows one engine; choose an engine to see its trunk.' };
-        if (!lineage.steps.length) return { empty: 'No step was accepted onto the trunk in this window.' };
-        if (!lineage.series.some(series => series.measured)) return { empty: 'No trunk step in this window has an Elo estimate.' };
+        if (!lineage && report.lineage_engines.length > 1) return { empty: 'A lineage follows one engine; choose an engine to see its trunk.' };
+        if (!lineage) return { empty: 'No test of one commit against another yet.' };
+        if (!lineage.steps.length) return { empty: 'No step joined the trunk in this window.' };
+        if (!lineage.series.some(series => series.measured || series.provisional)) return { empty: 'No trunk step in this window has an Elo estimate.' };
 
         const rows = new Map(lineage.steps.map(row => [row.index, row]));
         const origin = lineage.steps[0].index - 1;
         const last = lineage.steps.at(-1).index;
-        const datasets = lineage.series.flatMap(series => chain_datasets(series, origin, palette.classes[series.time_class], palette));
+        const datasets = lineage.series.flatMap(series => [
+            ...chain_datasets(series, origin, palette.classes[series.time_class], palette),
+            ...projected_datasets(series, origin, palette.classes[series.time_class], palette),
+        ]);
         const bounds = datasets.flatMap(dataset => dataset.data.map(point => point.y)).filter(is_number);
         const low = Math.min(0, ...bounds);
         const high = Math.max(0, ...bounds);
         const pad = 0.08 * (high - low || 1);
 
         return {
-            label: `Chained Elo along ${lineage.steps.length} trunk steps. ${lineage.series.map(chain_summary).join('. ')}.`,
+            label: `Chained Elo along ${plural(lineage.steps.length, 'trunk step')}. ${lineage.series.map(chain_summary).join('. ')}.`,
             config: {
                 type: 'line',
                 data: { datasets },
@@ -233,7 +266,7 @@
                             boxWidth: 10,
                             boxHeight: 10,
                             padding: 12,
-                            filter: (item, data) => !data.datasets[item.datasetIndex].band,
+                            filter: (item, data) => !data.datasets[item.datasetIndex].band && !data.datasets[item.datasetIndex].provisional,
                         },
                         onClick: () => {},
                     },
@@ -241,7 +274,7 @@
                         type: 'linear',
                         min: origin,
                         max: last,
-                        ticks: { precision: 0, maxTicksLimit: 12, callback: value => (Number.isInteger(value) ? `#${value}` : '') },
+                        ticks: { precision: 0, maxTicksLimit: 12, callback: value => (Number.isInteger(value) ? `s${value}` : '') },
                     }),
                     y: axis(palette, {
                         min: low - pad,
@@ -257,8 +290,8 @@
                         },
                         label: item => {
                             const point = item.raw.point;
-                            const step = point.elo ? `step ${format_interval(point.elo)}` : 'step not measured';
-                            return `${item.dataset.label}: chained ${format_interval(point.cumulative)} (${step})`;
+                            if (point.projected) return `${item.dataset.label}: step ${format_interval(point.elo)} so far, not in the total`;
+                            return `${item.dataset.label}: chained ${format_interval(point.cumulative)} (step ${format_interval(point.elo)})`;
                         },
                         footer: items => {
                             const row = items[0] && rows.get(items[0].raw.x);
