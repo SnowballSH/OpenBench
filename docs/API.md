@@ -160,7 +160,7 @@ The read endpoints and `POST api/active/` change nothing and do not check CSRF.
 | GET, POST | `/api/workload/<id>/results/` | view | Per-machine results |
 | GET, POST | `/api/workload/<id>/info/` | view | The workload's fields |
 | GET, POST | `/api/workload/<id>/summary/` | view | Results grouped by user, CPU, ISA |
-| GET, POST | `/api/workload/<id>/insights/` | view | Progress, ETA, strength, history |
+| GET, POST | `/api/workload/<id>/insights/` | view | Progress, ETA, strength, history, results analysis |
 | GET, POST | `/api/workload/<id>/history.csv` | view | The insights history as CSV |
 | GET, POST | `/api/spsa/<id>/<inputs\|outputs\|digest\|perturbation>/` | view | SPSA tune parameters |
 | GET, POST | `/api/pgns/<id>/` | view | The workload's PGN archive |
@@ -558,8 +558,9 @@ shows formatted text (`penta`, `elo`, `percent`).
 
 #### `insights`
 
-Progress, throughput, ETA, strength, history and contributions, all as JSON
-numbers. The full schema, including every `eta.kind` and `reason`, is in
+Progress, throughput, ETA, strength, history, contributions and the results
+analysis (verdict, outcome breakdown, SPRT outlook, search speed, consistency),
+all as JSON numbers. The full schema, including every `eta.kind` and `reason`, is in
 [INSIGHTS.md](INSIGHTS.md#api).
 
 ```json
@@ -654,7 +655,8 @@ numbers. The full schema, including every `eta.kind` and `reason`, is in
 ```
 
 (`history.points` trimmed from 150 entries to the last, `machines` from 5 and
-`cpus` from 4 to the first; objects reformatted compactly.)
+`cpus` from 4 to the first; objects reformatted compactly. The `results`
+object is left out here; its schema is in [INSIGHTS.md](INSIGHTS.md#api).)
 
 ### `GET|POST /api/workload/<id>/history.csv`
 

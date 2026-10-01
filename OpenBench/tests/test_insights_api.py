@@ -111,7 +111,17 @@ class InsightsApiTests(TestCase):
 
         self.assertEqual(
             set(insights),
-            {'generated_at', 'workload', 'progress', 'timing', 'eta', 'strength', 'history', 'contributions'},
+            {
+                'generated_at',
+                'workload',
+                'progress',
+                'timing',
+                'eta',
+                'strength',
+                'history',
+                'contributions',
+                'results',
+            },
         )
         self.assertEqual(insights['workload']['id'], self.test.id)
         self.assertEqual(insights['workload']['status'], 'active')
@@ -138,6 +148,77 @@ class InsightsApiTests(TestCase):
         self.assertEqual(set(machines[0]['stats']), {'games', 'pairs', 'share', 'pairs_per_hour', 'elo'})
         self.assertAlmostEqual(sum(m['stats']['share'] for m in machines), 1.0)
         self.assertEqual([c['cpu_name'] for c in insights['contributions']['cpus']], ['Ryzen 9', 'Apple M4'])
+
+    def test_results_shape(self):
+        Result.objects.filter(machine=self.slow).update(crashes=1, timeloss=3)
+        self.login()
+        results = self.insights()['insights']['results']
+
+        self.assertEqual(set(results), {'verdict', 'outcomes', 'outlook', 'speed', 'consistency'})
+        self.assertEqual(set(results['verdict']), {'kind', 'tone', 'text'})
+        self.assertEqual(
+            set(results['outcomes']),
+            {
+                'trinomial_fractions',
+                'pentanomial_fractions',
+                'decisive_game_rate',
+                'games_per_decisive',
+                'decisive_pair_rate',
+                'level_pair_rate',
+                'pair_variance',
+            },
+        )
+        self.assertEqual(
+            set(results['outcomes']['pair_variance']),
+            {'observed', 'independent', 'ratio', 'game_correlation', 'pair_efficiency'},
+        )
+        self.assertEqual(set(results['outlook']), {'pass_probability', 'remaining_games', 'interval', 'prior'})
+        self.assertEqual(set(results['outlook']['remaining_games']), {'lower', 'median', 'upper'})
+
+        overall = results['speed']['overall']
+        self.assertEqual(overall['speed']['dev_nps'], 100_000)
+        self.assertEqual(overall['speed']['dev_nps_scaled'], 50_000)
+        self.assertAlmostEqual(overall['speed']['difference'], 1000 / 900 - 1)
+        self.assertIsNone(overall['spread'])
+        self.assertEqual([cpu['cpu_name'] for cpu in results['speed']['cpus']], ['Ryzen 9'])
+
+        consistency = results['consistency']
+        self.assertEqual(set(consistency), {'min_samples', 'cpus', 'heterogeneity', 'hosts'})
+        self.assertEqual(
+            [(cpu['cpu_name'], cpu['hosts']) for cpu in consistency['cpus']], [('Ryzen 9', 1), ('Apple M4', 1)]
+        )
+        self.assertEqual(
+            set(consistency['cpus'][0]['stats']),
+            {
+                'games',
+                'pairs',
+                'elo',
+                'deviation',
+                'crashes',
+                'timelosses',
+                'crash_rate',
+                'timeloss_rate',
+                'crash_flagged',
+                'timeloss_flagged',
+                'speed',
+            },
+        )
+        self.assertIsNone(consistency['heterogeneity'])
+        self.assertEqual((consistency['hosts']['total'], consistency['hosts']['tested']), (2, 0))
+        flagged = consistency['hosts']['flagged']
+        self.assertEqual(
+            [(host['owner'], host['machine_name'], host['machine_id']) for host in flagged],
+            [('admin', None, self.slow.id)],
+        )
+        self.assertEqual((flagged[0]['stats']['crashes'], flagged[0]['stats']['timelosses']), (1, 3))
+        self.assertTrue(flagged[0]['stats']['crash_flagged'] and flagged[0]['stats']['timeloss_flagged'])
+
+    def test_machine_rows_of_one_host_count_once(self):
+        again = machine(self.worker, 'Ryzen 9', 'avx512', name='fast-box', concurrency=8)
+        result(self.test, again, (1, 2, 3, 2, 1))
+        self.login()
+        hosts = self.insights()['insights']['results']['consistency']['hosts']
+        self.assertEqual(hosts['total'], 2)
 
     def test_legacy_workload_without_history(self):
         WorkloadSnapshot.objects.all().delete()

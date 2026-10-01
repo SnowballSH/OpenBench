@@ -11,11 +11,14 @@ from OpenBench.insights.domain import (
     spsa_target_games,
     tune_completed,
 )
+from OpenBench.insights.speed import SpeedCounters
 from OpenBench.machine_info import text_of
 from OpenBench.models import Result, SPSARun, Test, WorkloadSnapshot
 
 TRINOMIAL_FIELDS = ('losses', 'draws', 'wins')
 PENTANOMIAL_FIELDS = ('LL', 'LD', 'DD', 'DW', 'WW')
+SPEED_FIELDS = ('dev_nodes', 'dev_time', 'dev_time_scaled', 'base_nodes', 'base_time', 'base_time_scaled')
+FAULT_FIELDS = ('crashes', 'timeloss')
 
 
 def outcomes_of(source: Any, use_penta: bool) -> Outcomes:
@@ -106,7 +109,15 @@ def result_rows(test: Test) -> list[ResultRow]:
     rows = (
         Result.objects.filter(test=test)
         .order_by('id')
-        .values('machine_id', 'machine__user__username', 'machine__info', *TRINOMIAL_FIELDS, *PENTANOMIAL_FIELDS)
+        .values(
+            'machine_id',
+            'machine__user__username',
+            'machine__info',
+            *TRINOMIAL_FIELDS,
+            *PENTANOMIAL_FIELDS,
+            *FAULT_FIELDS,
+            *SPEED_FIELDS,
+        )
     )
 
     return [
@@ -116,6 +127,9 @@ def result_rows(test: Test) -> list[ResultRow]:
             owner=row['machine__user__username'],
             cpu_name=text_of(row['machine__info'], 'cpu_name'),
             outcomes=outcomes_of_row(row, use_penta),
+            crashes=row['crashes'],
+            timelosses=row['timeloss'],
+            speed=SpeedCounters(*(row[field] for field in SPEED_FIELDS)),
         )
         for row in rows
     ]
