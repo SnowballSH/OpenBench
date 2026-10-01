@@ -256,6 +256,17 @@ class GroupingTests(TriageCase):
         self.assertContains(self.client.get('/errors/'), '#987654 (removed)')
         self.assertContains(self.client.get('/errors/?view=list'), '#987654 (removed)')
 
+    def test_the_flat_list_links_only_registered_machines(self) -> None:
+        self.error(self.pinned(), 'Disconnect')
+        machine_id = LogEvent.objects.values_list('machine_id', flat=True).get()
+        self.assertContains(self.client.get('/errors/?view=list'), f'href="/machines/{machine_id}/"')
+
+        Machine.objects.filter(id=machine_id).delete()
+
+        html = self.client.get('/errors/?view=list').content.decode()
+        self.assertNotIn(f'href="/machines/{machine_id}/"', html)
+        self.assertIn('(no longer registered)', html)
+
     def test_only_the_newest_summaries_are_grouped(self) -> None:
         test = self.pinned()
         machine = self.batch_machine()
@@ -736,7 +747,7 @@ class TriageQueryBudgetTests(TestCase):
     budgets: ClassVar[dict[str, int]] = {
         '/errors/': 9,
         '/errors/?kind=game&unresolved=1': 9,
-        '/errors/?view=list': 7,
+        '/errors/?view=list': 8,
         '/api/errors/?limit=100': 8,
         '/events/': 7,
     }

@@ -13,7 +13,8 @@ there first.
 | `/search/` | 7 |
 | `/go/?q=` (the header's quick jump; the header itself adds none) | 3 to 6 |
 | `/api/jump/?q=` | at most 7 |
-| `/events/`, `/errors/?view=list` | 7 |
+| `/events/` | 7 |
+| `/errors/?view=list` | 8 |
 | `/errors/` (grouped), with any filter | 9 |
 | `/api/errors/` | 8 |
 | `/event/<id>/` | 8 |

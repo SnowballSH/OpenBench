@@ -56,7 +56,7 @@
             {% for row in events %}
                 <tr{% if row.has_log %} data-row-href="/event/{{row.event.id}}/"{% elif row.workload %} data-row-href="{{row.workload|workload_url}}"{% endif %}>
                     <td><time class="muted" datetime="{{row.event.created|date:'c'}}" title="{{row.event.created|date:'c'}}">{{row.ago}}</time></td>
-                    <td><a href="/machines/{{row.event.machine_id}}/">{{row.event.machine_id}}</a></td>
+                    <td>{% if row.registered %}<a href="/machines/{{row.event.machine_id}}/">{{row.event.machine_id}}</a>{% else %}{{row.event.machine_id}} <span class="muted">(no longer registered)</span>{% endif %}</td>
                     <td>{{row.event.author|capfirst}}</td>
                     <td>{% include "OpenBench/Blocks/event_workload.html" with workload=row.workload test_id=row.event.test_id primary=row.has_log|yesno:",1" %}</td>
                     <td><span class="badge">{{row.signature.kind.label}}</span></td>
