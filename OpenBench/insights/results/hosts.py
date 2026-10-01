@@ -1,11 +1,11 @@
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
+from OpenBench.fleet.hosts import HostKey
+from OpenBench.fleet.pools import pool_label, short_name
 from OpenBench.insights.contributions import UNKNOWN_CPU, ResultRow, as_outcomes
 from OpenBench.insights.domain import Outcomes
 from OpenBench.insights.speed import SpeedCounters
-
-type HostKey = tuple[str, str | None, str]
 
 OUTCOME_COUNTERS = 8
 SPEED_COUNTERS = 6
@@ -21,6 +21,7 @@ class Tally:
 
 @dataclass(frozen=True, slots=True)
 class HostTotals:
+    key: HostKey
     owner: str
     machine_name: str | None
     cpu_name: str
@@ -31,16 +32,20 @@ class HostTotals:
     def newest_machine_id(self) -> int:
         return max(self.machine_ids)
 
+    @property
+    def machine_label(self) -> str | None:
+        return short_name(self.machine_name) if self.machine_name else None
+
+    @property
+    def pool(self) -> str:
+        return pool_label(self.machine_name, self.cpu_name)
+
 
 @dataclass(frozen=True, slots=True)
 class CpuTotals:
     cpu_name: str
     hosts: tuple[HostTotals, ...]
     tally: Tally
-
-
-def host_key(row: ResultRow) -> HostKey:
-    return row.owner, row.machine_name, row.cpu_name or UNKNOWN_CPU
 
 
 def summed(columns: Sequence[Sequence[int]], width: int) -> list[int]:
@@ -75,18 +80,19 @@ def games_of(totals: HostTotals | CpuTotals) -> int:
 
 
 def host_totals(key: HostKey, rows: Sequence[ResultRow], use_penta: bool) -> HostTotals:
-    owner, machine_name, cpu_name = key
+    newest = max(rows, key=lambda row: row.machine_id)
     return HostTotals(
-        owner=owner,
-        machine_name=machine_name,
-        cpu_name=cpu_name,
+        key=key,
+        owner=newest.owner,
+        machine_name=newest.machine_name,
+        cpu_name=newest.cpu_name or UNKNOWN_CPU,
         machine_ids=tuple(sorted({row.machine_id for row in rows})),
         tally=combine([row_tally(row) for row in rows], use_penta),
     )
 
 
 def group_by_host(rows: Sequence[ResultRow], use_penta: bool) -> list[HostTotals]:
-    hosts = [host_totals(key, members, use_penta) for key, members in grouped(rows, host_key).items()]
+    hosts = [host_totals(key, members, use_penta) for key, members in grouped(rows, lambda row: row.host).items()]
     return sorted(hosts, key=games_of, reverse=True)
 
 

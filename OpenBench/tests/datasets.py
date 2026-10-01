@@ -1,10 +1,12 @@
 import datetime
 import itertools
 from dataclasses import dataclass
+from typing import Any
 
 from django.contrib.auth.models import User
 from django.utils import timezone
 
+from OpenBench.fleet.hosts import host_key
 from OpenBench.models import (
     PGN,
     Engine,
@@ -214,23 +216,33 @@ def create_spsa_runs(tunes: list[Test], parameters: int) -> None:
     )
 
 
-def create_machines(count: int, users: list[User]) -> list[Machine]:
-    info = {
+REGISTRATIONS_PER_HOST = 4
+
+
+def machine_info(host: int) -> dict[str, Any]:
+    return {
         **system_info(),
         'cpu_name': 'Test CPU',
         'isa_name': 'avx2',
         'machine_name': 'box',
+        'mac_address': f'{host + 1:012X}',
         'supported': list(ENGINES),
     }
+
+
+def create_machines(count: int, users: list[User]) -> list[Machine]:
+    owners = [users[index // REGISTRATIONS_PER_HOST % len(users)] for index in range(count)]
+    infos = [machine_info(index // REGISTRATIONS_PER_HOST) for index in range(count)]
     machines = Machine.objects.bulk_create(
         [
             Machine(
-                user=users[index % len(users)],
+                user=owner,
                 info=info,
+                host_key=host_key(owner.username, info),
                 mnps=1.5,
                 secret=f'secret-{index}',
             )
-            for index in range(count)
+            for index, (owner, info) in enumerate(zip(owners, infos, strict=True))
         ]
     )
     stale = [machine.id for machine in machines[: count - count // 10]]

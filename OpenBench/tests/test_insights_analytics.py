@@ -4,6 +4,7 @@ from datetime import UTC, datetime, timedelta
 
 from django.test import SimpleTestCase
 
+from OpenBench.fleet.hosts import HostKey
 from OpenBench.insights.contributions import ResultRow, summarize_contributions
 from OpenBench.insights.domain import Outcomes, ProgressPoint, SprtBounds, WorkloadFacts, WorkloadMode, WorkloadStatus
 from OpenBench.insights.eta import EtaKind, EtaReason, estimate_eta, sprt_unavailable_reason
@@ -294,28 +295,56 @@ class SeriesTests(SimpleTestCase):
 
 
 class ContributionTests(SimpleTestCase):
-    def row(self, machine_id, cpu, penta, name=None):
-        return ResultRow(machine_id, name, f'owner-{machine_id}', cpu, outcomes(penta))
+    def row(self, machine_id, cpu, penta, name=None, host=None):
+        return ResultRow(machine_id, HostKey(host or f'host-{machine_id}'), name, 'owner', cpu, outcomes(penta))
 
     def test_machines_and_cpus(self):
         rows = [
             self.row(1, 'Ryzen', (1, 10, 20, 10, 1), 'fast'),
             self.row(2, 'Ryzen', (0, 5, 10, 5, 0)),
             self.row(3, None, (0, 1, 2, 1, 0)),
-            self.row(1, 'Ryzen', (0, 1, 2, 1, 0), 'fast'),
         ]
         summary = summarize_contributions(rows, use_penta=True, elapsed_seconds=7200)
 
         self.assertEqual([m.machine_id for m in summary.machines], [1, 2, 3])
         first = summary.machines[0]
-        self.assertEqual((first.machine_name, first.stats.pairs, first.stats.games), ('fast', 46, 92))
-        self.assertEqual(first.stats.pairs_per_hour, 23.0)
+        self.assertEqual((first.machine_name, first.stats.pairs, first.stats.games), ('fast', 42, 84))
+        self.assertEqual(first.stats.pairs_per_hour, 21.0)
         self.assertAlmostEqual(sum(present(m.stats.share) for m in summary.machines), 1.0)
         self.assertEqual(summary.machines[2].cpu_name, 'Unknown')
 
         self.assertEqual(
-            [(c.cpu_name, c.machines, c.stats.pairs) for c in summary.cpus], [('Ryzen', 2, 66), ('Unknown', 1, 4)]
+            [(c.cpu_name, c.machines, c.stats.pairs) for c in summary.cpus], [('Ryzen', 2, 62), ('Unknown', 1, 4)]
         )
+
+    def test_registrations_of_one_host_are_one_machine(self):
+        first, second, third = (1, 10, 20, 10, 1), (0, 1, 2, 1, 0), (2, 3, 9, 6, 0)
+        rows = [
+            self.row(4, 'Ryzen', first, 'box', host='supervised'),
+            self.row(9, 'Ryzen', second, 'box', host='supervised'),
+            self.row(7, 'Ryzen', third, 'box', host='supervised'),
+            self.row(5, 'Ryzen', (0, 1, 1, 1, 0), 'other'),
+        ]
+        summary = summarize_contributions(rows, use_penta=True, elapsed_seconds=3600)
+        pooled = tuple(sum(counts) for counts in zip(first, second, third, strict=True))
+
+        self.assertEqual([m.machine_name for m in summary.machines], ['box', 'other'])
+        host = summary.machines[0]
+        self.assertEqual((host.machine_id, host.stats.pairs, host.stats.games), (9, sum(pooled), 2 * sum(pooled)))
+        self.assertEqual(
+            [(r.machine_id, r.games, r.pairs) for r in host.registrations], [(9, 8, 4), (7, 40, 20), (4, 84, 42)]
+        )
+        self.assertEqual(sum(r.games for r in host.registrations), host.stats.games)
+        elo = present(host.stats.elo)
+        self.assertEqual((elo.lower, elo.value, elo.upper), Elo(pooled))
+        self.assertEqual([(c.cpu_name, c.machines) for c in summary.cpus], [('Ryzen', 2)])
+
+    def test_ephemeral_job_names_are_shortened_and_pooled(self):
+        name = 'batch-a0741747-7d81-49a2-b96e-4b14d4c304c3:0'
+        rows = [self.row(1, 'AMD EPYC 9R14', (0, 1, 2, 1, 0), name), self.row(2, 'AMD EPYC 9R14', (0, 1, 1, 1, 0))]
+        job, unnamed = summarize_contributions(rows, use_penta=True, elapsed_seconds=None).machines
+        self.assertEqual((job.machine_name, job.machine_label, job.pool), (name, 'batch-a0741747…:0', 'batch-*'))
+        self.assertEqual((unnamed.machine_label, unnamed.pool), (None, 'AMD EPYC 9R14'))
 
     def test_empty_and_no_elapsed(self):
         self.assertEqual(summarize_contributions([], True, None).machines, [])

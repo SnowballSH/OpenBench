@@ -32,6 +32,7 @@ class SpeedSpread:
 
 @dataclass(frozen=True, slots=True)
 class SpeedReading:
+    difference: float
     speed: EngineSpeed
     spread: SpeedSpread | None
 
@@ -85,24 +86,30 @@ def speed_spread(hosts: Sequence[HostTotals]) -> SpeedSpread | None:
         mean=math.expm1(centre),
         lower=math.expm1(lower),
         upper=math.expm1(upper),
-        beyond_noise=lower > 0.0 or upper < 0.0,
+        beyond_noise=margin > 0.0 and (lower > 0.0 or upper < 0.0),
     )
 
 
-def speed_reading(counters: SpeedCounters, hosts: Sequence[HostTotals]) -> SpeedReading:
-    return SpeedReading(engine_speed(counters), speed_spread(hosts))
+def speed_reading(counters: SpeedCounters, hosts: Sequence[HostTotals]) -> SpeedReading | None:
+
+    if (ratio := speed_ratio(counters)) is None:
+        return None
+
+    # The headline is the estimate the noise test is about: the mean over hosts once there are two
+    spread = speed_spread(hosts)
+    return SpeedReading(spread.mean if spread else ratio - 1.0, engine_speed(counters), spread)
 
 
 def compare_speed(overall: SpeedCounters, cpus: Sequence[CpuTotals]) -> SpeedComparison | None:
 
-    if speed_ratio(overall) is None:
+    if (reading := speed_reading(overall, [host for cpu in cpus for host in cpu.hosts])) is None:
         return None
 
     return SpeedComparison(
-        overall=speed_reading(overall, [host for cpu in cpus for host in cpu.hosts]),
+        overall=reading,
         cpus=[
-            CpuSpeed(cpu.cpu_name, speed_reading(cpu.tally.speed, cpu.hosts))
+            CpuSpeed(cpu.cpu_name, cpu_reading)
             for cpu in cpus
-            if speed_ratio(cpu.tally.speed) is not None
+            if (cpu_reading := speed_reading(cpu.tally.speed, cpu.hosts)) is not None
         ],
     )

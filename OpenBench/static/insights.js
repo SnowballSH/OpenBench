@@ -275,10 +275,13 @@
 
     function machine_label(row) {
         const cell = element('td', 'contribution-name');
-        const name = row.machine_name || `Machine ${row.machine_id}`;
-        const link = element('a', null, name);
+        const link = element('a', null, row.machine_label || 'Unnamed machine');
         link.href = `/machines/${encodeURIComponent(row.machine_id)}/`;
-        cell.append(link, element('span', 'contribution-sub', row.owner || ''));
+        if (row.machine_name && row.machine_name !== row.machine_label) link.title = row.machine_name;
+        const sessions = row.registrations.length;
+        const pool = row.machine_name && row.pool !== row.machine_name ? row.pool : null;
+        const detail = [row.owner, pool, sessions > 1 ? `${sessions} sessions` : null].filter(Boolean).join(' · ');
+        cell.append(link, element('span', 'contribution-sub', detail));
         return cell;
     }
 
@@ -348,8 +351,10 @@
         { label: 'Draws', detail: '', tone: 'level' },
         { label: 'Wins', detail: '', tone: 'win' },
     ];
-    const OUTLOOK_CAVEAT = 'Forecast, not a promise. Averages the SPRT’s chance to pass over every Elo the games so far '
-        + 'allow (flat prior), so it stays as cautious as the LOS. Real patches cluster near zero, which a flat prior ignores.';
+    const OUTLOOK_CAVEAT = 'A forecast, not a promise. It averages the SPRT’s chance to pass over every strength the games so far allow, '
+        + 'starting from the assumption that a patch is worth about nothing (0 ± {sd} normalized Elo, the weight of {games} games showing no difference). '
+        + 'Early on that assumption decides the number; the games take over as they accumulate. '
+        + 'Tests usually run a little longer than forecast, because results arrive in batches.';
 
     function format_ratio_percent(fraction, digits = 1) {
         return is_number(fraction) ? `${format_signed(100 * fraction, digits)}%` : DASH;
@@ -360,6 +365,11 @@
         if (probability > 0.99) return '> 99%';
         if (probability < 0.01) return '< 1%';
         return format_percent(probability, 0);
+    }
+
+    function format_p(value) {
+        if (!is_number(value)) return DASH;
+        return value < 0.001 ? '< 0.001' : format_fixed(value, 3);
     }
 
     function badge(text, variant) {
@@ -373,26 +383,33 @@
         const range = `${format_percent(outlook.interval, 0)} range ${format_compact(games.lower)} to ${format_compact(games.upper)}`;
         return [
             stat_tile({
-                label: 'Chance to pass (forecast)', title: OUTLOOK_CAVEAT, value: chance, meta: 'flat prior · not a promise',
+                label: 'Chance to pass (forecast)', value: chance,
+                meta: `prior 0 ± ${format_fixed(outlook.prior.sd_elo, 1)} nElo · not a promise`,
                 gauge: meter(outlook.pass_probability, 'fill', `Forecast chance to pass ${chance}`),
             }),
-            stat_tile({
-                label: 'Games to decide (forecast)', title: OUTLOOK_CAVEAT,
-                value: `≈ ${format_compact(games.median)}`, meta: range,
-            }),
+            stat_tile({ label: 'Games to decide (forecast)', value: `≈ ${format_compact(games.median)}`, meta: range }),
         ];
+    }
+
+    function outlook_note(outlook) {
+        const details = element('details', 'insights-details');
+        const text = OUTLOOK_CAVEAT
+            .replace('{sd}', format_fixed(outlook.prior.sd_elo, 1))
+            .replace('{games}', format_count(outlook.prior.equivalent_games));
+        details.append(element('summary', null, 'About the forecast'), element('p', null, text));
+        return details;
     }
 
     function variance_tile(variance) {
         return stat_tile({
             label: 'Pair variance', value: format_ratio_percent(variance.ratio - 1, 0),
-            meta: `vs independent games · a pair is worth ${format_fixed(variance.pair_efficiency)}`,
-            title: 'Observed per-pair score variance against the variance two independent games would have. Below zero, playing each opening with both colours is cancelling opening bias; the worth is how many independent pairs one pair replaces.',
+            meta: `vs independent games · one pair is worth ${format_fixed(variance.pair_efficiency)} independent pairs`,
+            title: 'Observed per-pair score variance against the variance of two independent games. Below zero, playing each opening with both colours is cancelling opening bias.',
         });
     }
 
     function decisive_tile(outcomes) {
-        const swept = is_number(outcomes.decisive_pair_rate) ? ` · LL+WW pairs ${format_percent(outcomes.decisive_pair_rate)}` : '';
+        const swept = is_number(outcomes.swept_pair_rate) ? ` · LL+WW pairs ${format_percent(outcomes.swept_pair_rate)}` : '';
         return stat_tile({
             label: 'Decisive games', value: format_percent(outcomes.decisive_game_rate),
             meta: `1 in ${format_fixed(outcomes.games_per_decisive, 1)} games${swept}`,
@@ -401,20 +418,20 @@
 
     function spread_text(spread) {
         if (!spread) return 'one host, noise unknown';
-        return `${spread.beyond_noise ? 'beyond' : 'within'} noise across ${spread.hosts} hosts`;
+        return `${spread.beyond_noise ? 'beyond' : 'within'} noise across ${format_count(spread.hosts)} hosts`;
     }
 
     function spread_title(spread) {
         return spread
-            ? `95% interval of the per-host mean: ${format_ratio_percent(spread.lower)} to ${format_ratio_percent(spread.upper)}.`
+            ? `Mean over hosts, 95% interval ${format_ratio_percent(spread.lower)} to ${format_ratio_percent(spread.upper)}.`
             : 'Needs two hosts to judge the noise.';
     }
 
     function speed_tile(speed) {
-        const { speed: overall, spread } = speed.overall;
+        const { difference, speed: pooled, spread } = speed.overall;
         return stat_tile({
-            label: 'Dev search speed', value: format_ratio_percent(overall.difference),
-            meta: `${format_compact(overall.dev_nps)} vs ${format_compact(overall.base_nps)} nps · ${spread_text(spread)}`,
+            label: 'Dev search speed', value: format_ratio_percent(difference),
+            meta: `${format_compact(pooled.dev_nps)} vs ${format_compact(pooled.base_nps)} nps · ${spread_text(spread)}`,
             title: `Nodes per second of dev relative to base, from the games workers have reported in full. ${spread_title(spread)}`,
         });
     }
@@ -477,7 +494,8 @@
 
     function host_label(host) {
         const cell = element('td', 'contribution-name');
-        const link = element('a', null, host.machine_name || `${host.owner}’s machine`);
+        const link = element('a', null, host.machine_label || `${host.owner}’s machine`);
+        if (host.machine_name) link.title = host.machine_name;
         link.href = `/machines/${encodeURIComponent(host.machine_id)}/`;
         const rows = host.machines > 1 ? ` · ${host.machines} registrations` : '';
         cell.append(link, element('span', 'contribution-sub', `${host.owner} · ${host.cpu_name}${rows}`));
@@ -500,7 +518,7 @@
     function deviation_cell(deviation) {
         if (!deviation) return numeric_cell(DASH);
         const cell = flagged_cell(`${format_signed(deviation.z_score)} σ`, deviation.flagged, 'deviates');
-        cell.title = `Adjusted p = ${format_fixed(deviation.adjusted_p_value, 3)}`;
+        cell.append(element('span', 'contribution-sub', `adjusted p ${format_p(deviation.adjusted_p_value)}`));
         return cell;
     }
 
@@ -509,35 +527,37 @@
         return flagged_cell(text, flagged, 'high');
     }
 
-    function speed_cell(stats, spread) {
-        const cell = numeric_cell(format_ratio_percent(stats.speed.difference));
-        if (spread) cell.title = `${spread_text(spread)}. ${spread_title(spread)}`;
+    function speed_cell(stats, reading) {
+        if (!reading) return numeric_cell(format_ratio_percent(stats.speed.difference));
+        const cell = numeric_cell(format_ratio_percent(reading.difference));
+        const noise = reading.spread ? `${reading.spread.beyond_noise ? 'beyond' : 'within'} noise` : 'one host';
+        cell.append(element('span', 'contribution-sub', noise));
         return cell;
     }
 
-    function group_cells(stats, spread) {
+    function group_cells(stats, reading) {
         return [
             numeric_cell(format_count(stats.games)), numeric_cell(format_interval(stats.elo)),
             deviation_cell(stats.deviation), fault_cell(stats.crashes, stats.crash_rate, stats.crash_flagged),
-            fault_cell(stats.timelosses, stats.timeloss_rate, stats.timeloss_flagged), speed_cell(stats, spread),
+            fault_cell(stats.timelosses, stats.timeloss_rate, stats.timeloss_flagged), speed_cell(stats, reading),
         ];
     }
 
     function group_table(caption, first_header, rows) {
         const { wrap, body } = table_shell(caption,
             [first_header, 'Games', 'Elo', 'Against the rest', 'Crashes', 'Time losses', 'Dev speed'], 1);
-        rows.forEach(({ label, stats, spread }) => {
+        rows.forEach(({ label, stats, reading }) => {
             const tr = element('tr');
-            tr.append(label, ...group_cells(stats, spread));
+            tr.append(label, ...group_cells(stats, reading));
             body.append(tr);
         });
         return wrap;
     }
 
     function cpu_table(results) {
-        const spreads = new Map((results.speed ? results.speed.cpus : []).map(cpu => [cpu.cpu_name, cpu.reading.spread]));
+        const readings = new Map((results.speed ? results.speed.cpus : []).map(cpu => [cpu.cpu_name, cpu.reading]));
         return group_table('By CPU', 'CPU', results.consistency.cpus.map(cpu => (
-            { label: cpu_group_label(cpu), stats: cpu.stats, spread: spreads.get(cpu.cpu_name) })));
+            { label: cpu_group_label(cpu), stats: cpu.stats, reading: readings.get(cpu.cpu_name) })));
     }
 
     function flagged_host_table(hosts) {
@@ -547,7 +567,7 @@
     function heterogeneity_note(consistency) {
         const test = consistency.heterogeneity;
         if (!test) return `CPUs are compared once two have ${format_count(consistency.min_samples)} results each`;
-        const p = `χ² p = ${format_fixed(test.p_value, 3)}`;
+        const p = `χ² p ${format_p(test.p_value)}`;
         return test.flagged ? `CPUs disagree more than chance explains (${p})` : `CPUs agree within chance (${p})`;
     }
 
@@ -587,6 +607,7 @@
             grid.append(...tiles);
             group.append(grid);
         }
+        if (results.outlook) group.append(outlook_note(results.outlook));
         group.append(results_tables(results, insights));
         container.replaceChildren(group);
     }

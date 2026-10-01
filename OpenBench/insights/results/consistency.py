@@ -9,10 +9,10 @@ from OpenBench.insights.results.speeds import EngineSpeed, engine_speed
 from OpenBench.insights.strength import NORMAL, EloInterval, elo_interval, score_moments
 
 MIN_GROUP_SAMPLES = 200
-DEVIATION_ALPHA = 0.01
+DEVIATION_ALPHA = 0.001
 CRASH_RATE_LIMIT = 0.001
 TIMELOSS_RATE_LIMIT = 0.005
-MIN_TIMELOSSES = 2
+MIN_FAULTS = 2
 
 type Sample = tuple[int, ...]
 
@@ -39,10 +39,6 @@ class GroupStats:
     timeloss_flagged: bool
     speed: EngineSpeed
 
-    @property
-    def flagged(self) -> bool:
-        return bool(self.deviation and self.deviation.flagged) or self.crash_flagged or self.timeloss_flagged
-
 
 @dataclass(frozen=True, slots=True)
 class CpuResult:
@@ -55,6 +51,8 @@ class CpuResult:
 class HostResult:
     owner: str
     machine_name: str | None
+    machine_label: str | None
+    pool: str
     cpu_name: str
     machine_id: int
     machines: int
@@ -80,6 +78,7 @@ class HostCheck:
 @dataclass(frozen=True, slots=True)
 class Consistency:
     min_samples: int
+    alpha: float
     cpus: list[CpuResult]
     heterogeneity: Heterogeneity | None
     hosts: HostCheck
@@ -111,7 +110,7 @@ def deviation(z_score: float | None, comparisons: int) -> Deviation | None:
     if z_score is None:
         return None
 
-    # Bonferroni: one chance of a false flag in 1 / DEVIATION_ALPHA workloads, however many groups there are
+    # Bonferroni keeps the chance of any false flag in this family of comparisons below DEVIATION_ALPHA
     p_value = 2 * NORMAL.cdf(-abs(z_score))
     adjusted = min(1.0, p_value * comparisons)
     return Deviation(z_score, p_value, adjusted, flagged=adjusted < DEVIATION_ALPHA)
@@ -155,8 +154,20 @@ def rate(count: int, games: int) -> float | None:
     return count / games if games else None
 
 
-def exceeds(count: int, games: int, limit: float, minimum: int = 1) -> bool:
-    return count >= minimum and games > 0 and count / games > limit
+def exceeds(count: int, games: int, limit: float) -> bool:
+    return count >= MIN_FAULTS and games > 0 and count / games > limit
+
+
+def crashes_too_often(tally: Tally) -> bool:
+    return exceeds(tally.crashes, tally.outcomes.games, CRASH_RATE_LIMIT)
+
+
+def loses_on_time_too_often(tally: Tally) -> bool:
+    return exceeds(tally.timelosses, tally.outcomes.games, TIMELOSS_RATE_LIMIT)
+
+
+def stands_out(tally: Tally, found: Deviation | None) -> bool:
+    return bool(found and found.flagged) or crashes_too_often(tally) or loses_on_time_too_often(tally)
 
 
 def group_stats(tally: Tally, found: Deviation | None) -> GroupStats:
@@ -170,8 +181,8 @@ def group_stats(tally: Tally, found: Deviation | None) -> GroupStats:
         timelosses=tally.timelosses,
         crash_rate=rate(tally.crashes, games),
         timeloss_rate=rate(tally.timelosses, games),
-        crash_flagged=exceeds(tally.crashes, games, CRASH_RATE_LIMIT),
-        timeloss_flagged=exceeds(tally.timelosses, games, TIMELOSS_RATE_LIMIT, MIN_TIMELOSSES),
+        crash_flagged=crashes_too_often(tally),
+        timeloss_flagged=loses_on_time_too_often(tally),
         speed=engine_speed(tally.speed),
     )
 
@@ -180,6 +191,8 @@ def host_result(host: HostTotals, found: Deviation | None) -> HostResult:
     return HostResult(
         owner=host.owner,
         machine_name=host.machine_name,
+        machine_label=host.machine_label,
+        pool=host.pool,
         cpu_name=host.cpu_name,
         machine_id=host.newest_machine_id,
         machines=len(host.machine_ids),
@@ -189,11 +202,14 @@ def host_result(host: HostTotals, found: Deviation | None) -> HostResult:
 
 def check_hosts(hosts: Sequence[HostTotals]) -> HostCheck:
     found = deviations([host.tally.outcomes.primary() for host in hosts])
-    results = [host_result(host, deviation) for host, deviation in zip(hosts, found, strict=True)]
     return HostCheck(
         total=len(hosts),
         tested=sum(deviation is not None for deviation in found),
-        flagged=[result for result in results if result.stats.flagged],
+        flagged=[
+            host_result(host, deviation)
+            for host, deviation in zip(hosts, found, strict=True)
+            if stands_out(host.tally, deviation)
+        ],
     )
 
 
@@ -201,6 +217,7 @@ def check_consistency(cpus: Sequence[CpuTotals]) -> Consistency:
     samples = [cpu.tally.outcomes.primary() for cpu in cpus]
     return Consistency(
         min_samples=MIN_GROUP_SAMPLES,
+        alpha=DEVIATION_ALPHA,
         cpus=[
             CpuResult(cpu.cpu_name, len(cpu.hosts), group_stats(cpu.tally, found))
             for cpu, found in zip(cpus, deviations(samples), strict=True)

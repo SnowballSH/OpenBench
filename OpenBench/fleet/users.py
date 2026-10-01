@@ -2,10 +2,11 @@ from collections.abc import Collection, Iterable
 from dataclasses import dataclass
 from datetime import datetime
 
-from django.db.models import Count, Max, Q, Sum
+from django.db.models import Max, Q
 
-from OpenBench.fleet.machines import online_since, threads_of
+from OpenBench.fleet.sessions import current_sessions, online_since, threads_of
 from OpenBench.fleet.status import relative_age
+from OpenBench.insights.grouping import sum_by_key
 from OpenBench.models import Machine, Profile, Test
 
 
@@ -51,18 +52,19 @@ def user_row(profile: Profile, machines: MachineStats, last_test: datetime | Non
     )
 
 
+def load_online_hosts(now: datetime) -> dict[int, tuple[int, int]]:
+    # Summed here, not with GROUP BY, so the query stays on the heartbeat index
+    sessions = current_sessions(Machine.objects.filter(online_since(now))).values_list('user_id', threads_of())
+    totals = sum_by_key(sessions, lambda row: row[0], lambda row: (1, row[1] or 0), 0)
+    return {user_id: (online, threads) for user_id, (online, threads) in totals.items()}
+
+
 def load_machine_stats(now: datetime) -> dict[int, MachineStats]:
-    online = online_since(now)
-    rows = (
-        Machine.objects.order_by()
-        .values('user_id')
-        .annotate(
-            online=Count('id', filter=online),
-            threads=Sum(threads_of(), filter=online),
-            last_heartbeat=Max('updated'),
-        )
-    )
-    return {row['user_id']: MachineStats(row['online'], row['threads'] or 0, row['last_heartbeat']) for row in rows}
+    online = load_online_hosts(now)
+    heartbeats = Machine.objects.order_by().values('user_id').annotate(last_heartbeat=Max('updated'))
+    return {
+        row['user_id']: MachineStats(*online.get(row['user_id'], (0, 0)), row['last_heartbeat']) for row in heartbeats
+    }
 
 
 def load_listed_profiles(online_owners: Collection[int]) -> list[Profile]:

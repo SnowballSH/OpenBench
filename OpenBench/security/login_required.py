@@ -3,6 +3,7 @@ from collections.abc import Callable
 from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
 
 from OpenBench import upstream
+from OpenBench.security.robots import ROBOTS_URL
 
 LOGIN_URL = '/login/'
 PAGE_METHODS = frozenset({'GET', 'HEAD'})
@@ -13,6 +14,7 @@ PUBLIC_PREFIXES = (
     '/register/',
     '/logout/',
     '/health/',
+    ROBOTS_URL,
     '/static/',
     '/admin/',
     '/scripts/',

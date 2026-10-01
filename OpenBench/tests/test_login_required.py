@@ -75,3 +75,16 @@ class AnonymousSessionTests(TestCase):
         response = self.client.get('/scripts/')
         self.assertRedirects(response, '/login/', fetch_redirect_response=False)
         self.assert_no_session()
+
+
+class RobotsTests(TestCase):
+    def test_crawlers_are_asked_to_stay_out_without_a_login(self):
+        with self.assertNumQueries(0):
+            response = self.client.get('/robots.txt')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response['Content-Type'], 'text/plain; charset=utf-8')
+        self.assertEqual(response.content.decode(), 'User-agent: *\nDisallow: /\n')
+        self.assertFalse(Session.objects.exists())
+
+    def test_only_reads_are_answered(self):
+        self.assertEqual(self.client.post('/robots.txt').status_code, 405)

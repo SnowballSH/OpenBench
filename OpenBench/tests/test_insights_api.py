@@ -150,7 +150,7 @@ class InsightsApiTests(TestCase):
         self.assertEqual([c['cpu_name'] for c in insights['contributions']['cpus']], ['Ryzen 9', 'Apple M4'])
 
     def test_results_shape(self):
-        Result.objects.filter(machine=self.slow).update(crashes=1, timeloss=3)
+        Result.objects.filter(machine=self.slow).update(crashes=2, timeloss=3)
         self.login()
         results = self.insights()['insights']['results']
 
@@ -163,7 +163,7 @@ class InsightsApiTests(TestCase):
                 'pentanomial_fractions',
                 'decisive_game_rate',
                 'games_per_decisive',
-                'decisive_pair_rate',
+                'swept_pair_rate',
                 'level_pair_rate',
                 'pair_variance',
             },
@@ -172,18 +172,18 @@ class InsightsApiTests(TestCase):
             set(results['outcomes']['pair_variance']),
             {'observed', 'independent', 'ratio', 'game_correlation', 'pair_efficiency'},
         )
-        self.assertEqual(set(results['outlook']), {'pass_probability', 'remaining_games', 'interval', 'prior'})
-        self.assertEqual(set(results['outlook']['remaining_games']), {'lower', 'median', 'upper'})
+        self.assertIsNone(results['outlook'])
 
         overall = results['speed']['overall']
         self.assertEqual(overall['speed']['dev_nps'], 100_000)
         self.assertEqual(overall['speed']['dev_nps_scaled'], 50_000)
-        self.assertAlmostEqual(overall['speed']['difference'], 1000 / 900 - 1)
+        self.assertEqual(set(overall), {'difference', 'speed', 'spread'})
+        self.assertAlmostEqual(overall['difference'], 1000 / 900 - 1)
         self.assertIsNone(overall['spread'])
         self.assertEqual([cpu['cpu_name'] for cpu in results['speed']['cpus']], ['Ryzen 9'])
 
         consistency = results['consistency']
-        self.assertEqual(set(consistency), {'min_samples', 'cpus', 'heterogeneity', 'hosts'})
+        self.assertEqual(set(consistency), {'min_samples', 'alpha', 'cpus', 'heterogeneity', 'hosts'})
         self.assertEqual(
             [(cpu['cpu_name'], cpu['hosts']) for cpu in consistency['cpus']], [('Ryzen 9', 1), ('Apple M4', 1)]
         )
@@ -210,15 +210,46 @@ class InsightsApiTests(TestCase):
             [(host['owner'], host['machine_name'], host['machine_id']) for host in flagged],
             [('admin', None, self.slow.id)],
         )
-        self.assertEqual((flagged[0]['stats']['crashes'], flagged[0]['stats']['timelosses']), (1, 3))
+        self.assertEqual((flagged[0]['stats']['crashes'], flagged[0]['stats']['timelosses']), (2, 3))
+        self.assertEqual(
+            set(flagged[0]),
+            {'owner', 'machine_name', 'machine_label', 'pool', 'cpu_name', 'machine_id', 'machines', 'stats'},
+        )
         self.assertTrue(flagged[0]['stats']['crash_flagged'] and flagged[0]['stats']['timeloss_flagged'])
 
     def test_machine_rows_of_one_host_count_once(self):
-        again = machine(self.worker, 'Ryzen 9', 'avx512', name='fast-box', concurrency=8)
+        again = Machine.objects.create(user=self.worker, info=self.fast.info, mnps=1.5)
         result(self.test, again, (1, 2, 3, 2, 1))
         self.login()
         hosts = self.insights()['insights']['results']['consistency']['hosts']
         self.assertEqual(hosts['total'], 2)
+
+    def test_contributions_group_a_hosts_registrations(self):
+        again = Machine.objects.create(user=self.worker, info=self.fast.info, mnps=1.5)
+        extra = (1, 4, 9, 5, 1)
+        result(self.test, again, extra)
+        self.login()
+        contributions = self.insights()['insights']['contributions']
+
+        self.assertEqual([m['machine_name'] for m in contributions['machines']], ['fast-box', None])
+        host = contributions['machines'][0]
+        self.assertEqual((host['stats']['games'], host['stats']['pairs']), (292 + 2 * sum(extra), 146 + sum(extra)))
+        self.assertEqual(
+            set(host),
+            {'machine_id', 'machine_name', 'machine_label', 'pool', 'owner', 'cpu_name', 'registrations', 'stats'},
+        )
+        self.assertEqual(host['machine_id'], again.id)
+        self.assertEqual((host['machine_label'], host['pool']), ('fast-box', 'fast-box'))
+        self.assertEqual(
+            host['registrations'],
+            [
+                {'machine_id': again.id, 'games': 2 * sum(extra), 'pairs': sum(extra)},
+                {'machine_id': self.fast.id, 'games': 292, 'pairs': 146},
+            ],
+        )
+        self.assertEqual(
+            [(c['cpu_name'], c['machines']) for c in contributions['cpus']], [('Ryzen 9', 1), ('Apple M4', 1)]
+        )
 
     def test_legacy_workload_without_history(self):
         WorkloadSnapshot.objects.all().delete()

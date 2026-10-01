@@ -120,10 +120,11 @@ is where `page_queries.attach_event_workloads` attaches a workload to each
 This is a fork of [AndyGrant/OpenBench](https://github.com/AndyGrant/OpenBench),
 and upstream changes are merged in periodically.
 
-- **Fork-owned**: `OpenBench/compare/`, `OpenBench/converters.py`, `OpenBench/fleet/`, `OpenBench/insights/`,
-  `OpenBench/machine_info.py`, `OpenBench/progress/`, `OpenBench/security/`, `OpenBench/storage/`,
-  `OpenBench/page_queries.py`, `OpenBench/upstream.py`,
+- **Fork-owned**: `OpenBench/compare/`, `OpenBench/converters.py`, `OpenBench/fleet/`, `OpenBench/insights/`, `OpenBench/listing_rows.py`,
+  `OpenBench/machine_info.py`, `OpenBench/navigation/`, `OpenBench/progress/`, `OpenBench/security/`, `OpenBench/storage/`,
+  `OpenBench/page_queries.py`, `OpenBench/upstream.py`, `OpenBench/workload_names.py`,
   `OpenBench/workloads/clone.py`,
+  `OpenBench/management/commands/prune_machines.py`,
   `OpenBench/management/commands/seed_demo.py` and `OpenBench/tests/`. These
   are held to the full rule set in `pyproject.toml`, to `ruff format` and to
   mypy's strict profile.

@@ -61,7 +61,7 @@ anonymous `GET` or `HEAD` with a plain redirect to `/login/` before any view
 runs: no database query, and no flash message, so a cookieless request never
 creates a session row. The login page shows no "requires login" banner for
 these redirects. Paths that authenticate by themselves or must stay reachable
-are left to their views: `/login/`, `/register/`, `/logout/`, `/health/`,
+are left to their views: `/login/`, `/register/`, `/logout/`, `/health/`, `/robots.txt` (which asks every crawler to stay out),
 `/static/`, `/admin/` (Django's own login), `/scripts/`, `/api/` and every
 `/client*/` endpoint. Other methods also reach the view, and `render()` still
 refuses anonymous viewers as before.
@@ -143,6 +143,11 @@ this check cannot break them.
   Each becomes one more OR'd match, and SQLite refuses an expression tree
   deeper than 1,000, so more terms answer the search form, still filled in,
   with the error "Search at most 20 keywords" (or authors) instead of a 500.
+- The quick jump (`/go/?q=`, `/api/jump/?q=`) and the search `q` text take at
+  most 100 characters, and an id typed there at most 18 ASCII digits. Longer
+  text answers with a notice, or with no suggestions, before any lookup.
+  `/go/` redirects only to paths it builds itself; see
+  [UI.md](UI.md#quick-jump).
 - Page numbers in `/index/`, `/greens/`, `/search/`, `/events/`, `/errors/`
   and `/user/<name>/` have at most 10 digits, and ids in `/machines/<id>/`,
   `/test/<id>/`, `/tune/<id>/`, `/datagen/<id>/`, `/event/<id>/`,
@@ -204,6 +209,9 @@ hash. For the Templates and static scripts that means:
   `data-submit-form="<form id>"` submits that form, and a form's
   `data-action-template` (such as `/manage/books/{book-name}/create/`) replaces
   each `{field id}` with that field's URL-encoded value before submitting.
+  `data-row-href` on a table row makes the whole row open that same-origin
+  URL, and `data-row-filter` on an input filters a table's rows; both are
+  described in [UI.md](UI.md#row-navigation).
 - No `style="..."` attributes and no `<style>` elements. Per-element values go
   through the CSSOM, which CSP allows: `site.js` copies `data-fraction` and
   `data-share` into the `--fraction` and `--share` custom properties the

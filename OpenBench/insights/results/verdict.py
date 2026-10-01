@@ -3,6 +3,7 @@ from enum import StrEnum
 
 from OpenBench.insights.domain import SprtBounds, WorkloadFacts, WorkloadStatus
 from OpenBench.insights.results.outlook import SprtOutlook
+from OpenBench.insights.sprt import MIN_GAMES
 from OpenBench.insights.strength import EloInterval, StrengthSummary
 
 VERY_LIKELY_PERCENT = 98
@@ -47,13 +48,13 @@ GAIN_KINDS = (
 )
 
 HEADLINES = {
-    VerdictKind.VERY_LIKELY_GAIN: 'Very likely a {size} gain',
-    VerdictKind.LIKELY_GAIN: 'Likely a {size} gain',
-    VerdictKind.POSSIBLE_GAIN: 'Possibly a {size} gain',
+    VerdictKind.VERY_LIKELY_GAIN: 'Very likely a {size}gain',
+    VerdictKind.LIKELY_GAIN: 'Likely a {size}gain',
+    VerdictKind.POSSIBLE_GAIN: 'Possibly a {size}gain',
     VerdictKind.INCONCLUSIVE: 'No clear difference',
-    VerdictKind.POSSIBLE_LOSS: 'Possibly a {size} loss',
-    VerdictKind.LIKELY_LOSS: 'Likely a {size} loss',
-    VerdictKind.VERY_LIKELY_LOSS: 'Very likely a {size} loss',
+    VerdictKind.POSSIBLE_LOSS: 'Possibly a {size}loss',
+    VerdictKind.LIKELY_LOSS: 'Likely a {size}loss',
+    VerdictKind.VERY_LIKELY_LOSS: 'Very likely a {size}loss',
 }
 
 TONES = {
@@ -78,10 +79,15 @@ def leaning(los: float) -> VerdictKind:
     return VerdictKind.INCONCLUSIVE
 
 
-def size_word(elo: float) -> str:
-    if abs(elo) < SMALL_ELO:
-        return 'small'
-    return 'moderate' if abs(elo) < MODERATE_ELO else 'large'
+def size_word(elo: EloInterval) -> str:
+
+    # Sized by the end of the interval nearest zero, and left out when the interval still includes zero
+    if elo.lower <= 0.0 <= elo.upper:
+        return ''
+    nearest = min(abs(elo.lower), abs(elo.upper))
+    if nearest < SMALL_ELO:
+        return 'small '
+    return 'moderate ' if nearest < MODERATE_ELO else 'large '
 
 
 def signed(value: float) -> str:
@@ -114,6 +120,10 @@ def games_text(games: int) -> str:
     return f'{games / 1_000_000:.1f}M'
 
 
+def bound_scale(facts: WorkloadFacts) -> str:
+    return 'normalized Elo' if facts.outcomes.use_penta else 'BayesElo'
+
+
 def bounds_text(bounds: SprtBounds) -> str:
     return f'[{bounds.elo0:g}, {bounds.elo1:g}]'
 
@@ -125,7 +135,7 @@ def measurement(elo: EloInterval, los: float) -> str:
 def outlook_sentence(outlook: SprtOutlook | None) -> str:
 
     if outlook is None:
-        return 'It is too early to forecast how the SPRT will end.'
+        return 'There are too few games to forecast how the SPRT will end.'
 
     games = outlook.remaining_games
     return (
@@ -144,21 +154,22 @@ def progress_sentence(facts: WorkloadFacts) -> str:
 
 def decided_text(facts: WorkloadFacts, bounds: SprtBounds, elo: EloInterval, los: float) -> str:
     passed = facts.status == WorkloadStatus.PASSED
+    scale = bound_scale(facts)
     favoured, conclusion = (
-        ('upper bound over its lower one', f'worth less than {bounds.elo0:g} Elo')
+        ('upper bound over its lower one', f'worth less than {bounds.elo0:g} {scale}')
         if passed
-        else ('lower bound over its upper one', f'worth {bounds.elo1:g} Elo or more')
+        else ('lower bound over its upper one', f'worth {bounds.elo1:g} {scale} or more')
     )
     return (
-        f'{"Passed" if passed else "Failed"}: after {games_text(facts.outcomes.games)} games the SPRT with bounds '
-        f'{bounds_text(bounds)} favoured its {favoured}, so dev is very unlikely to be {conclusion}. '
-        f'Measured {measurement(elo, los)}; an SPRT stops as soon as it is convinced, '
-        'so this estimate tends to exaggerate the true difference.'
+        f'{"Passed" if passed else "Failed"}: after {games_text(facts.outcomes.games)} games the SPRT with {scale} '
+        f'bounds {bounds_text(bounds)} favoured its {favoured}, so dev is very unlikely to be {conclusion}. '
+        f'Measured {measurement(elo, los)}; an SPRT stops the moment it is convinced, '
+        'so this estimate is biased towards the bound it stopped at.'
     )
 
 
 def leaning_text(kind: VerdictKind, facts: WorkloadFacts, elo: EloInterval, los: float, tail: str) -> str:
-    headline = HEADLINES[kind].format(size=size_word(elo.value))
+    headline = HEADLINES[kind].format(size=size_word(elo))
     suffix = ' yet' if kind == VerdictKind.INCONCLUSIVE and not facts.finished else ''
     return f'{headline}{suffix}: {measurement(elo, los)}. {tail}'
 
@@ -170,8 +181,10 @@ def verdict_of(kind: VerdictKind, text: str) -> Verdict:
 def give_verdict(facts: WorkloadFacts, strength: StrengthSummary, outlook: SprtOutlook | None) -> Verdict:
 
     elo, los = strength.elo, strength.los
-    if elo is None or los is None:
-        return verdict_of(VerdictKind.TOO_EARLY, 'No verdict yet: too few games have been played.')
+    if elo is None or los is None or facts.outcomes.games < MIN_GAMES:
+        return verdict_of(VerdictKind.TOO_EARLY, f'No verdict yet: fewer than {MIN_GAMES} games have been played.')
+    if strength.normalized_elo is None:
+        return verdict_of(VerdictKind.TOO_EARLY, 'No verdict yet: every result so far is the same.')
 
     if facts.sprt and facts.status in (WorkloadStatus.PASSED, WorkloadStatus.FAILED):
         kind = VerdictKind.PASSED if facts.status == WorkloadStatus.PASSED else VerdictKind.FAILED

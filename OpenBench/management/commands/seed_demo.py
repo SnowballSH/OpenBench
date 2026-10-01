@@ -4,11 +4,15 @@
 #
 # Creates accounts, an Engine, a Book, a fleet of Machines, and Workloads of
 # every mode (SPRT, GAMES, SPSA, DATAGEN) in every state, each with per-Machine
-# Results and a WorkloadSnapshot history. Refuses to run without DEBUG, or
+# Results and a WorkloadSnapshot history. COMMIT_CHAIN adds commit-pinned
+# tests like a lab agent creates: both branch names are 40-hex SHAs, each
+# commit is tested at STC then LTC, and an accepted commit is the next base. Refuses to run without DEBUG, or
 # against a database that already holds Workloads.
 
 import datetime
+import hashlib
 import random
+import uuid
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from typing import Any
@@ -17,9 +21,10 @@ from django.conf import settings
 from django.contrib.auth.models import User
 from django.core.management.base import BaseCommand, CommandError, CommandParser
 from django.db import transaction
-from django.db.models import Sum
+from django.db.models import Q, Sum
 from django.utils import timezone
 
+from OpenBench.fleet.hosts import host_key
 from OpenBench.models import (
     Book,
     Engine,
@@ -53,6 +58,22 @@ CPUS = [
     ('Intel(R) Xeon(R) Gold 6338 CPU @ 2.00GHz', 'x86-64-avx512', 'Linux', 32, 240),
 ]
 
+# This host runs the Client under a supervisor with --single-workload, so every
+# workload it plays, and every start that finds no work, is a Machine row of its own
+SUPERVISED_HOST = 2
+
+IDLE_SESSIONS_MINUTES_AGO = (4, 9, 14, 45, 300)
+
+SPLIT_SESSION_PAIRS = 400
+
+# Ephemeral cloud jobs: each is a different VM named after its job id, registers
+# once a minute while idle, plays at most one workload, and never returns
+BATCH_CPU = 'AMD EPYC 9R14'
+BATCH_THREADS = 8
+BATCH_PLAYING_HOSTS = 4
+BATCH_IDLE_HOSTS_HOURS_AGO = (2, 30, 50)
+BATCH_IDLE_SESSIONS = 3
+
 FINISHED_STATES = ('passed', 'failed', 'finished', 'stopped')
 
 LLR_BOUND = 2.94
@@ -60,6 +81,14 @@ LLR_BOUND = 2.94
 SPRT_BATCH = 50
 
 SPRT_MAX_PAIRS = 40_000
+
+DEFAULT_INFO = 'Seeded demonstration workload'
+
+STC = '8.0+0.08'
+
+LTC = '40.0+0.4'
+
+LTC_HASH_MB = 64
 
 
 @dataclass(frozen=True)
@@ -79,7 +108,30 @@ class DemoWorkload:
     genfens_args: str = ''
     play_reverses: bool = False
     days_ago: float = 0.0
+    duration_hours: float = 0.0
     author: int = 0
+    base_name: str = 'master'
+    dev_sha: str = ''
+    base_sha: str = ''
+    info: str = DEFAULT_INFO
+    hash_mb: int = 0
+
+
+@dataclass(frozen=True)
+class DemoStage:
+    tc: str
+    state: str
+    pairs: int = 0
+    hash_mb: int = 0
+
+
+@dataclass(frozen=True)
+class DemoCommit:
+    subject: str
+    elo: float
+    stages: tuple[DemoStage, ...]
+    accepted: bool = False
+    author: int = 1
 
 
 @dataclass(frozen=True)
@@ -167,6 +219,46 @@ PAST_SPRTS = [
     DemoWorkload('mate-distance', 'SPRT', -9.0, 0, 'failed', days_ago=8, author=2),
 ]
 
+# Commits in the order the lab agent proposed them. Each is tested against the newest accepted commit
+# before it, so the two commits after the last accepted one are parallel candidates sharing a base.
+COMMIT_CHAIN = (
+    DemoCommit(
+        'Scale late move reductions by history score',
+        9.0,
+        (DemoStage(STC, 'passed'), DemoStage(LTC, 'passed', hash_mb=LTC_HASH_MB)),
+        accepted=True,
+    ),
+    DemoCommit('Prune quiet moves with negative static exchange', -7.0, (DemoStage(STC, 'failed'),)),
+    DemoCommit(
+        'Extend the singular move search at high depth',
+        8.0,
+        (DemoStage(STC, 'passed'), DemoStage(STC, 'passed'), DemoStage(LTC, 'passed', hash_mb=LTC_HASH_MB)),
+        accepted=True,
+    ),
+    DemoCommit(
+        'Pawn static-eval correction history (corrhist-pawn), indexed by pawn structure and side',
+        8.0,
+        (DemoStage(STC, 'passed'), DemoStage(LTC, 'active', pairs=1400, hash_mb=LTC_HASH_MB)),
+    ),
+    DemoCommit('Widen aspiration windows after a fail high', 1.5, (DemoStage(STC, 'active', pairs=900),)),
+)
+
+CHAIN_ROOT = 'Seeded chain root'
+
+CHAIN_SPAN_DAYS = 5.0
+
+CHAIN_SLOT_USED = 0.6
+
+COMMIT_TAG = 'avl'
+
+PROGRESS_CHECK_ELO = 14.0
+
+PROGRESS_CHECK_GAMES = 3000
+
+PROGRESS_CHECK_DAYS_AGO = 1.0
+
+COMMIT_TAG_LENGTH = 12
+
 SEARCH_PARAMETERS = (
     DemoParameter('LmrBase', True, 0.75, 0.25, 1.50, 0.08, 0.002, 0.92),
     DemoParameter('LmrDivisor', True, 2.25, 1.50, 3.50, 0.15, 0.002, 2.05),
@@ -217,18 +309,92 @@ class Command(BaseCommand):
             create_engine_config()
             create_book()
             machines = create_machines(users)
-            for spec in WORKLOADS + PAST_SPRTS:
+            for spec in seeded_workloads():
                 create_workload(spec, users[spec.author], machines, rng)
             for tune in TUNES:
                 create_tune(tune, users[0], machines, rng)
             credit_profiles(users)
+            settle_supervised_sessions(machines[SUPERVISED_HOST])
+            create_batch_hosts(machines[SUPERVISED_HOST])
             assign_online_machines(machines)
             age_offline_machines(machines)
 
         self.stdout.write(
-            f'Seeded {len(WORKLOADS) + len(PAST_SPRTS) + len(TUNES)} workloads on {len(machines)} machines. '
+            f'Seeded {len(seeded_workloads()) + len(TUNES)} workloads on {len(machines)} machines '
+            f'({Machine.objects.count()} registrations). '
             f'Log in as admin / {DEMO_PASSWORD}'
         )
+
+
+def commit_sha(subject: str) -> str:
+    return hashlib.sha1(subject.encode(), usedforsecurity=False).hexdigest()
+
+
+def chain_workloads(
+    commits: Sequence[DemoCommit], root: str = CHAIN_ROOT, span_days: float = CHAIN_SPAN_DAYS
+) -> list[DemoWorkload]:
+
+    # One SPRT per stage, oldest first, each in its own evenly spaced slot of span_days: a finished stage
+    # ends before the next slot opens and a running one runs on until now, so every stage is created
+    # after the test that accepted its base. The info is the lab agent's: the subject, then its commit tag.
+    stages = sum(len(commit.stages) for commit in commits)
+    slot_days = span_days / stages
+    base = commit_sha(root)
+    workloads: list[DemoWorkload] = []
+    for commit in commits:
+        dev = commit_sha(commit.subject)
+        for stage in commit.stages:
+            finished = stage.state in FINISHED_STATES
+            workloads.append(
+                DemoWorkload(
+                    name=dev,
+                    mode='SPRT',
+                    elo=commit.elo,
+                    pairs=stage.pairs,
+                    state=stage.state,
+                    tc=stage.tc,
+                    days_ago=(days_ago := span_days - slot_days * len(workloads)),
+                    duration_hours=24 * (slot_days * CHAIN_SLOT_USED if finished else days_ago),
+                    author=commit.author,
+                    base_name=base,
+                    dev_sha=dev,
+                    base_sha=base,
+                    info=f'{commit.subject}\n{COMMIT_TAG}:{dev[:COMMIT_TAG_LENGTH]}',
+                    hash_mb=stage.hash_mb,
+                )
+            )
+        if commit.accepted:
+            base = dev
+    return workloads
+
+
+def progress_checks(commits: Sequence[DemoCommit], root: str = CHAIN_ROOT) -> list[DemoWorkload]:
+
+    # What the lab agent does not run but the progress page compares its chain against: a fixed-games
+    # run of the newest accepted commit against the chain root, spanning every step between them
+    newest = [commit for commit in commits if commit.accepted][-1]
+    return [
+        DemoWorkload(
+            name='progress-check',
+            mode='GAMES',
+            elo=PROGRESS_CHECK_ELO,
+            pairs=PROGRESS_CHECK_GAMES // 2,
+            state='finished',
+            max_games=PROGRESS_CHECK_GAMES,
+            tc=LTC,
+            days_ago=PROGRESS_CHECK_DAYS_AGO,
+            duration_hours=6.0,
+            base_name=commit_sha(root),
+            dev_sha=commit_sha(newest.subject),
+            base_sha=commit_sha(root),
+            info=f'Progress since the chain root, up to: {newest.subject}',
+            hash_mb=LTC_HASH_MB,
+        )
+    ]
+
+
+def seeded_workloads() -> list[DemoWorkload]:
+    return [*WORKLOADS, *PAST_SPRTS, *chain_workloads(COMMIT_CHAIN), *progress_checks(COMMIT_CHAIN)]
 
 
 def create_users() -> list[User]:
@@ -292,12 +458,79 @@ def create_machines(users: Sequence[User]) -> list[Machine]:
             'noisy': False,
             'sockets': 1,
             'machine_name': f'demo-{index + 1}',
+            'mac_address': f'00163E{index + 1:06X}',
+            'cli_options': cli_options(index, threads),
             'client_ver': openbench_config()['client_version'],
             'supported': ['Avalanche'],
         }
         mnps = round(1.2 + 0.4 * index, 2)
         machines.append(Machine.objects.create(user=owner, info=info, mnps=mnps, dev_mnps=mnps, base_mnps=mnps))
     return machines
+
+
+def cli_options(index: int, threads: int) -> str:
+    options = f'--threads {threads} --nsockets 1 --identity demo-{index + 1}'
+    return f'{options} --single_workload' if index == SUPERVISED_HOST else options
+
+
+def register_session(host: Machine) -> Machine:
+    return Machine.objects.create(
+        user=host.user, info=host.info, mnps=host.mnps, dev_mnps=host.dev_mnps, base_mnps=host.base_mnps
+    )
+
+
+def session_shares(share: Sequence[int]) -> list[list[int]]:
+    if sum(share) < SPLIT_SESSION_PAIRS:
+        return [list(share)]
+    first = [count // 2 for count in share]
+    return [first, [count - half for count, half in zip(share, first, strict=True)]]
+
+
+def settle_supervised_sessions(host: Machine) -> None:
+    now = timezone.now()
+    for result in Result.objects.filter(machine__host_key=host.host_key).exclude(machine=host):
+        Machine.objects.filter(id=result.machine_id).update(updated=min(result.updated, now), workload=result.test_id)
+    for minutes_ago in IDLE_SESSIONS_MINUTES_AGO:
+        idle = Machine.objects.create(user=host.user, info=host.info)
+        Machine.objects.filter(id=idle.id).update(updated=now - datetime.timedelta(minutes=minutes_ago))
+
+
+def batch_info(template: dict[str, Any], index: int) -> dict[str, Any]:
+    identity = f'batch-{uuid.uuid5(uuid.NAMESPACE_DNS, f"demo-batch-{index}")}:0'
+    return {
+        **template,
+        'cpu_name': BATCH_CPU,
+        'isa_name': 'x86-64-avx512',
+        'concurrency': BATCH_THREADS,
+        'logical_cores': BATCH_THREADS,
+        'physical_cores': BATCH_THREADS // 2,
+        'machine_name': identity,
+        'mac_address': f'0A58A9{index + 1:06X}',
+        'cli_options': f'--threads {BATCH_THREADS} --nsockets 1 --identity {identity} --single_workload',
+    }
+
+
+def register_idle_sessions(owner: User, info: dict[str, Any], last_seen: datetime.datetime) -> None:
+    for minutes_before in range(1, BATCH_IDLE_SESSIONS + 1):
+        idle = Machine.objects.create(user=owner, info=info)
+        Machine.objects.filter(id=idle.id).update(updated=last_seen - datetime.timedelta(minutes=minutes_before))
+
+
+def create_batch_hosts(supervised: Machine) -> None:
+    now = timezone.now()
+    owner = supervised.user
+    recent = Q(updated__lt=now - datetime.timedelta(hours=1), updated__gt=now - datetime.timedelta(days=6))
+    played = Machine.objects.filter(
+        recent, host_key=supervised.host_key, id__in=Result.objects.values('machine_id')
+    ).order_by('-updated', '-id')
+
+    for index, session in enumerate(played[:BATCH_PLAYING_HOSTS]):
+        info = batch_info(supervised.info, index)
+        Machine.objects.filter(id=session.id).update(info=info, host_key=host_key(owner.username, info))
+        register_idle_sessions(owner, info, session.updated)
+
+    for index, hours_ago in enumerate(BATCH_IDLE_HOSTS_HOURS_AGO, start=BATCH_PLAYING_HOSTS):
+        register_idle_sessions(owner, batch_info(supervised.info, index), now - datetime.timedelta(hours=hours_ago))
 
 
 def assign_online_machines(machines: list[Machine]) -> None:
@@ -357,7 +590,9 @@ class Schedule:
     ended: datetime.datetime
 
 
-def schedule(state: str, rng: random.Random, days_ago: float = 0.0) -> Schedule:
+def schedule(state: str, rng: random.Random, days_ago: float = 0.0, duration_hours: float = 0.0) -> Schedule:
+    if days_ago and duration_hours:
+        return exact_schedule(days_ago, duration_hours)
     if days_ago:
         return past_schedule(days_ago, rng)
     now = timezone.now()
@@ -367,6 +602,12 @@ def schedule(state: str, rng: random.Random, days_ago: float = 0.0) -> Schedule:
     return Schedule(created, started, ended)
 
 
+def exact_schedule(days_ago: float, duration_hours: float) -> Schedule:
+    created = timezone.now() - datetime.timedelta(days=days_ago)
+    started = created + datetime.timedelta(minutes=5)
+    return Schedule(created, started, min(timezone.now(), started + datetime.timedelta(hours=duration_hours)))
+
+
 def past_schedule(days_ago: float, rng: random.Random) -> Schedule:
     created = timezone.now() - datetime.timedelta(days=days_ago, hours=rng.uniform(0, 12))
     started = created + datetime.timedelta(minutes=rng.uniform(2, 10))
@@ -374,18 +615,23 @@ def past_schedule(days_ago: float, rng: random.Random) -> Schedule:
     return Schedule(created, started, ended)
 
 
-def create_engine(name: str, rng: random.Random) -> Engine:
-    sha = f'{rng.getrandbits(160):040x}'
+def create_engine(name: str, rng: random.Random, sha: str = '') -> Engine:
+    if sha:
+        # A pinned commit benches the same in every Workload that builds it
+        bench = 2_000_000 + int(sha[:8], 16) % 2_000_000
+    else:
+        sha = f'{rng.getrandbits(160):040x}'
+        bench = rng.randint(2_000_000, 4_000_000)
     source = ENGINE_SOURCE.replace('github.com', 'api.github.com/repos') + f'/zipball/{sha}'
-    return Engine.objects.create(name=name, source=source, sha=sha, bench=rng.randint(2_000_000, 4_000_000))
+    return Engine.objects.create(name=name, source=source, sha=sha, bench=bench)
 
 
 def create_workload(spec: DemoWorkload, author: User, machines: list[Machine], rng: random.Random) -> None:
 
-    dev = create_engine(spec.name, rng)
-    base = create_engine('master', rng)
-    options = f'Threads={spec.threads} Hash={16 * spec.threads}'
-    times = schedule(spec.state, rng, spec.days_ago)
+    dev = create_engine(spec.name, rng, spec.dev_sha)
+    base = create_engine(spec.base_name, rng, spec.base_sha)
+    options = f'Threads={spec.threads} Hash={spec.hash_mb or 16 * spec.threads}'
+    times = schedule(spec.state, rng, spec.days_ago, spec.duration_hours)
     is_sprt = spec.mode == 'SPRT'
     is_data = spec.mode == 'DATAGEN'
     sprt = {
@@ -424,7 +670,7 @@ def create_workload(spec: DemoWorkload, author: User, machines: list[Machine], r
         use_tri=is_data and not spec.play_reverses,
         use_penta=not is_data or spec.play_reverses,
         approved=spec.state != 'pending',
-        info='Seeded demonstration workload',
+        info=spec.info,
         **(sprt if is_sprt else {}),
     )
 
@@ -575,8 +821,15 @@ def record_outcomes(
         if datetime.timedelta(hours=hours_ago) < now - times.started
     ]
     for machine, share in zip(playing, split_pairs(penta, len(playing), rng), strict=True):
-        if sum(share):
+        if not sum(share):
+            continue
+        if machine is not machines[SUPERVISED_HOST]:
             create_result(test, machine, share, rng)
+            continue
+        first, *later = session_shares(share)
+        create_result(test, register_session(machine), first, rng)
+        for session_share in later:
+            create_result(test, register_session(machine), session_share, random.Random(test.id))
 
     wins, losses, draws = trinomial(penta)
     llr = PentanomialSPRT(penta, *bounds) if bounds and outcomes else 0.0

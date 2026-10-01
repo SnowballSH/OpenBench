@@ -21,7 +21,7 @@ class OutcomeBreakdown:
     pentanomial_fractions: tuple[float, ...] | None
     decisive_game_rate: float | None
     games_per_decisive: float | None
-    decisive_pair_rate: float | None
+    swept_pair_rate: float | None
     level_pair_rate: float | None
     pair_variance: PairVariance | None
 
@@ -66,7 +66,7 @@ def outcome_breakdown(outcomes: Outcomes) -> OutcomeBreakdown:
         pentanomial_fractions=fractions(outcomes.pentanomial),
         decisive_game_rate=decisive / outcomes.games if outcomes.games else None,
         games_per_decisive=outcomes.games / decisive if decisive else None,
-        decisive_pair_rate=(LL + WW) / outcomes.pairs if outcomes.pairs else None,
+        swept_pair_rate=(LL + WW) / outcomes.pairs if outcomes.pairs else None,
         level_pair_rate=DD / outcomes.pairs if outcomes.pairs else None,
         pair_variance=pair_variance(outcomes),
     )

@@ -37,11 +37,18 @@ PAGE_QUERIES = {
     '/greens/': 6,
     '/search/?keywords=branch': 7,
     '/search/2/?authors=user1+user2': 7,
+    '/search/?q=branch': 7,
+    '/api/jump/?q=branch': 6,
     '/events/': 7,
     '/errors/': 7,
     '/networks/': 5,
     '/api/insights/server/': 11,
+    '/machines/': 11,
+    '/machines/?show=7d': 11,
+    '/users/': 8,
 }
+
+MACHINE_QUERIES = 11
 
 WORKLOAD_QUERIES = {
     '/test/{}/': 10,
@@ -78,6 +85,10 @@ class QueryBudgetTests(TestCase):
         for url, queries in WORKLOAD_QUERIES.items():
             self.assert_page_queries(url.format(self.data.workload.id), queries)
 
+    def test_machine_page(self) -> None:
+        for machine in (self.data.machines[0], self.data.machines[-1]):
+            self.assert_page_queries(f'/machines/{machine.id}/', MACHINE_QUERIES)
+
     def test_compare_page(self) -> None:
         other = next(test for test in self.data.tests if test.test_mode == 'SPRT' and test != self.data.workload)
         self.assert_page_queries(f'/compare/?a={self.data.workload.id}&b={other.id}', COMPARE_QUERIES)
@@ -97,7 +108,7 @@ class SearchPagingTests(TestCase):
 
     def shown_ids(self, url: str) -> list[int]:
         content = self.client.get(url).content.decode()
-        return [int(test_id) for test_id in re.findall(r'<a href="/test/(\d+)/">', content)]
+        return [int(test_id) for test_id in re.findall(r'<a class="row-link row-title" href="/test/(\d+)/"', content)]
 
     def test_pages_list_the_newest_matches_first(self) -> None:
         newest = [test.id for test in reversed(self.tests)]
@@ -123,7 +134,9 @@ class EventWorkloadTests(TestCase):
 
         content = self.client.get('/events/').content.decode()
 
-        self.assertIn(f'<a href="/tune/{test.id}/">dev</a>', content)
+        self.assertIn(
+            f'<a class="row-link" href="/tune/{test.id}/"><span class="row-id">#{test.id}</span> dev</a>', content
+        )
         self.assertIn('<td class="mono">N=25000</td>', content)
 
 
