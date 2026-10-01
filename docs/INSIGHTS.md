@@ -2369,3 +2369,112 @@ Each `DemoCommit` has a `speed` (dev over base nodes per second) that its
 Results' node counters follow with a little per-host noise, and the counters'
 times follow the time control, so the speed chain and core-hours are
 plausible.
+
+## Digest
+
+`/digest/` is the page to open after being away: what finished, what is
+still running, how far the trunk moved, what the fleet did and what went
+wrong, over one time window. `OpenBench/digest/` computes nothing new. It
+puts the lineage and economics of [Engine progress](#engine-progress), the
+listing timing, the [diagnosis](#workload-diagnosis) and the
+[error groups](#worker-errors) side by side over the same window; each number
+is defined where it comes from, and this section only says how the window is
+applied to it.
+
+### Window
+
+| Parameter | Meaning |
+|---|---|
+| `since` | `8h`, `24h` (default), `3d` or `7d`, ignoring case and surrounding space: that long before now |
+| `from` | An ISO 8601 timestamp with seconds and an offset (`2026-10-01T06:00:00Z`, `2026-10-01T08:00:00.250+02:00`): from that instant until now |
+
+Sending both, an unknown `since`, a `from` in any other shape or a `from` in
+the future is refused: the API answers 400 and the page falls back to 24
+hours. A `from` more than 30 days back is moved to 30 days and
+`window.clamped` is `true`. Both ends belong to the window, so a workload
+that finished at exactly `window.since` is in it.
+
+"Since my last visit" is a `from` link built in the browser. `digest.js`
+keeps two instants under `openbench-digest-visit` in `localStorage`: `last`,
+the server time of the newest digest this browser loaded, and `previous`,
+the value `last` had when the current visit began. A load more than 30
+minutes after `last` begins a new visit. The link points at `previous`, so
+reloading or changing the window during a visit does not move it; it stays
+hidden until there has been an earlier visit, and with storage blocked. The
+server never stores a visit.
+
+### What is in it
+
+- **Finished**: workloads that are finished, not deleted, and whose
+  [finish time](#finish-time) is in the window, newest first, at most 100
+  (`finished.omitted` counts the rest; `finished.counts` covers all of them).
+  The status is the workload's own (`passed`, `failed`, `completed` for a
+  tune that ran its games, otherwise `stopped`), the Elo is the logistic
+  estimate with its 95% interval for tests and is absent for tunes and
+  datagen, the duration runs from the first recorded report (or creation) to
+  the finish time, and a stopped row carries the diagnosis' reason when there
+  is one.
+- **Started and still running**: every unfinished workload that is not
+  deleted, pending ones included, newest start first, at most 100.
+  `started_in_window` says whether its first recorded report (or its
+  creation, before any report) is in the window, so a test that has been
+  running for a week is listed and not marked new. Each carries its diagnosis
+  state, its LLR between its bounds, and the listing's own rate and
+  [time left](#time-left).
+- **Trunk movement**: per engine with a lineage and per chained time-control
+  class, the trunk steps whose pooled measurement at that class settled in
+  the window: the newest finish time among the measurement's finished runs is
+  in it. `net` chains those measurements exactly as the progress page does
+  (values add, 95% half-widths add in quadrature), `measured` counts them and
+  `accepted` counts the ones whose pooled verdict is a pass. A step whose
+  runs at that class are all unfinished is listed as provisional, as on the
+  progress page, and adds nothing to `net`. The trunk itself is built from
+  every run, as always: the window only selects which measurements are
+  reported. A measurement that an older repeat finished long ago and a new
+  repeat finished today counts as today's, with its pooled value.
+- **Fleet**: `games` is the growth of each workload's snapshot history inside
+  the window (the newest count before the window is the baseline; games
+  played before a workload's history began count in the hour of its first
+  report). `buckets` holds the same games per period and time-control class:
+  one hour wide up to 72 hours, then the narrowest of 2, 3, 4, 6, 8, 12 or 24
+  hours that keeps at most 72 periods, on UTC boundaries. Tunes, datagen,
+  tests between two engines and deleted workloads are `other`.
+  `peak_games_per_hour` is the busiest period as an hourly rate. Worker
+  concurrency is not recorded in snapshots, so the digest has no peak
+  concurrency. `core_hours` uses the definition of
+  [Testing economics](#testing-economics), search time from node counters
+  times threads, and gives a run's hours to the window by the share of its
+  games played in it; `core_hours_estimated` is true when a run's counters
+  cover only part of its games or its class's rate stood in for a run with no
+  counters, and `games_without_hours` counts games no rate exists for.
+  `hosts` and `pools` are the distinct [hosts](#hosts) and [pools](#pools)
+  behind the results last reported in the window.
+- **Errors**: the [error groups](#groups) whose newest event is in the
+  window, unresolved first, at most 20, each with the status rules of the
+  errors page; `new` marks a group whose first event is in the window too.
+  Groups come from the 500 most recently seen summaries, as on `/errors/`.
+- **Headline**: one sentence built from the counts above, and one for the
+  fleet. Server-rendered text, also in the API.
+
+### Cost
+
+One report is at most 20 queries however much data there is: the diagnosis
+of active workloads, the stop causes and the error lookups are skipped when
+there is nothing for them to read. The page adds the four every logged-in
+page pays.
+Fixed windows are cached for 60 seconds each. A `from` window is computed on
+every request, so an arbitrary timestamp never becomes a cache key. Like the
+progress report, it reads every run of every engine to build the lineage.
+
+### `GET|POST /api/digest/?since=&from=`
+
+`{"digest": {...}}` with `generated_at`, `window` (`preset`, `since`,
+`until`, `clamped`), `headline` (two strings), `finished` (`counts`,
+`workloads`, `omitted`), `running` (`total`, `pending`, `started`,
+`workloads`, `omitted`), `trunk` (per engine: `engine`, `head`,
+`trunk_length`, `classes` with `time_class`, `moves`, `moves_omitted`,
+`measured`, `accepted`, `provisional`, `net`), `fleet` and `errors`
+(`total`, `new`, `unresolved`, `omitted`, `truncated`, `groups`). A group has
+the fields of [`/api/errors/`](API.md#getpost-apierrorsworkloadkindunresolvedlimit)
+plus `new`. An example is in [API.md](API.md#getpost-apidigestsincefrom).
+The contracts are the dataclasses in `OpenBench/digest/domain.py`.

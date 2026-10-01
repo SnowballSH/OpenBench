@@ -143,6 +143,16 @@ without relying on fill alone.
   `#id title` with the commit pair beneath, as the listings do, for the
   events, errors and event pages. `.workload-errors` is the workload page's
   "Worker errors (N)" line.
+- **Digest** (`/digest/`; behaviour in [INSIGHTS.md](INSIGHTS.md#digest)):
+  reuses the progress page's frame (`.progress-page`, `.progress-heading`,
+  `.progress-section` cards, `.stat-tiles`) and the errors table's cells.
+  `.digest-headline` is the summary card, `.digest-table` top-aligns the
+  multi-line rows, `.digest-workload` lets a title wrap, and
+  `.digest-series-{stc,ltc,vltc,smp,other}` colour the legend swatches with
+  the same tokens `digest.js` gives the bars. The window filter is a
+  `.fleet-filter` of plain links; "Since my last visit" is one more link
+  that `digest.js` reveals once the browser has an earlier visit, so the
+  page works without script and without storage.
 - **Banners**: `.error-message`, `.warning-message`, `.status-message` render
   the session messages in `base.html`.
 - **Diagnosis**: `.diagnosis` with `.diagnosis-{ok,info,warning}` is the
@@ -176,6 +186,8 @@ anywhere on the row, not only from the link.
 | Errors, grouped | the newest log of the group when it has one, otherwise the workload |
 | Errors, every event | the error's page when it has a log, otherwise the workload |
 | Progress: lineage, direct-check and detached rows that stand for exactly one workload | the workload |
+| Digest: finished and running rows, and trunk steps measured by exactly one workload | the workload |
+| Digest: errors | as the grouped errors table |
 
 Networks stay plain rows: a row there has three equal candidates (engine,
 download, edit), and a stray click must not start a download. The compare
@@ -514,6 +526,11 @@ Rules the charts follow:
   plot and its tooltip names both; the win/draw/loss bars in the colour table
   use `--pass`, `--neutral-edge` and `--fail` with a legend and the counts
   beside them.
+- The digest's games-per-hour chart (`digest.js`) stacks one series per
+  time-control class in the fixed order STC, LTC, VLTC, SMP (`--series-1` to
+  `--series-4`, the colours the progress page gives those classes) and Other
+  in `--neutral-edge`, with a 2px surface gap between segments, a legend
+  above the plot and a data table under it.
 - Every canvas has `role="img"` and an `aria-label` stating the latest value.
 - The `--series-1` to `--series-4` values were re-stepped for this feature and
   pass the categorical palette checks (lightness band, chroma, colour-vision

@@ -3,8 +3,9 @@
 Every endpoint a script or dashboard can call on this fork: the JSON API under
 `/api/`, the `/scripts/` form endpoint that `Scripts/*.py` use to upload
 networks and create tests, and `/health/`. Routes are in `OpenBench/urls.py`;
-the views are in `OpenBench/views.py`, `OpenBench/insights/views.py` and
-`OpenBench/storage/views.py`.
+the views are in `OpenBench/views.py` and in the `views.py` of the fork's
+packages (`insights`, `storage`, `progress`, `diagnosis`, `triage`, `digest`
+and the others).
 
 The examples below were captured from a local server filled by
 `manage.py seed_demo`. Long arrays are trimmed, and marked as trimmed.
@@ -17,7 +18,7 @@ The examples below were captured from a local server filled by
 - [Configuration](#configuration): `api/config/`, `api/config/<engine>/`, `api/buildinfo/`
 - [Networks](#networks): list, download, delete
 - [Workloads](#workloads): `api/workloads/`, `api/live/…`, `api/workload/<id>/<query>/`, `api/spsa/<id>/<query>/`, `api/pgns/<id>/`
-- [Server](#server): `api/insights/server/`, `api/progress/`, `api/errors/`, `api/jump/`, `api/storage/`, `api/active/`
+- [Server](#server): `api/insights/server/`, `api/progress/`, `api/digest/`, `api/errors/`, `api/jump/`, `api/storage/`, `api/active/`
 - [`/scripts/`](#scripts): upload a network, create a test
 - [`/health/`](#health)
 - [Client worker endpoints](#client-worker-endpoints)
@@ -35,7 +36,7 @@ The examples below were captured from a local server filled by
 
   | Status | Meaning |
   |---|---|
-  | 400 | Malformed request fields (`api/active/`) |
+  | 400 | Malformed request fields or parameters (`api/active/`, `api/workloads/`, `api/progress/`, `api/digest/`) |
   | 401 | No usable credentials: none sent, wrong password, or account not enabled |
   | 403 | Authenticated but not permitted (a non-Approver deleting a network), or a CSRF or cross-site refusal |
   | 404 | Unknown engine, network, workload, query or PGN archive |
@@ -170,6 +171,7 @@ The read endpoints and `POST api/active/` change nothing and do not check CSRF.
 | GET, POST | `/api/pgns/<id>/` | view | The workload's PGN archive |
 | GET, POST | `/api/insights/server/` | view | Fleet and workload counters |
 | GET, POST | `/api/progress/?engine=&window=` | view | Engine lineage and activity over a time window |
+| GET, POST | `/api/digest/?since=&from=` | view | What finished, ran, moved the trunk and failed in a time window |
 | GET, POST | `/api/errors/?workload=&kind=&unresolved=&limit=` | view | Worker errors grouped by workload and summary |
 | GET, POST | `/api/errors/<event id>/log/` | view | The log uploaded with one worker error |
 | GET, POST | `/api/jump/?q=` | view | Quick-jump suggestions |
@@ -1121,6 +1123,169 @@ in the same cases. The earlier `greens`,
 `elo_steps` and `summary.elo_gained` fields are gone. The JSON schema, the
 model, formulas and caveats are
 in [INSIGHTS.md](INSIGHTS.md#engine-progress).
+
+### `GET|POST /api/digest/?since=&from=`
+
+What happened in a time window, the data behind `/digest/`: workloads that
+finished, workloads still running with what each is waiting for, trunk steps
+measured per time-control class with their chained Elo, fleet games, search
+core-hours, hosts and pools, and the worker error groups seen. What each
+field means is in [INSIGHTS.md](INSIGHTS.md#digest).
+
+| Parameter | Meaning |
+|---|---|
+| `since` | `8h`, `24h` (default), `3d` or `7d` |
+| `from` | Instead of `since`: an ISO 8601 timestamp with seconds and an offset, such as `2026-10-01T06:00:00Z`. More than 30 days back is clamped to 30 days and reported as `window.clamped` |
+
+Either may be sent in the query string or in the POST body. Fixed windows are
+cached for 60 seconds.
+
+```json
+{
+    "digest": {
+        "generated_at": "2026-10-01T09:16:18.275479+00:00",
+        "window": {
+            "preset": "24h",
+            "since": "2026-09-30T09:16:18.275479+00:00",
+            "until": "2026-10-01T09:16:18.275479+00:00",
+            "clamped": false
+        },
+        "headline": [
+            "5 workloads finished in the last 24 hours (2 passed, 2 failed, 1 without a verdict), 8 still running, 1 awaiting approval, 1 unresolved error group.",
+            "The fleet played 77,352 games on 8 hosts, 535.3 core-h of search."
+        ],
+        "finished": {
+            "counts": {"total": 5, "passed": 2, "failed": 2},
+            "workloads": [
+                {
+                    "workload": {
+                        "id": 4,
+                        "url": "/test/4/",
+                        "title": "aspiration-width",
+                        "commits": null,
+                        "author": "admin",
+                        "engine": "Avalanche",
+                        "mode": "SPRT",
+                        "time_control": "8.0+0.08",
+                        "time_class": "stc"
+                    },
+                    "status": "failed",
+                    "elo": {"lower": -5.67, "value": -2.62, "upper": 0.43},
+                    "games": 22300,
+                    "started_at": "2026-09-30T17:01:19.780516+00:00",
+                    "finished_at": "2026-10-01T01:45:03.782023+00:00",
+                    "duration_seconds": 31424.001507,
+                    "stop_reason": null
+                }
+            ],
+            "omitted": 0
+        },
+        "running": {
+            "total": 9,
+            "pending": 1,
+            "started": 3,
+            "workloads": [
+                {
+                    "workload": {"id": 38, "url": "/test/38/", "title": "Widen aspiration windows after a fail high", "commits": "2ac6a70d vs 60637f88", "author": "lab-worker", "engine": "Avalanche", "mode": "SPRT", "time_control": "8.0+0.08", "time_class": "stc"},
+                    "status": "active",
+                    "started_in_window": true,
+                    "started_at": "2026-09-30T19:57:38.616919+00:00",
+                    "games": 1800,
+                    "elo": {"lower": -8.01, "value": 2.51, "upper": 13.03},
+                    "llr": {"value": 0.104, "lower": -2.94, "upper": 2.94},
+                    "games_per_hour": 131.34,
+                    "eta": {
+                        "kind": "sprt_estimate",
+                        "remaining_games": 48010,
+                        "remaining_seconds": 1315942.53,
+                        "completes_at": "2026-10-16T14:48:40.806832+00:00",
+                        "reason": null
+                    },
+                    "diagnosis": {
+                        "state": "outranked",
+                        "severity": "warning",
+                        "headline": "Outranked: workers take the highest priority first, and 2 workloads at priority 1 are ahead of this one at priority 0.",
+                        "brief": "outranked by priority 1"
+                    }
+                }
+            ],
+            "omitted": 0
+        },
+        "trunk": [
+            {
+                "engine": "Avalanche",
+                "head": {"sha": "1236f2a0b59f26ca4e41e7f3004b6ecfc1203ff7", "network": "BCF481FD"},
+                "trunk_length": 3,
+                "classes": [
+                    {
+                        "time_class": "ltc",
+                        "moves": [
+                            {
+                                "index": 3,
+                                "base": {"sha": "60637f88df729611fb53231be2aed4ac3d028e6d", "network": "BCF481FD"},
+                                "dev": {"sha": "1236f2a0b59f26ca4e41e7f3004b6ecfc1203ff7", "network": "BCF481FD"},
+                                "repo": "https://github.com/SnowballSH/Avalanche",
+                                "subject": "Pawn static-eval correction history (corrhist-pawn), indexed by pawn structure and side",
+                                "verdict": "running",
+                                "provisional": true,
+                                "elo": {"lower": -7.42, "value": 1.36, "upper": 10.15},
+                                "games": 2800,
+                                "measured_at": null,
+                                "runs": [37]
+                            }
+                        ],
+                        "moves_omitted": 0,
+                        "measured": 0,
+                        "accepted": 0,
+                        "provisional": 1,
+                        "net": null
+                    }
+                ]
+            }
+        ],
+        "fleet": {
+            "games": 77352,
+            "core_hours": 535.3262368720085,
+            "core_hours_estimated": false,
+            "games_without_hours": 36744,
+            "hosts": 8,
+            "pools": [
+                {"owner": "lab-worker", "label": "batch-*", "cpu_name": "AMD EPYC 9R14", "hosts": 4}
+            ],
+            "pools_omitted": 0,
+            "bucket_hours": 1,
+            "classes": ["stc", "ltc", "smp", "other"],
+            "buckets": [
+                {"start": "2026-10-01T08:00:00+00:00", "games": [436, 100, 28, 774]},
+                {"start": "2026-10-01T09:00:00+00:00", "games": [142, 22, 4, 112]}
+            ],
+            "peak_games_per_hour": 5546.0,
+            "peak_at": "2026-09-30T17:00:00+00:00"
+        },
+        "errors": {
+            "total": 3,
+            "new": 2,
+            "unresolved": 1,
+            "omitted": 0,
+            "truncated": false,
+            "groups": []
+        }
+    }
+}
+```
+
+Numbers are shortened and arrays trimmed here: `workloads`, `moves`, `pools`
+and `buckets` hold every row, and `buckets[].games` follows the order of
+`fleet.classes`. `errors.groups` holds the group objects of `api/errors/`
+below, each with a `new` flag.
+
+| Error | Status | Body |
+|---|---|---|
+| Authentication failed | 401 | `{"error": "API requires authentication for this server"}` |
+| Unknown `since` | 400 | `{"error": "since must be one of 8h, 24h, 3d, 7d"}` |
+| Malformed `from` | 400 | `{"error": "from must be an ISO 8601 timestamp with an offset, such as 2026-10-01T06:00:00Z"}` |
+| `from` in the future | 400 | `{"error": "from must not be in the future"}` |
+| Both sent | 400 | `{"error": "send since or from, not both"}` |
 
 ### `GET|POST /api/errors/?workload=&kind=&unresolved=&limit=`
 
