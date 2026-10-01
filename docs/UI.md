@@ -117,6 +117,13 @@ without relying on fill alone.
   the page's `scripts` block. Never put a click handler on a bare `<th>`.
 - **Banners**: `.error-message`, `.warning-message`, `.status-message` render
   the session messages in `base.html`.
+- **Diagnosis**: `.diagnosis` with `.diagnosis-{ok,info,warning}` is the
+  workload page's "what is this waiting for" (or "what stopped this") banner (`Blocks/diagnosis.html`):
+  a `<section>` with a hidden `<h2>`, the headline, and the evidence in a
+  `<details>` that starts open only for a warning. `.row-reason` is the same
+  verdict in a few words on a listing row's `.row-meta` line,
+  `.row-reason-warning` in `--warn-text`; its hidden "Status:" prefix and its
+  `title` carry the meaning without the colour.
 - **Error pages**: `OpenBench/security/error_pages.py` serves `404.html` and
   `403.html` in the site layout with an empty Engines list, so they run no
   query and show an anonymous visitor nothing about the server. `500.html`
@@ -236,6 +243,61 @@ rows on the current page only; Search is the way to look across pages.
 Zebra striping is switched off while a filter is active, because hidden rows
 would break the alternation. Column widths can still change as rows hide,
 since the table sizes its columns to what is visible.
+
+## Quick jump
+
+The header of every page carries a jump box (`#quick-jump`, a `GET` form to
+`/go/?q=`), hidden only from anonymous visitors of a server that requires a
+login. `/` focuses it from anywhere outside a form field and Escape leaves
+it. It is plain HTML: without JavaScript, Enter submits the form. Rendering
+it costs no query.
+
+`OpenBench/navigation/resolve.py` turns the text into one internal path. The
+rules run in this order and the first that answers wins:
+
+| Input | Destination |
+| --- | --- |
+| `#12`, `12` (ASCII digits, at most 18) | Workload 12 under its own type (`/test/`, `/tune/`, `/datagen/`). An unknown id lands on `/search/` with "No workload #12"; a bare run of seven or more digits is tried as a commit first |
+| 7 to 40 hex digits | Workloads, deleted ones excluded, whose dev or base commit sha or branch name starts with it. One match opens it; several open `/search/?q=<prefix>`, newest first; none falls through to the rules below |
+| `user:<name>`, or an exact username | `/user/<name>/`, in the stored spelling. `user:` with an unknown name lands on `/users/` with a notice. A name made only of dots is never a user, so no `/user/../` path is built |
+| An exact engine name | `/progress/<engine>/` |
+| `machine 12`, `m:12`, `m#12` | `/machines/12/`. `m12` and `M4` are text (a CPU model), and an unknown machine falls through to search |
+| Anything else | `/search/?q=<text>` |
+
+Names match case-insensitively. Input is whitespace-normalised and capped at
+100 characters. Every destination is built from a fixed prefix plus an id or
+a percent-encoded name that was read back from the database, so the box
+cannot redirect off the site. A jump costs at most four lookups, each one
+query, whatever the number of workloads.
+
+A deleted workload still opens by `#id`, but is left out of commit matches,
+text matches and suggestions. A notice is a flash message in the session, so
+an anonymous viewer of a public server is redirected without one rather than
+being given a session.
+
+Search's `Text` field (`q`) is what the fallback fills in. Every
+whitespace-separated term must match the info text or a dev or base branch
+name (as substrings), or the start of the dev or base commit sha. A name
+that is itself a commit (`workload_names.COMMIT_NAME`) is matched by its start
+only: forty hex digits contain almost any short term by accident. It combines
+with the other search fields and pages like them. `Keywords` still matches
+only the dev branch name.
+
+`static/jump.js` adds suggestions from
+[`/api/jump/`](API.md#getpost-apijumpq) as an ARIA combobox: the input gets
+`role="combobox"` and a `role="listbox"` only once the script runs. Requests
+are debounced by 150 ms and the previous one is aborted. Up and Down move
+through the options (wrapping through "no option") and do nothing when there
+are none for the text now in the box; typing deselects the active option and
+emptying the box or a failed request discards the list, so Enter never opens
+an option from an earlier query. Enter opens the active
+option or else submits the text, the first Escape closes the list and keeps
+the text, and the second leaves the box. Option text is set with `textContent`, and an option
+whose URL is not same-origin is dropped.
+
+Below 768px the box collapses to a square magnifier in the header and, when
+focused, expands across the header over the title; it is the same input in
+both states, so it still works without JavaScript.
 
 ## Conventions
 

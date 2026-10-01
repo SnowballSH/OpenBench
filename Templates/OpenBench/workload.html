@@ -22,6 +22,8 @@
 
     <div class="workload-container" data-workload-id="{{workload.id}}">
 
+    {% if diagnosis %}{% include "OpenBench/Blocks/diagnosis.html" %}{% endif %}
+
     <div id="config" class="table-wrap" data-region-label="Configuration">
         <table class="test-config wrappable">
 

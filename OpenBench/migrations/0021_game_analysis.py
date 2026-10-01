@@ -7,7 +7,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('OpenBench', '0019_machine_host_key'),
+        ('OpenBench', '0020_logevent_test_machine'),
     ]
 
     operations = [

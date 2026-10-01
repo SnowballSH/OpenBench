@@ -111,7 +111,17 @@ class InsightsApiTests(TestCase):
 
         self.assertEqual(
             set(insights),
-            {'generated_at', 'workload', 'progress', 'timing', 'eta', 'strength', 'history', 'contributions'},
+            {
+                'generated_at',
+                'workload',
+                'progress',
+                'timing',
+                'eta',
+                'strength',
+                'history',
+                'contributions',
+                'diagnosis',
+            },
         )
         self.assertEqual(insights['workload']['id'], self.test.id)
         self.assertEqual(insights['workload']['status'], 'active')

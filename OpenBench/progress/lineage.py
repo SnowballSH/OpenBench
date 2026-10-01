@@ -5,7 +5,6 @@ from dataclasses import dataclass, replace
 from datetime import datetime
 
 from OpenBench.insights.strength import EloInterval, elo_interval, score_moments
-from OpenBench.listing_rows import split_info
 from OpenBench.progress.domain import (
     CANDIDATES_SENT,
     DETACHED_SENT,
@@ -30,6 +29,7 @@ from OpenBench.progress.domain import (
     TimeClass,
     TrunkStep,
 )
+from OpenBench.workload_names import split_info
 
 type Edge = tuple[Commit, Commit]
 type Children = Mapping[Commit, Sequence[Step]]

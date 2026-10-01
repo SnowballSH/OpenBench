@@ -26,6 +26,8 @@ import django.contrib.auth
 
 import OpenBench.config
 import OpenBench.model_utils
+import OpenBench.navigation.catalogue
+import OpenBench.navigation.query
 import OpenBench.page_queries
 import OpenBench.spsa_utils
 import OpenBench.utils
@@ -35,7 +37,8 @@ from OpenBench.workloads.get_workload import filter_valid_workloads, get_workloa
 from OpenBench.workloads.modify_workload import modify_workload
 from OpenBench.workloads.verify_workload import verify_workload
 from OpenBench.workloads.view_workload import view_workload, fetch_results, fetch_result_summaries
-from OpenBench.insights.api import workload_payload
+from OpenBench.diagnosis.api import insights_payload
+from OpenBench.diagnosis.engine_support import missing_requirements
 from OpenBench.fleet.housekeeping import registration_housekeeping
 from OpenBench.fleet.machine_detail import load_host_detail
 from OpenBench.fleet.machines import load_machines_page
@@ -343,6 +346,7 @@ def search(request, page=1):
     # Echo the submitted values back so the form stays populated for tweaking
 
     form = {
+        'q'             : params.get('q', ''),
         'keywords'      : params.get('keywords', ''),
         'info'          : params.get('info-contains', ''),
         'authors'       : params.get('authors', ''),
@@ -368,7 +372,16 @@ def search(request, page=1):
         error = 'Search at most %d %s' % (SEARCH_TERMS_LIMIT, ' and '.join(too_many))
         return render(request, 'search.html', { 'form' : form, 'books' : books }, error=error)
 
+    if len(form['q']) > OpenBench.navigation.query.MAX_QUERY_LENGTH:
+        error = 'Search at most %d characters of text' % (OpenBench.navigation.query.MAX_QUERY_LENGTH)
+        return render(request, 'search.html', { 'form' : form, 'books' : books }, error=error)
+
     tests  = Test.objects.all()
+
+    # Text matches the info, either branch name, or the start of either commit sha
+
+    if form['q'].strip():
+        tests = tests.filter(OpenBench.navigation.catalogue.text_filter(form['q']))
 
     # Optional field-based filters, defaulting to no restriction
 
@@ -868,31 +881,9 @@ def client_worker_info(request):
 
 def supported_engines(info):
 
-    supported = []
-    for config in EngineConfig.objects.all():
-
-        build = config.build()
-
-        # Must have all CPU flags, for both Public and Private engines
-        if any([flag not in info['cpu_flags'] for flag in build['cpuflags']]):
-            continue
-
-        # Private engines must have, or think they have, a Git Token
-        if config.private and config.name not in info['tokens'].keys():
-            continue
-
-        # Public engines must have a compiler of a sufficient version
-        if not config.private and config.name not in info['compilers'].keys():
-            continue
-
-        # Must match the Operating Systems supported by the engine
-        if info['os_name'] not in build['systems']:
-            continue
-
-        # All requirements are met, and this Machine can play with the given engine
-        supported.append(config.name)
-
-    return supported
+    # Engines that the Machine meets every build requirement of: the CPU flags,
+    # a Git Token if private or else a compiler, and the Operating System
+    return [config.name for config in EngineConfig.objects.all() if not missing_requirements(config, info)]
 
 @csrf_exempt
 def client_get_network(request, engine, name):
@@ -1305,7 +1296,7 @@ def api_workload(request, workload_id, query):
         return api_response({ 'summary' : fetch_result_summaries(workload) })
 
     if query == 'insights':
-        return api_response({ 'insights' : workload_payload(workload) })
+        return api_response({ 'insights' : insights_payload(workload) })
 
     valid_endpoints = [ 'results', 'info', 'summary', 'insights' ]
     return api_response({ 'error' : 'Valid /query/ endpoints are: [ %s ]' % (', '.join(valid_endpoints)) }, status=404)

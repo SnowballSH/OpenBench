@@ -353,7 +353,10 @@ class LogEvent(Model):
         return "{0} {1} {2}".format(self.author, str(self.test_id), self.summary)
 
     class Meta:
-        indexes = [Index(fields=['machine_id'], name='logevent_machine')]
+        indexes = [
+            Index(fields=['machine_id'], name='logevent_machine'),
+            Index(fields=['test_id', 'machine_id'], name='logevent_test_machine'),
+        ]
 
 class Network(Model):
 

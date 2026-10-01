@@ -143,6 +143,11 @@ this check cannot break them.
   Each becomes one more OR'd match, and SQLite refuses an expression tree
   deeper than 1,000, so more terms answer the search form, still filled in,
   with the error "Search at most 20 keywords" (or authors) instead of a 500.
+- The quick jump (`/go/?q=`, `/api/jump/?q=`) and the search `q` text take at
+  most 100 characters, and an id typed there at most 18 ASCII digits. Longer
+  text answers with a notice, or with no suggestions, before any lookup.
+  `/go/` redirects only to paths it builds itself; see
+  [UI.md](UI.md#quick-jump).
 - Page numbers in `/index/`, `/greens/`, `/search/`, `/events/`, `/errors/`
   and `/user/<name>/` have at most 10 digits, and ids in `/machines/<id>/`,
   `/test/<id>/`, `/tune/<id>/`, `/datagen/<id>/`, `/event/<id>/`,

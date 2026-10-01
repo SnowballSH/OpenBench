@@ -20,6 +20,8 @@
 
 import django.urls, OpenBench.converters, OpenBench.views, OpenBench.insights.views, OpenBench.progress.views, OpenBench.storage.views
 import OpenBench.compare.views
+import OpenBench.diagnosis.views
+import OpenBench.navigation.views
 import OpenBench.games.views
 import OpenBench.security.robots
 
@@ -44,6 +46,9 @@ urlpatterns = [
     # Engine progress over time, for every engine or one
     django.urls.path(r'progress/', OpenBench.progress.views.progress),
     django.urls.path(r'progress/<str:engine>/', OpenBench.progress.views.progress),
+
+    # The header's quick jump: an id, a commit, a name or text to its page
+    django.urls.path(r'go/', OpenBench.navigation.views.go),
 
     # Two Workloads side by side
     django.urls.path(r'compare/', OpenBench.compare.views.compare),
@@ -106,12 +111,14 @@ urlpatterns = [
     django.urls.path(r'api/buildinfo/', OpenBench.views.api_build_info),
     django.urls.path(r'api/pgns/<id:pgn_id>/', OpenBench.views.api_pgns),
     django.urls.path(r'api/spsa/<id:workload_id>/<str:query>/', OpenBench.views.api_spsa),
+    django.urls.path(r'api/workloads/', OpenBench.diagnosis.views.api_workloads),
     django.urls.re_path(r'^api/workload/(?P<workload_id>[0-9]{1,18})/history\.csv$', OpenBench.insights.views.api_workload_history_csv),
     django.urls.path(r'api/workload/<id:workload_id>/games/', OpenBench.games.views.api_workload_games),
     django.urls.path(r'api/workload/<id:workload_id>/<str:query>/', OpenBench.views.api_workload),
     django.urls.path(r'api/insights/server/', OpenBench.insights.views.api_server_insights),
     django.urls.path(r'api/storage/', OpenBench.storage.views.api_storage),
     django.urls.path(r'api/progress/', OpenBench.progress.views.api_progress),
+    django.urls.path(r'api/jump/', OpenBench.navigation.views.api_jump),
 
     # Liveness and database readiness, for the reverse proxy and deployers
     django.urls.path(r'health/', OpenBench.views.health),
