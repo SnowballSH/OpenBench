@@ -1,4 +1,6 @@
+from collections.abc import Callable
 from datetime import UTC, date, timedelta
+from typing import Any
 
 from django.db import connection
 from django.db.models import (
@@ -22,9 +24,11 @@ from OpenBench.insights.sources import (
     outcomes_of_row,
 )
 from OpenBench.models import Result, Test, WorkloadSnapshot
-from OpenBench.progress.domain import DayMaximum, GreenRow, OutcomeCounts, Scope
+from OpenBench.progress.domain import Commit, DayMaximum, OutcomeCounts, RunMode, RunRow, RunStatus, Scope, TimeClass
 
 FINISH_SLACK = timedelta(hours=1)
+
+type Classifier = Callable[[str, str, str, str], TimeClass]
 
 
 def finish_time() -> Coalesce:
@@ -44,35 +48,73 @@ def finished_sprts(scope: Scope) -> QuerySet[Test]:
     return tests.order_by()
 
 
-def load_greens(scope: Scope) -> list[GreenRow]:
+def run_status(row: dict[str, Any], mode: RunMode) -> RunStatus:
+    decisive = mode == RunMode.SPRT
+    flags = (
+        (decisive and row['passed'], RunStatus.PASSED),
+        (decisive and row['failed'], RunStatus.FAILED),
+        (row['finished'], RunStatus.STOPPED if decisive else RunStatus.COMPLETED),
+        (not row['approved'], RunStatus.PENDING),
+    )
+    return next((status for flag, status in flags if flag), RunStatus.RUNNING)
+
+
+def run_row(row: dict[str, Any], classify: Classifier) -> RunRow:
+    mode = RunMode(row['test_mode'])
+    return RunRow(
+        id=row['id'],
+        engine=row['dev_engine'],
+        repo=row['dev_repo'],
+        base=Commit(row['base__sha'], row['base_network']),
+        dev=Commit(row['dev__sha'], row['dev_network']),
+        subject=row['info'],
+        author=row['author'],
+        mode=mode,
+        status=run_status(row, mode),
+        time_class=classify(row['dev_time_control'], row['base_time_control'], row['dev_options'], row['base_options']),
+        time_control=row['dev_time_control'],
+        created_at=row['creation'],
+        finished_at=row['finished_at'] if row['finished'] else None,
+        games=row['games'],
+        outcomes=outcomes_of_row(row, not row['use_tri']),
+    )
+
+
+def load_runs(engine: str | None, classify: Classifier) -> list[RunRow]:
+    tests = Test.objects.filter(deleted=False, test_mode__in=list(RunMode), dev_engine=F('base_engine'))
+    if engine is not None:
+        tests = tests.filter(dev_engine=engine)
     rows = (
-        finished_sprts(scope)
-        .filter(passed=True)
-        .alias(bound_sum=F('elolower') + F('eloupper'))
-        .filter(bound_sum__gte=0)
+        tests.annotate(finished_at=finish_time())
+        .order_by('id')
         .values(
             'id',
-            'dev__name',
+            'dev_engine',
+            'dev_repo',
+            'dev__sha',
+            'base__sha',
+            'dev_network',
+            'base_network',
+            'info',
+            'author',
+            'test_mode',
+            'passed',
+            'failed',
+            'finished',
+            'approved',
+            'dev_time_control',
+            'base_time_control',
+            'dev_options',
+            'base_options',
+            'creation',
             'finished_at',
             'games',
-            'elolower',
-            'eloupper',
             'use_tri',
             *TRINOMIAL_FIELDS,
             *PENTANOMIAL_FIELDS,
         )
     )
-    return [
-        GreenRow(
-            id=row['id'],
-            name=row['dev__name'],
-            finished_at=row['finished_at'],
-            games=row['games'],
-            elo_bounds=(row['elolower'], row['eloupper']),
-            outcomes=outcomes_of_row(row, not row['use_tri']),
-        )
-        for row in rows
-    ]
+    return [run_row(row, classify) for row in rows]
 
 
 def load_weekly_outcomes(scope: Scope) -> dict[date, OutcomeCounts]:

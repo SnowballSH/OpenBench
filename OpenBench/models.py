@@ -27,6 +27,8 @@ from django.db.models import CASCADE, PROTECT, Index, Model, Q, TextChoices
 from django.contrib.auth.models import User
 from django.utils import timezone
 
+from OpenBench.fleet.hosts import HOST_KEY_LENGTH, host_key
+
 class Engine(Model):
 
     name     = CharField(max_length=128)
@@ -143,8 +145,25 @@ class Machine(Model):
     info      = JSONField()
     workload  = IntegerField(default=0)
 
+    # Digest of the physical machine behind this registration; see docs/INSIGHTS.md
+    host_key  = CharField(max_length=HOST_KEY_LENGTH, default='', db_default='', editable=False)
+
     def __str__(self):
         return '[%d] %s' % (self.id, self.user.username)
+
+    def save(self, *args, **kwargs):
+        # Rows written by a rolled-back image have no key; the next write of any kind adds it
+        if not self.host_key:
+            self.host_key = host_key(self.user.username, self.info)
+            if kwargs.get('update_fields') is not None:
+                kwargs['update_fields'] = [*kwargs['update_fields'], 'host_key']
+        super().save(*args, **kwargs)
+
+    class Meta:
+        indexes = [
+            Index(fields=['host_key', 'updated'], name='machine_host_updated'),
+            Index(fields=['user', 'updated'], name='machine_user_updated'),
+        ]
 
 class Result(Model):
 

@@ -49,7 +49,10 @@ is written: no Machine, Result, or session is created.
 `--blacklist 12,34` seeds the Client's blacklist, sent with every workload
 request.
 
-`--single-workload` makes one workload request, then exits:
+`--single-workload` makes one workload request, then exits. Every start
+registers a new Machine; the fleet pages group them into one machine, and the
+Server removes the ones that found no work
+([DEPLOYMENT.md](DEPLOYMENT.md#machine-registrations)):
 
 | Exit | Meaning |
 |---|---|

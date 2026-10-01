@@ -15,6 +15,7 @@ fork_owned=(
     OpenBench/page_queries.py
     OpenBench/upstream.py
     OpenBench/workloads/clone.py
+    OpenBench/management/commands/prune_machines.py
     OpenBench/management/commands/seed_demo.py
     OpenBench/tests
 )

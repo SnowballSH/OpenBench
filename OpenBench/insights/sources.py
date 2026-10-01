@@ -1,5 +1,6 @@
 from typing import Any
 
+from OpenBench.fleet.hosts import HostKey, host_key
 from OpenBench.insights.contributions import ResultRow
 from OpenBench.insights.domain import (
     Outcomes,
@@ -106,12 +107,20 @@ def result_rows(test: Test) -> list[ResultRow]:
     rows = (
         Result.objects.filter(test=test)
         .order_by('id')
-        .values('machine_id', 'machine__user__username', 'machine__info', *TRINOMIAL_FIELDS, *PENTANOMIAL_FIELDS)
+        .values(
+            'machine_id',
+            'machine__host_key',
+            'machine__user__username',
+            'machine__info',
+            *TRINOMIAL_FIELDS,
+            *PENTANOMIAL_FIELDS,
+        )
     )
 
     return [
         ResultRow(
             machine_id=row['machine_id'],
+            host=HostKey(row['machine__host_key']) or host_key(row['machine__user__username'], row['machine__info']),
             machine_name=machine_name(row['machine__info'] or {}),
             owner=row['machine__user__username'],
             cpu_name=text_of(row['machine__info'], 'cpu_name'),

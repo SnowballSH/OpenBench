@@ -12,6 +12,7 @@
 import datetime
 import hashlib
 import random
+import uuid
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from typing import Any
@@ -20,9 +21,10 @@ from django.conf import settings
 from django.contrib.auth.models import User
 from django.core.management.base import BaseCommand, CommandError, CommandParser
 from django.db import transaction
-from django.db.models import Sum
+from django.db.models import Q, Sum
 from django.utils import timezone
 
+from OpenBench.fleet.hosts import host_key
 from OpenBench.models import (
     Book,
     Engine,
@@ -55,6 +57,22 @@ CPUS = [
     ('AMD EPYC 7763 64-Core Processor', 'x86-64-avx2', 'Linux', 64, 30),
     ('Intel(R) Xeon(R) Gold 6338 CPU @ 2.00GHz', 'x86-64-avx512', 'Linux', 32, 240),
 ]
+
+# This host runs the Client under a supervisor with --single-workload, so every
+# workload it plays, and every start that finds no work, is a Machine row of its own
+SUPERVISED_HOST = 2
+
+IDLE_SESSIONS_MINUTES_AGO = (4, 9, 14, 45, 300)
+
+SPLIT_SESSION_PAIRS = 400
+
+# Ephemeral cloud jobs: each is a different VM named after its job id, registers
+# once a minute while idle, plays at most one workload, and never returns
+BATCH_CPU = 'AMD EPYC 9R14'
+BATCH_THREADS = 8
+BATCH_PLAYING_HOSTS = 4
+BATCH_IDLE_HOSTS_HOURS_AGO = (2, 30, 50)
+BATCH_IDLE_SESSIONS = 3
 
 FINISHED_STATES = ('passed', 'failed', 'finished', 'stopped')
 
@@ -214,12 +232,12 @@ COMMIT_CHAIN = (
     DemoCommit(
         'Extend the singular move search at high depth',
         8.0,
-        (DemoStage(STC, 'passed'), DemoStage(LTC, 'passed', hash_mb=LTC_HASH_MB)),
+        (DemoStage(STC, 'passed'), DemoStage(STC, 'passed'), DemoStage(LTC, 'passed', hash_mb=LTC_HASH_MB)),
         accepted=True,
     ),
     DemoCommit(
         'Pawn static-eval correction history (corrhist-pawn), indexed by pawn structure and side',
-        5.0,
+        8.0,
         (DemoStage(STC, 'passed'), DemoStage(LTC, 'active', pairs=1400, hash_mb=LTC_HASH_MB)),
     ),
     DemoCommit('Widen aspiration windows after a fail high', 1.5, (DemoStage(STC, 'active', pairs=900),)),
@@ -232,6 +250,12 @@ CHAIN_SPAN_DAYS = 5.0
 CHAIN_SLOT_USED = 0.6
 
 COMMIT_TAG = 'avl'
+
+PROGRESS_CHECK_ELO = 14.0
+
+PROGRESS_CHECK_GAMES = 3000
+
+PROGRESS_CHECK_DAYS_AGO = 1.0
 
 COMMIT_TAG_LENGTH = 12
 
@@ -290,11 +314,14 @@ class Command(BaseCommand):
             for tune in TUNES:
                 create_tune(tune, users[0], machines, rng)
             credit_profiles(users)
+            settle_supervised_sessions(machines[SUPERVISED_HOST])
+            create_batch_hosts(machines[SUPERVISED_HOST])
             assign_online_machines(machines)
             age_offline_machines(machines)
 
         self.stdout.write(
-            f'Seeded {len(seeded_workloads()) + len(TUNES)} workloads on {len(machines)} machines. '
+            f'Seeded {len(seeded_workloads()) + len(TUNES)} workloads on {len(machines)} machines '
+            f'({Machine.objects.count()} registrations). '
             f'Log in as admin / {DEMO_PASSWORD}'
         )
 
@@ -341,8 +368,33 @@ def chain_workloads(
     return workloads
 
 
+def progress_checks(commits: Sequence[DemoCommit], root: str = CHAIN_ROOT) -> list[DemoWorkload]:
+
+    # What the lab agent does not run but the progress page compares its chain against: a fixed-games
+    # run of the newest accepted commit against the chain root, spanning every step between them
+    newest = [commit for commit in commits if commit.accepted][-1]
+    return [
+        DemoWorkload(
+            name='progress-check',
+            mode='GAMES',
+            elo=PROGRESS_CHECK_ELO,
+            pairs=PROGRESS_CHECK_GAMES // 2,
+            state='finished',
+            max_games=PROGRESS_CHECK_GAMES,
+            tc=LTC,
+            days_ago=PROGRESS_CHECK_DAYS_AGO,
+            duration_hours=6.0,
+            base_name=commit_sha(root),
+            dev_sha=commit_sha(newest.subject),
+            base_sha=commit_sha(root),
+            info=f'Progress since the chain root, up to: {newest.subject}',
+            hash_mb=LTC_HASH_MB,
+        )
+    ]
+
+
 def seeded_workloads() -> list[DemoWorkload]:
-    return [*WORKLOADS, *PAST_SPRTS, *chain_workloads(COMMIT_CHAIN)]
+    return [*WORKLOADS, *PAST_SPRTS, *chain_workloads(COMMIT_CHAIN), *progress_checks(COMMIT_CHAIN)]
 
 
 def create_users() -> list[User]:
@@ -406,12 +458,79 @@ def create_machines(users: Sequence[User]) -> list[Machine]:
             'noisy': False,
             'sockets': 1,
             'machine_name': f'demo-{index + 1}',
+            'mac_address': f'00163E{index + 1:06X}',
+            'cli_options': cli_options(index, threads),
             'client_ver': openbench_config()['client_version'],
             'supported': ['Avalanche'],
         }
         mnps = round(1.2 + 0.4 * index, 2)
         machines.append(Machine.objects.create(user=owner, info=info, mnps=mnps, dev_mnps=mnps, base_mnps=mnps))
     return machines
+
+
+def cli_options(index: int, threads: int) -> str:
+    options = f'--threads {threads} --nsockets 1 --identity demo-{index + 1}'
+    return f'{options} --single_workload' if index == SUPERVISED_HOST else options
+
+
+def register_session(host: Machine) -> Machine:
+    return Machine.objects.create(
+        user=host.user, info=host.info, mnps=host.mnps, dev_mnps=host.dev_mnps, base_mnps=host.base_mnps
+    )
+
+
+def session_shares(share: Sequence[int]) -> list[list[int]]:
+    if sum(share) < SPLIT_SESSION_PAIRS:
+        return [list(share)]
+    first = [count // 2 for count in share]
+    return [first, [count - half for count, half in zip(share, first, strict=True)]]
+
+
+def settle_supervised_sessions(host: Machine) -> None:
+    now = timezone.now()
+    for result in Result.objects.filter(machine__host_key=host.host_key).exclude(machine=host):
+        Machine.objects.filter(id=result.machine_id).update(updated=min(result.updated, now), workload=result.test_id)
+    for minutes_ago in IDLE_SESSIONS_MINUTES_AGO:
+        idle = Machine.objects.create(user=host.user, info=host.info)
+        Machine.objects.filter(id=idle.id).update(updated=now - datetime.timedelta(minutes=minutes_ago))
+
+
+def batch_info(template: dict[str, Any], index: int) -> dict[str, Any]:
+    identity = f'batch-{uuid.uuid5(uuid.NAMESPACE_DNS, f"demo-batch-{index}")}:0'
+    return {
+        **template,
+        'cpu_name': BATCH_CPU,
+        'isa_name': 'x86-64-avx512',
+        'concurrency': BATCH_THREADS,
+        'logical_cores': BATCH_THREADS,
+        'physical_cores': BATCH_THREADS // 2,
+        'machine_name': identity,
+        'mac_address': f'0A58A9{index + 1:06X}',
+        'cli_options': f'--threads {BATCH_THREADS} --nsockets 1 --identity {identity} --single_workload',
+    }
+
+
+def register_idle_sessions(owner: User, info: dict[str, Any], last_seen: datetime.datetime) -> None:
+    for minutes_before in range(1, BATCH_IDLE_SESSIONS + 1):
+        idle = Machine.objects.create(user=owner, info=info)
+        Machine.objects.filter(id=idle.id).update(updated=last_seen - datetime.timedelta(minutes=minutes_before))
+
+
+def create_batch_hosts(supervised: Machine) -> None:
+    now = timezone.now()
+    owner = supervised.user
+    recent = Q(updated__lt=now - datetime.timedelta(hours=1), updated__gt=now - datetime.timedelta(days=6))
+    played = Machine.objects.filter(
+        recent, host_key=supervised.host_key, id__in=Result.objects.values('machine_id')
+    ).order_by('-updated', '-id')
+
+    for index, session in enumerate(played[:BATCH_PLAYING_HOSTS]):
+        info = batch_info(supervised.info, index)
+        Machine.objects.filter(id=session.id).update(info=info, host_key=host_key(owner.username, info))
+        register_idle_sessions(owner, info, session.updated)
+
+    for index, hours_ago in enumerate(BATCH_IDLE_HOSTS_HOURS_AGO, start=BATCH_PLAYING_HOSTS):
+        register_idle_sessions(owner, batch_info(supervised.info, index), now - datetime.timedelta(hours=hours_ago))
 
 
 def assign_online_machines(machines: list[Machine]) -> None:
@@ -702,8 +821,15 @@ def record_outcomes(
         if datetime.timedelta(hours=hours_ago) < now - times.started
     ]
     for machine, share in zip(playing, split_pairs(penta, len(playing), rng), strict=True):
-        if sum(share):
+        if not sum(share):
+            continue
+        if machine is not machines[SUPERVISED_HOST]:
             create_result(test, machine, share, rng)
+            continue
+        first, *later = session_shares(share)
+        create_result(test, register_session(machine), first, rng)
+        for session_share in later:
+            create_result(test, register_session(machine), session_share, random.Random(test.id))
 
     wins, losses, draws = trinomial(penta)
     llr = PentanomialSPRT(penta, *bounds) if bounds and outcomes else 0.0

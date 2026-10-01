@@ -165,7 +165,7 @@ The read endpoints and `POST api/active/` change nothing and do not check CSRF.
 | GET, POST | `/api/spsa/<id>/<inputs\|outputs\|digest\|perturbation>/` | view | SPSA tune parameters |
 | GET, POST | `/api/pgns/<id>/` | view | The workload's PGN archive |
 | GET, POST | `/api/insights/server/` | view | Fleet and workload counters |
-| GET, POST | `/api/progress/?engine=&window=` | view | Engine progress over a time window |
+| GET, POST | `/api/progress/?engine=&window=` | view | Engine lineage and activity over a time window |
 | GET, POST | `/api/jump/?q=` | view | Quick-jump suggestions |
 | GET, POST | `/api/storage/` | manager | Disk usage of the data directory |
 | POST | `/api/active/` | user | Workloads a described machine could be assigned |
@@ -489,7 +489,9 @@ while `approved` is true and `finished` and `deleted` are false.
 
 #### `results`
 
-One entry per machine that played games for the workload, or is on it now.
+One entry per Machine registration that played games for the workload, or is
+on it now; a Client that restarted mid-workload appears once per start (the
+insights payload below pools them per physical machine).
 `active` is true when the machine reported within the last minute and is
 still assigned this workload.
 
@@ -625,8 +627,11 @@ numbers. The full schema, including every `eta.kind` and `reason`, is in
                 {
                     "machine_id": 4,
                     "machine_name": "demo-4",
+                    "machine_label": "demo-4",
+                    "pool": "demo-4",
                     "owner": "home-worker",
                     "cpu_name": "Apple M4",
+                    "registrations": [{ "machine_id": 4, "games": 1994, "pairs": 997 }],
                     "stats": {
                         "games": 1994,
                         "pairs": 997,
@@ -656,6 +661,11 @@ numbers. The full schema, including every `eta.kind` and `reason`, is in
 
 (`history.points` trimmed from 150 entries to the last, `machines` from 5 and
 `cpus` from 4 to the first; objects reformatted compactly.)
+
+Each `machines` entry is one physical machine: the Machine registrations of a
+host are pooled, `machine_id` is the newest of them that played this workload,
+and `registrations` lists each one's share. See
+[INSIGHTS.md](INSIGHTS.md#hosts).
 
 ### `GET|POST /api/workload/<id>/history.csv`
 
@@ -854,13 +864,19 @@ Schema in [INSIGHTS.md](INSIGHTS.md#getpost-apiinsightsserver).
 
 ### `GET|POST /api/progress/?engine=&window=`
 
-Elo gained from greens, weekly SPRT outcomes, games per day and top
-contributors over a window. `window` is `30d`, `90d` (default), `1y` or `all`,
+The engine's commit lineage (trunk steps with one pooled Elo measurement per
+time-control class, candidates that branched off, chained estimates per class
+and direct checks), weekly SPRT outcomes, games per day and top contributors
+over a window. `window` is `30d`, `90d` (default), `1y` or `all`,
 ignoring case and surrounding whitespace; `engine` filters by the workloads'
 dev engine. Authentication is the same as `api/insights/server/`: a failed
 login is 401, an unknown `window` is 400 `{"error": ...}`, and an `engine`
 with no Engine configuration is 404 `{"error": ...}`. Reports are cached
-for 60 seconds per window and configured engine. The JSON schema, formulas and caveats are
+for 60 seconds per window and configured engine. `progress.lineage` is `null`
+when there is nothing to chain, or when no engine is chosen and several have
+steps (`progress.lineage_engines` names them). The earlier `greens`,
+`elo_steps` and `summary.elo_gained` fields are gone. The JSON schema, the
+model, formulas and caveats are
 in [INSIGHTS.md](INSIGHTS.md#engine-progress).
 
 ### `GET|POST /api/jump/?q=`
@@ -870,7 +886,9 @@ places `q` could mean, best first. Direct hits lead (the workload with that
 id, a user or engine with exactly that name, a machine), then the newest
 workloads whose info, branch names or commit shas match every term of `q`,
 and last a link to the full search. `q` is read from the query string and
-capped at 100 characters; an empty or longer `q` gives an empty list. Every
+capped at 100 characters; an empty or longer `q` gives an empty list. Deleted
+workloads are never suggested, and a commit-pinned branch name matches by
+its start only. Every
 `url` is a path on this server. Authentication is the same as
 `api/insights/server/`.
 

@@ -2,7 +2,7 @@ from datetime import datetime, timedelta
 from enum import StrEnum
 from typing import Self
 
-from OpenBench.insights.server import ACTIVE_MACHINE
+from OpenBench.fleet.sessions import ACTIVE_MACHINE
 
 UNKNOWN = 'Unknown'
 

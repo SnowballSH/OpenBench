@@ -139,7 +139,7 @@ anywhere on the row, not only from the link.
 | Users, and the progress page's contributor and author tables | the user's workloads |
 | Events | the workload |
 | Errors | the error's log when it has one, otherwise the workload |
-| Progress, contributing greens | the workload |
+| Progress: lineage, direct-check and detached rows that stand for exactly one workload | the workload |
 
 Networks stay plain rows: a row there has three equal candidates (engine,
 download, edit), and a stray click must not start a download. The compare

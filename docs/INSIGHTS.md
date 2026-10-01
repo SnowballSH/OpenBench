@@ -16,7 +16,7 @@ Code lives in `OpenBench/insights/`:
 | `eta.py` | Remaining games per Workload mode, converted into time. |
 | `series.py` | One chart point per snapshot. |
 | `listing.py` | Time taken and time left for a listing row, from a few picked snapshots; see [Listings](#listings). |
-| `grouping.py`, `contributions.py` | Per-machine and per-CPU contribution; `grouping.sum_by_key` also backs `fetch_result_summaries`. |
+| `grouping.py`, `contributions.py` | Per-host and per-CPU contribution; `grouping.sum_by_key` also backs `fetch_result_summaries`. |
 | `speed.py` | Nodes per second from node and millisecond counters, shared by the result summaries and the machine page. |
 | `sources.py` | Reads a Workload's Test, snapshots and Results and turns them into domain values. |
 | `workload.py`, `server.py` | Assemble the two payloads; `server.py` runs its own aggregate queries over Machines, Tests, snapshots and Profiles. |
@@ -208,8 +208,16 @@ LOS for the same data.
 
 ### Contributions
 
-From the Workload's `Result` rows, grouped by Machine and by `cpu_name`
-(missing names become `Unknown`):
+From the Workload's `Result` rows, grouped by host and by `cpu_name`
+(missing names become `Unknown`). A host is one physical machine: every
+registration it made (see [Hosts](#hosts)) is pooled into one `machines` row,
+so its games add up and its Elo comes from the pooled counters rather than from
+any one registration. `machine_id` is the host's newest registration that
+played this Workload, which `/machines/<id>/` resolves to the host;
+`machine_label` is the name with long ids shortened and `pool` its pool label
+(see [Pools](#pools)), which the table shows instead of a bare UUID;
+`registrations` keeps the per-registration games and pairs, newest first. A
+CPU's `machines` counts hosts.
 
 - `games`, `pairs` summed; `share = games / all games of the Workload`;
 - `pairs_per_hour = 3600 · pairs / timing.elapsed_seconds`: the average rate
@@ -223,9 +231,12 @@ From the Workload's `Result` rows, grouped by Machine and by `cpu_name`
 
 ### Server
 
-- `fleet`: Machines updated within the last 2 minutes, their summed
-  `concurrency` as threads, and `Σ concurrency · mnps`, the same rule as
-  `utils.getMachineStatus` on the index page.
+- `fleet`: hosts with a heartbeat within the last 2 minutes, the `concurrency`
+  of each host's newest registration summed as threads, and
+  `Σ concurrency · mnps`, the same rule as `utils.getMachineStatus` on the
+  index page. A Client that restarts leaves its previous registration looking
+  online for up to 2 minutes; counting registrations would count that machine
+  twice.
 - `workloads`: unfinished, non-deleted Workloads, split by `approved`, the same
   filters as `utils.get_pending_tests` and `get_active_tests`. `server.py`
   queries the models itself rather than importing `OpenBench.utils`, which
@@ -310,8 +321,11 @@ queries: status 401 or 404 with `{ "error": "..." }`.
     },
     "contributions": {
       "machines": [
-        { "machine_id": 3, "machine_name": "demo-3",   // null when the Client sent none
+        { "machine_id": 9, "machine_name": "demo-3",   // null when the Client sent none
+          "machine_label": "demo-3", "pool": "demo-3",   // "batch-a0741747…:0", "batch-*"
           "owner": "lab-worker", "cpu_name": "Intel(R) Core(TM) i9-13900K",
+          "registrations": [ { "machine_id": 9, "games": 1340, "pairs": 670 },
+                             { "machine_id": 8, "games": 1344, "pairs": 672 } ],
           "stats": { "games": 2684, "pairs": 1342, "share": 0.258,
                      "pairs_per_hour": 22.9, "elo": Elo } }
       ],
@@ -524,40 +538,154 @@ hidden optimum plays slightly stronger, so the parameters drift towards it.
 ## Fleet pages
 
 `OpenBench/fleet/` backs `/machines/`, `/machines/<id>/` and `/users/`.
-`status.py` holds the pure rules, `machines.py`, `machine_detail.py` and
-`users.py` each pair pure summaries with one loader.
+`status.py` and `hosts.py` hold the pure rules, `sessions.py` the shared
+queryset filters, `machines.py`, `machine_detail.py` and `users.py` each pair
+pure summaries with one loader, and `housekeeping.py` removes registrations
+that were never used.
+
+### Hosts
+
+The Client registers a new `Machine` row every time it starts, and a
+supervisor running it with `--single-workload` starts it once per workload, or
+once a minute while there is no work. A `Machine` row is therefore a
+*registration* (the pages call it a session), and the pages group
+registrations into *hosts*, one per physical machine.
+
+`OpenBench.fleet.hosts.host_key(owner, info)` is the grouping rule. It is a
+pure function of the owner's username and the registration `system_info`
+(any mapping; no ORM), and returns a 32-hex digest. The name comes first:
+
+| The Client reported | Key is the digest of |
+|---|---|
+| a `machine_name` (`--identity`; the Client sends `None` otherwise) | owner, name, hardware. The MAC is ignored. |
+| no name, a usable `mac_address` | owner, MAC, hardware |
+| neither | owner, hardware |
+
+Hardware is `cpu_name`, `os_name`, `logical_cores` and `physical_cores`.
+
+- **Owners never merge**: the username is part of every form.
+- **Why the name outranks the MAC**: inside a container `uuid.getnode()` finds
+  no interface and invents a random node on every start. On the live server
+  150 registrations carried 149 different addresses, every start of one named
+  job a new one. It sets the multicast bit only when the random value happens
+  to, so about half of those look like real addresses.
+- **Slots are separate hosts.** Supervisors run several Clients at once on one
+  VM as `batch-<uuid>:0`, `:1`, …; each is counted with its own threads, they
+  share a pool (below), and only a re-registration under the same name is
+  folded into its host.
+- A MAC is usable when it is 1 to 12 hex digits, non-zero, with the multicast
+  bit clear.
+- `concurrency` and the Client and OS versions are left out, so `-T` and
+  upgrades do not split a host.
+- The digest hides names and MACs; it is not exposed in JSON.
+
+Limits, none of which lose data (the registrations and Results are intact, and
+each registration is listed on the host page):
+
+- Two machines of one owner with the same `--identity` and identical hardware
+  are one host. Names are the operator's to keep distinct.
+- An unnamed Client in a container gets a random address per start, so about
+  half of its starts become hosts of their own. Name it.
+- Two unnamed Clients on identical hardware merge when they share a real MAC
+  (two Clients on one machine, cloned VMs) or both have none; while both are
+  online they count as one machine with the threads of the newer registration.
+- One machine splits when its key inputs change: a new `--identity`, a dual
+  boot into another OS, SMT toggled in firmware, or, unnamed, a replaced
+  network card.
+
+The key is stored in `Machine.host_key`, filled by `Machine.save()` and, for
+rows that predate it, by migration `0019`, which carries its own frozen copy
+of the rule (a later change to the rule needs a new migration to re-key rows).
+Storing it is what makes the grouping affordable; see
+[PERFORMANCE.md](PERFORMANCE.md#indexes). Registration is otherwise unchanged:
+every start still gets a new Machine id and secret.
+
+A row can have an empty key: an image from before the column existed, run
+again after a rollback, inserts Machines without it
+([DEPLOYMENT.md](DEPLOYMENT.md#rolling-back-past-the-host-key)). An empty key
+never groups: `current_sessions` treats each such row as a host of its own,
+the insights payload computes the key from `info`, and the fleet pages key up
+to 200 such rows before reading. Rows are also keyed by their own next
+heartbeat or workload request, by any registration, and by
+`prune_machines --apply`.
+
+### Pools
+
+Dozens of one-off hosts would bury the list, so `fleet/pools.py` adds a
+display grouping above hosts. `pool_label(machine_name, cpu_name)` collapses
+the volatile parts of a name: a UUID, a hex run of 8 or more characters that
+contains a digit, a run of 4 or more digits, and a trailing `:n` slot each
+become `*`, and adjacent `*` merge.
+
+| `machine_name` | Pool label | Short name |
+|---|---|---|
+| `batch-a0741747-7d81-49a2-b96e-4b14d4c304c3:0` | `batch-*` | `batch-a0741747…:0` |
+| `i-0f21e8465a561ec9e` | `i-*` | `i-0f21e846…` |
+| `node00123` | `node*` | `node00123` |
+| `demo-3`, `ip-10-0-12-34` | unchanged | unchanged |
+| none | the CPU name | |
+
+A pool is (owner, label, CPU name). It is purely presentational: nothing is
+stored, no count of machines uses it, and hosts stay the unit everywhere else.
+`short_name` keeps the first 8 characters of a UUID or of a hex run of 16 or
+more, for labels.
+
+`sessions.current_sessions(queryset)` keeps, of each host, the registration
+with the newest heartbeat (ties go to the highest id). Everything that counts
+machines goes through it.
+
+### Pages
 
 - **Online** is the same rule as the server payload's `fleet`: a heartbeat
   within the last 2 minutes (`ACTIVE_MACHINE`). `/machines/?show=24h` and
-  `?show=7d` also list Machines last seen within that window, marked offline.
-  Supervisors register a Machine per workload, so a window can hold
-  thousands: the table lists every online Machine plus the 200 most recently
-  seen offline ones (`OFFLINE_LISTED`), and says so when it is cut. The tiles
-  and the CPU table are SQL aggregates over every Machine in the window, so
-  they never depend on the cut. Threads and MNPS (`Σ concurrency · mnps`)
-  count online Machines only; `Games, last 24h` is `games_last_24h` above.
-- **Lifetime games** is the sum of a Machine's `Result.games`, computed by a
-  correlated subquery in the Machine query.
-- **Workload** is `Machine.workload`: the current one while online, the last
-  one once offline.
-- **Machine detail** lists the newest 50 Results of the Machine by
-  `Result.updated`. Elo is that Machine's own interval from its Result counters
-  (pentanomial unless the Workload is trinomial, none for SPSA); NPS is
-  `1000 · dev_nodes / dev_time`.
+  `?show=7d` also list hosts last seen within that window, marked offline. A
+  host is online when any of its registrations is. The table lists every
+  online host plus the 200 most recently seen offline ones (`OFFLINE_LISTED`),
+  and says so when it is cut. The tiles and the CPU table are computed over
+  every host in the window, so they never depend on the cut. Threads and MNPS
+  (`Σ concurrency · mnps`) count online hosts only, each by its current
+  session; `Games, last 24h` is `games_last_24h` above.
+- **Offline hosts roll up by pool.** Online hosts are always listed one per
+  row. Offline hosts that share a pool become one row with the pool label, the
+  number of machines, and their sessions and games summed, first seen the
+  earliest and last seen the latest; a pool of one host stays an ordinary row.
+  The pool's name links to `?pool=<key>` (a 12-hex digest of the pool), which
+  lists that pool's hosts individually. The 200-row cut counts rows, so a pool
+  uses one. The roll-up happens in Python over the hosts the page already
+  loaded: the query count is the same with or without `pool`.
+- **A row** takes its name, hardware, threads, MNPS, workload and last
+  heartbeat from the host's current session, read out of `info` in SQL so no
+  blob is deserialized. **Sessions** is the number of registrations that
+  exist for the host, **First seen** the oldest last-heartbeat among them
+  (a `Machine` has no creation time), and **Games** the sum of `Result.games`
+  over all of them. Never-used registrations are removed by housekeeping
+  ([DEPLOYMENT.md](DEPLOYMENT.md#machine-registrations)), so Sessions
+  describes the rows that exist, not every start the Client ever made.
+- **Workload** is the current session's `Machine.workload`: the current one
+  while online, the last one once offline. A supervised host that is polling
+  for work is online and idle.
+- **Machine detail** (`/machines/<id>/`) takes any registration id and shows
+  its host; that registration's row is highlighted (`aria-current`) in the
+  Sessions table, which lists the newest 25 and always includes the selected
+  one. Hardware and software come from the current session. Workloads lists
+  the newest 50 by `Result.updated`, one row per Workload with the counters
+  of every registration pooled: Elo is the interval of the pooled counters
+  (pentanomial unless the Workload is trinomial, none for SPSA), NPS is
+  `1000 · Σ dev_nodes / Σ dev_time`, and Sessions counts the registrations
+  that played it.
 - **Users** lists Profiles with games, tests, approver rights or an online
-  Machine. Last activity is the later of the newest heartbeat of the user's
-  Machines and the newest Workload they authored; logins are deliberately left
-  out, so the page does not reveal when someone last signed in. Machine
-  figures come from one query grouped by owner and authored Workloads from one
-  query grouped by author, merged in Python rather than correlated per row.
+  host. Machines and Threads count online hosts by their current session.
+  Last activity is the later of the newest heartbeat of the user's
+  registrations and the newest Workload they authored; logins are deliberately
+  left out, so the page does not reveal when someone last signed in.
 
 Each page runs a fixed number of queries whatever the row count
-(`OpenBench/tests/test_fleet.py` asserts it).
+(`OpenBench/tests/test_fleet.py` and `test_query_counts.py` assert it).
 
 ## Engine progress
 
-`/progress/` shows how the testing effort as a whole moved over a window of
-time; `/progress/<engine>/` limits it to Workloads whose `dev_engine` is that
+`/progress/` shows how an engine moved over a window of time;
+`/progress/<engine>/` limits it to Workloads whose `dev_engine` is that
 engine. The window is the `window` query parameter: `30d`, `90d` (the default),
 `1y` or `all`. The page goes through `render()`, so it follows
 `require_login_to_view` like every other page; an unknown `window` falls back
@@ -571,27 +699,220 @@ local-memory cache, so per process), which bounds the cost of repeated loads
 and of the API; since only configured engines reach the cache, a caller cannot
 fill it with arbitrary names.
 
+The page has two halves. The **lineage** answers "how much stronger did the
+engine get, and through which commits"; the **activity** charts answer "how
+much testing happened".
+
 Code lives in `OpenBench/progress/`:
 
 | Module | Role |
 |---|---|
-| `domain.py` | `Window`, the source rows and the frozen report dataclasses. |
-| `analysis.py` | Pure functions: parsing, the window scope, cumulative Elo, games per day, weekly series, rankings, the summary. |
-| `sources.py` | The six aggregate queries below. |
+| `domain.py` | `Window`, `TimeClass`, the source rows and the frozen report dataclasses: the contracts everything else is written against. |
+| `conditions.py` | Classifies a test's time control and thread count into a `TimeClass`. |
+| `lineage.py` | Pure graph functions: steps, pooling, the trunk, branches, chained series, direct checks, the window. |
+| `analysis.py` | Pure functions for the activity half: parsing, the window scope, games per day, weekly series, rankings, the summary. |
+| `sources.py` | The queries below. |
 | `report.py` | Runs the queries and assembles a `ProgressReport`. |
 | `present.py` | Formats the report for the template (tiles, table rows, links). |
 | `views.py` | The page and the JSON endpoint. |
 
-`OpenBench/tests/test_progress.py` covers the pure functions without a
-database, the queries against a small fixture, the page and the API.
+`OpenBench/tests/test_progress_lineage.py` covers the graph functions on
+hand-built graphs without a database; `test_progress.py` covers the activity
+functions, the queries against a small fixture, the page and the API.
+
+### Why a lineage and not a sum
+
+The page used to add up the Elo estimate of every passed SPRT. That is not a
+measure of anything: a change tested at STC and again at LTC was counted
+twice, a repeated test was counted once per repeat, and candidates that were
+tested side by side against the same base were stacked as if one had been
+built on the other. Tests are not independent increments; they are
+measurements of the edges of a commit graph, and only the edges along one path
+can be chained.
+
+### The model
+
+A test measures `dev` against `base`. Each side is a **commit**: the
+`Engine.sha` the test was built from, together with the network it ran
+(`dev_network` / `base_network`, empty for an engine without one), so a new
+network on unchanged code is a commit of its own.
+
+- **Runs** are the non-deleted `SPRT` and `GAMES` tests whose two sides are the
+  same engine, in any state (pending, running, finished). Tunes and datagen
+  sessions are not runs. A run whose base and dev are the same commit (a sanity
+  run, or a test of options only) measures no change and is left out.
+- A **step** is one `(base, dev)` pair. Every run of the pair belongs to the
+  one step.
+- Within a step, runs are grouped by **time-control class** into
+  **measurements**: one per class, however many runs it took.
+- A step's subject is the first non-blank line of `info` (the commit subject;
+  later lines may carry tooling metadata) of its first run that has one.
+
+#### Time-control classes
+
+`conditions.time_class` decides, from the two time controls and the two
+`Threads` options:
+
+| Class | Rule |
+|---|---|
+| `stc` | Fischer control (`base+inc`), the same on both sides, one thread on both sides, base time under 20 s |
+| `ltc` | the same, base time from 20 s up to but not including 120 s |
+| `vltc` | the same, base time of 120 s or more |
+| `smp` | Fischer control, the same on both sides, the same number of threads on both sides and more than one, at any base time |
+| `other` | everything else: fixed nodes, depth or move time, cyclic controls (`moves/base+inc`), sides with different controls or thread counts, a missing `Threads` option |
+
+So `8.0+0.08` is STC and `40.0+0.40` is LTC. Hash is not part of the rule: by
+convention it follows the time control, and a class is meant to answer "which
+kind of test was this", not to fingerprint every setting. A measurement lists
+its runs with their exact time controls, so a class that mixes `8+0.08` and
+`10+0.1` is visible as such. `other` lumps unlike conditions together, so it is
+shown in the table but never chained.
+
+#### Pooling repeats
+
+Runs of the same pair at the same class are **pooled**: their pentanomial
+counts are added and one Elo estimate with its 95% interval is computed from
+the sum by `OpenBench.stats.Elo`, the same function behind the number on a
+test page. Game pairs from separate runs of the same two builds under the same
+conditions are independent draws from one distribution, so the summed counts
+are the sufficient statistic and the pooled interval is the correct, narrower
+one. Pooling also avoids the bias of picking one run: a failed SPRT followed
+by a passing repeat is, pooled, closer to the truth than the passing run
+alone, though each run still stopped on its own rule. If any run in the pool
+recorded only trinomial results (`use_tri`), the pool is computed from the
+trinomial counts of all of them, and `pooling` says which was used.
+
+Only **finished** runs are pooled (passed, failed, stopped, or a completed
+GAMES run). A run that is still going, or awaiting approval, is listed but adds
+no games while any run of the measurement has finished. A measurement none of
+whose runs has finished is **provisional**: it shows the estimate so far,
+marked as such, and is never part of a chained total (below).
+
+An estimate needs a sample: a pool of fewer than 30 pairs (or games, for
+trinomial), or one whose results all fall in a single outcome, has no estimate
+(`elo` is `null`). Two won pairs would otherwise read as +1200 Elo with a
+four-point margin. The same rule applies to each run's own `elo`.
+
+The measurement's **verdict** is the status of its newest decided run
+(`passed` or `failed`, SPRT only). Without a decided run it is the first of
+`running`, `pending` (awaiting approval), `completed` (a finished GAMES run,
+whose `passed` flag only says who scored more) and `stopped` (an SPRT finished
+without a verdict) that any run has.
+
+### The trunk
+
+Steps form a graph over commits. Usually it is a chain with side branches,
+because each accepted dev becomes the base of the next test.
+
+1. **One parent per commit.** A commit may have been tested against several
+   bases (its predecessor, and later an old release). Its parent is the base
+   that gives it the longest chain back to a root; ties go to the step tested
+   first. Depths are computed over the graph with cycle-closing steps removed:
+   a depth-first search visits passed steps before the others and older steps
+   before newer, so of `B→A` (failed) and `A→B` (passed) it keeps `A→B`
+   whichever was tested first. The steps to a commit from its parent are the
+   **forest**; every other step is either a direct check or detached, see
+   below.
+2. **Taken steps.** A step is taken when the chain continues from it (some
+   step in the forest uses its dev as base), or when it is a tip that passed:
+   at least one of its measurements has the verdict `passed` and none has
+   `failed`. Continuation says the commit was built on, not that its test
+   passed: a failed step that was continued anyway is on the trunk with its
+   failed badge and its (negative) estimate in the chain. The tile therefore
+   counts "trunk steps", not accepted ones.
+3. **The tree.** The forest may have several roots. The lineage shown is the
+   tree with the most taken steps; ties go to the most games, then to the
+   newest test. A passing test between two commits that link to nothing can
+   therefore not replace an established chain. Other trees that have taken
+   steps are named in a notice above the table (`others`), and their tests are
+   in the detached list.
+4. **The head.** From the tree's root, follow taken steps forward while there
+   are any. Where several are taken, a step the chain continues from beats a
+   tip that merely passed, and among equals the one with the newest test in its
+   subtree wins. Where that walk ends is the head. If no step is taken, the
+   trunk is empty and the head is the root.
+5. **The trunk** is the path from the root to the head. Its steps are numbered
+   from 1; commit 0 is the root.
+
+Rule 4 means the trunk follows the line the newest work builds on. A stray
+test against an old commit does not cut it short, since the walk passes that
+commit; a passed candidate on an old base does not displace it either, since a
+line that continues beats an uncontinued tip. The trunk moves to another
+branch once something is tested on top of that branch and it is the more
+recently active.
+
+Everything else is placed relative to the trunk:
+
+- **Candidates** are the forest steps that branch off a trunk commit without
+  being on the trunk, with the steps that descend from them (each carries its
+  `depth`, 1 for a direct branch). They are parallel or abandoned work: listed
+  above the commit they branched from, never added to anything.
+- **Direct checks** are steps outside the forest whose base and dev are both
+  on the trunk, base first: a regression or progression run of a later commit
+  against an older one.
+- **Detached** steps are the rest: other trees (a base that never links to the
+  trunk), cross-branch comparisons, cycle-closing steps. An instance that tests
+  moving branch names rather than pinned commits produces mostly detached
+  steps, because a merged branch's SHA is not the SHA the next test uses as
+  base. The lineage needs dev commits to reappear as bases.
+
+### Chained estimate
+
+For one class, along trunk steps `1..n` with pooled estimates `e_i` and 95%
+intervals `[l_i, u_i]`, over the steps that have a finished measurement with an
+estimate at that class:
+
+```
+value   = Σ e_i
+margin  = sqrt( Σ h_i² ),   h_i = (u_i − l_i) / 2
+chained = value ± margin
+```
+
+Variances of independent estimates add, so the half-widths add in quadrature.
+Each class is its own series. STC and LTC are never added together, and a step
+with no measurement at a class is a **gap**: it contributes nothing, its point
+has no cumulative value, the line breaks there and resumes from the same sum,
+and the series says how many steps it covers (`measured` of `steps`). Nothing
+is borrowed from another class. A **provisional** step (its tests at that class
+are all still running) is not in the sum either: its point carries `projected`,
+the chain so far plus its estimate so far, which the chart draws as a dashed
+segment to a hollow marker, and the tile names it ("1 running") without moving
+the total. Half-width means `(upper − lower) / 2` everywhere, in the tiles, the
+table, the chart and the JSON-derived tooltips.
+
+Caveats, stated on the page:
+
+- **Selection.** Steps are on the trunk mostly because their tests passed, and
+  an SPRT stops when its LLR crosses a bound, so the estimate of a passed test
+  is biased upwards. The chained value overstates.
+- **Additivity.** Elo differences add exactly only under the logistic model
+  with the same opponents; a step measured against its predecessor says nothing
+  exact about the pair twelve steps apart.
+- **Conditions.** Books, exact time controls and worker hardware differ
+  between steps within a class.
+
+Read it as a trend. A **direct check** is the independent control: one run
+measures the whole span, with none of the chaining. The page puts it next to
+the chained estimate over the same steps at the same class, with the
+difference `direct − chained ± sqrt(h_direct² + h_chained²)`; when the chained
+side does not cover every step of the span, its coverage says so.
 
 ### Window
 
 A window of `n` days covers the last `n` UTC calendar days including today,
-from midnight UTC `n − 1` days ago. `all` starts at the earliest day with data:
-the first day with recorded games, the first green, or the Monday of the first
-week with a finished SPRT test. Every series is bucketed by UTC day or UTC week
-(weeks start on Monday), and the first week of a window is usually partial.
+from midnight UTC `n − 1` days ago. `all` starts at the earliest day with
+activity data: the first day with recorded games or the Monday of the first
+week with a finished SPRT test. Every activity series is bucketed by UTC day or
+UTC week (weeks start on Monday), and the first week of a window is usually
+partial.
+
+The graph is always built from every run of the engine, whatever the window,
+since the trunk cannot be found from a slice. The window then selects a
+**suffix of the trunk**: the steps after the last one whose `measured_at` (the
+newest finish time among its runs, or the creation time of a run still going)
+is before the window. The chain shown is therefore contiguous, sums start from
+zero at the commit before the first shown step (`origin`), and step numbers
+stay those of the whole trunk.
 
 ### Finish time
 
@@ -602,33 +923,25 @@ snapshot, so later edits (stop, delete, restore, modify), which move
 `Test.updated`, do not move it. A stopped test's finish time is therefore its
 last report, up to a minute before its final counters (see Recording), not the
 moment someone stopped it. Only a test without snapshots falls back to
-`Test.updated`. The query first narrows on `updated ≥ since − 1 h` (the
+`Test.updated`. The weekly query first narrows on `updated ≥ since − 1 h` (the
 `test_completed_updated` index; the finish time is never later than `updated`
 plus the moment between saving the Test and recording its snapshot), then
 filters on the finish time.
 
-### Metrics
+### One engine
 
-- **Greens** are the index's definition: finished, not deleted, SPRT,
-  `passed`, and `elolower + eloupper ≥ 0`. Blue (non-regression) passes are
-  left out. With an engine selected, `dev_engine` must match; cross-engine
-  tests are not excluded otherwise.
-- **Cumulative Elo** is `Σ elo_i` over the greens in finish order, where
-  `elo_i` is the point estimate of `OpenBench.stats.Elo` on the test's
-  pentanomial counts (trinomial when `use_tri`), the same number the test page
-  shows. Tests with fewer than two pairs (or trinomial games) have no
-  estimate, add nothing and are counted in the "without an estimate" part of
-  the tile. This sum is an estimate and
-  overstates progress: an SPRT stops when its LLR crosses the upper bound, so
-  the estimate of a passed test is biased upwards (selection bias), and each
-  test measures a patch against its own base, so the terms are not measured
-  against a common reference. Treat the line as a trend of accepted work, not
-  as a rating.
+A lineage follows one engine's commits. With an engine selected it is that
+engine's. On `/progress/` (every engine) it is shown when exactly one engine
+has steps; with several, the page lists them (`lineage_engines`) and
+`lineage` is `null`. Cross-engine tests are not runs.
+
+### Activity metrics
+
 - **SPRT outcomes per week**: finished, non-deleted SPRT tests, by the week of
   their finish time. `passed` and `failed` are the flags; `stopped` is
   finished with neither. Tunes, GAMES and DATAGEN Workloads are not SPRT, so
   they never count. The pass rate is `passed / (passed + failed)`, `null`
-  without a decided test.
+  without a decided test. With an engine selected, `dev_engine` must match.
 - **Games per day** comes from `WorkloadSnapshot`. For each Workload and UTC
   day, the day's largest cumulative `games` is taken; the games played on a day
   are that value minus the Workload's previous value, which for the first day in
@@ -649,19 +962,26 @@ filters on the finish time.
   listed, with their share of the window's total.
 - **Top authors**: Workloads of any mode created in the window (not deleted),
   counted by `author`; the ten largest are listed with their share.
-- **Tiles**: the Elo sum and the number of greens; SPRT tests finished with
-  passed / failed / stopped; the pass rate; games played and the mean per day
-  over the window's days; Workloads created and their distinct authors; users
-  whose Machines reported games.
+- **Tiles**: the chained Elo at STC and at LTC over the window's trunk steps,
+  each with its margin, its coverage and the number of steps still running (a
+  dash when no step has a finished measurement at that class; the tile's edge is
+  green for a positive total and red for a negative one); trunk steps in the
+  window and the candidates that branched from them; measurements (pooled step-and-class cells of those steps
+  and candidates) and the runs behind them; the SPRT pass rate; games played
+  and the mean per day. No tile adds classes together or counts a commit twice.
 
 ### Cost
 
 Six queries whatever the data size (five for `all`, which needs no baseline),
-each an aggregate or a bounded row set: the greens (one row per green, with a
+each an aggregate or a bounded row set: the runs (one row per SPRT or GAMES
+test of the engine, joined to its two `Engine` rows for the SHAs, with a
 correlated newest-snapshot subquery served by the `(test, created)` index), the
 weekly outcome counts (grouped in SQL), the daily snapshot maxima (grouped by
 Workload and day in SQL), the per-Workload baseline before the window (grouped
-in SQL), games grouped by owner, and Workloads grouped by author. The daily
+in SQL), games grouped by owner, and Workloads grouped by author. The whole
+graph is built in memory from the one runs query, never a query per commit;
+the graph functions are linear in runs apart from sorting (an iterative depth-first search, so a
+chain of thousands of steps does not recurse). The daily
 grouping uses SQLite's built-in `date(created)` rather than `TruncDate`, whose
 SQLite implementation calls a Python function per row (about four times slower
 on a 1.7M-snapshot history); with `USE_TZ` and `TIME_ZONE = 'UTC'` the stored
@@ -670,6 +990,11 @@ Other databases use `TruncDate(..., tzinfo=UTC)`. No Result or
 snapshot row is loaded individually. The page adds the enabled engine names
 and the queries `render()` always makes. `test_progress.py` asserts the counts
 at two data sizes.
+
+The payload is bounded: the newest 500 trunk steps of the window
+(`steps_omitted` counts the rest, which still count in the series totals), the
+newest 50 candidates per trunk commit (`candidates_omitted`) and the newest 50
+detached steps (`detached_omitted`). The page lists the newest 100 steps.
 
 ### `GET|POST /api/progress/?engine=&window=`
 
@@ -682,7 +1007,8 @@ case and surrounding whitespace, and an empty or omitted `window` means `90d`.
 An empty or missing `engine` means every engine; names are trimmed and cut to
 64 characters, and a name with no Engine configuration is status 404 with
 `{ "error": "..." }`. Days are
-`YYYY-MM-DD` (UTC) and timestamps ISO-8601 with a UTC offset.
+`YYYY-MM-DD` (UTC) and timestamps ISO-8601 with a UTC offset. Every Elo
+estimate is `{ "lower", "value", "upper" }` (a 95% interval) or `null`.
 
 ```jsonc
 {
@@ -690,12 +1016,15 @@ An empty or missing `engine` means every engine; names are trimmed and cut to
     "generated_at": "2026-09-30T12:00:00+00:00",
     "engine": "Avalanche",            // or null for every engine
     "window": "90d",                  // 30d | 90d | 1y | all
-    "start": "2026-07-03",            // first day of every series
+    "start": "2026-07-03",            // first day of the activity series
     "end": "2026-09-30",              // today, UTC
     "summary": {
-      "elo_gained": 41.7,             // Σ of the greens' Elo point estimates
-      "greens": 7,
-      "greens_without_elo": 0,        // greens that added nothing
+      "lineage": {
+        "trunk_steps": 6,             // trunk steps in the window
+        "candidates": 5,              // steps branching off them, not on the trunk
+        "measurements": 17,           // pooled (step, class) cells of both
+        "runs": 18                    // tests behind those cells
+      },
       "sprt": { "passed": 8, "failed": 5, "stopped": 1 },
       "sprt_pass_rate": 0.615,        // or null
       "games": 612430,
@@ -705,20 +1034,82 @@ An empty or missing `engine` means every engine; names are trimmed and cut to
       "authors": 3,
       "contributors": 2
     },
-    "elo_steps": [                    // the cumulative line, oldest first
-      { "finished_at": "2026-07-01T09:12:44+00:00",
-        "cumulative_elo": 5.2,
-        "greens": 1 }                 // how many greens the sum covers
-    ],
-    "greens": [                       // the newest 500 greens, oldest first
-      { "id": 42, "name": "lmp-table",
-        "finished_at": "2026-07-01T09:12:44+00:00",
-        "games": 24300,
-        "elo_bounds": [0.0, 3.0],     // [elolower, eloupper]
-        "elo": { "lower": 1.9, "value": 5.2, "upper": 8.5 },   // or null
-        "cumulative_elo": 5.2 }       // running sum including this test
-    ],
-    "greens_omitted": 0,              // older greens left out of "greens"
+    "lineage": {                      // or null: no steps, or several engines and none chosen
+      "engine": "Avalanche",
+      "classes": ["stc", "ltc"],      // classes measured in what is listed, in fixed order
+      "origin": { "sha": "8c308d43…", "network": "" },   // commit before the first shown step
+      "origin_candidates": [],        // candidates that branched from the origin
+      "origin_candidates_omitted": 0,
+      "head": { "sha": "741d6dc4…", "network": "" },
+      "trunk_length": 6,              // steps on the whole trunk, whatever the window
+      "steps": [                      // the window's trunk steps, oldest first
+        { "index": 1,                 // position on the whole trunk, from 1
+          "step": {
+            "base": { "sha": "8c308d43…", "network": "" },
+            "dev": { "sha": "76f2da3c…", "network": "" },
+            "repo": "https://github.com/SnowballSH/Avalanche",
+            "subject": "Tune the LMR table",          // Test.info
+            "author": "admin",
+            "first_run": 5,                           // lowest workload id of the step
+            "first_tested_at": "2026-08-22T10:00:00+00:00",
+            "last_tested_at": "2026-08-23T10:00:00+00:00",   // newest run created
+            "measured_at": "2026-08-23T16:41:07+00:00",      // newest finish, or creation while running
+            "measurements": [         // one per class, in class order
+              { "time_class": "stc",  // stc | ltc | vltc | smp | other
+                "verdict": "passed",  // passed | failed | running | pending | completed | stopped
+                "games": 29800,       // the pooled (finished) runs
+                "pooling": "pentanomial",              // or trinomial
+                "provisional": false, // true while no run has finished: elo is "so far"
+                "elo": { "lower": 1.06, "value": 3.70, "upper": 6.34 },
+                "runs": [             // oldest first
+                  { "id": 5, "mode": "SPRT",           // SPRT | GAMES
+                    "status": "passed",                // as verdict
+                    "time_control": "8.0+0.08",
+                    "created_at": "2026-08-22T10:00:00+00:00",
+                    "finished_at": "2026-08-22T18:12:30+00:00",   // null until finished
+                    "games": 29800,
+                    "elo": { "lower": 1.06, "value": 3.70, "upper": 6.34 } }
+                ] }
+            ]
+          },
+          "candidates": [             // branched from this step's dev, depth-first
+            { "depth": 1, "step": { /* as above */ } }
+          ],
+          "candidates_omitted": 0 }
+      ],
+      "steps_omitted": 0,             // older window steps left out of "steps" and "points"
+      "series": [                     // one per chained class measured on the shown trunk
+        { "time_class": "stc",
+          "points": [                 // one per step in "steps"
+            { "index": 1,
+              "elo": { "lower": 1.06, "value": 3.70, "upper": 6.34 },         // the step, or null
+              "cumulative": { "lower": 1.06, "value": 3.70, "upper": 6.34 }, // null at a gap or a provisional step
+              "projected": null }     // provisional step: the chain so far plus its estimate so far
+          ],
+          "total": { "lower": 18.2, "value": 25.8, "upper": 33.4 },   // whole window, or null
+          "measured": 6,              // steps with a finished estimate at this class
+          "provisional": 0,           // steps whose estimate is still provisional
+          "steps": 6 }                // trunk steps in the window
+      ],
+      "direct": [                     // runs spanning several trunk steps
+        { "time_class": "ltc",
+          "base": { "sha": "8c308d43…", "network": "" },
+          "dev": { "sha": "ea33d777…", "network": "" },
+          "repo": "https://github.com/SnowballSH/Avalanche",
+          "first_index": 1,           // first and last trunk step spanned
+          "last_index": 5,
+          "direct": { /* a measurement, as above */ },
+          "chained": { "lower": 9.6, "value": 14.9, "upper": 20.2 },   // same span and class, or null
+          "measured": 4,              // spanned steps the chained side covers
+          "steps": 5 }
+      ],
+      "detached": [ /* steps, as above, newest first */ ],
+      "detached_omitted": 0,
+      "others": [                     // other trees that have taken steps
+        { "root": { "sha": "f45c…", "network": "" }, "steps": 1, "taken": 1 }
+      ]
+    },
+    "lineage_engines": ["Avalanche"], // engines that have steps
     "weekly_outcomes": [              // every week from start's Monday, zeros included
       { "week_start": "2026-06-29", "passed": 1, "failed": 0, "stopped": 0 }
     ],
@@ -735,44 +1126,42 @@ An empty or missing `engine` means every engine; names are trimmed and cut to
 }
 ```
 
-`share` is `null` when the window's total is zero. Long windows on a busy
-server can hold thousands of greens, so `greens` carries only the newest 500
-(every one of them is still in the summary and the sum) and `elo_steps` is
-thinned to at most 500 points: with more greens than that, it keeps evenly
-spaced greens by rank, always the first and the last, each with its exact
-running sum, so the line keeps its shape at a coarser step. The page embeds
-this same object (without the `progress` wrapper) as a `json_script` data island.
+`share` is `null` when the window's total is zero. A direct check is included
+when its dev lies in the window; its chained side is summed over the whole
+span even where that reaches before the window. The page embeds this same
+object (without the `progress` wrapper) as a `json_script` data island. The
+shape replaced the earlier `greens` / `elo_steps` / `summary.elo_gained`
+fields, which nothing else consumed.
 
 ### The page
 
 `Templates/OpenBench/progress.html` renders the tiles and every table on the
 server; `OpenBench/static/progress.js` only draws the charts from the data
 island and submits the engine form when the selection changes (its button
-stays for visitors without scripts). The share bars carry `data-share`, which
-`site.js` copies into `--share` like every other page. The page follows the
-site's Content-Security-Policy (`docs/SECURITY.md`): its only inline `<script>`
-is the `application/json` data island, which is never executed, and it has no
-inline event handler or `style` attribute. `OpenBench/tests/test_csp.py` scans
-the template and the rendered `/progress/` pages.
+stays for visitors without scripts). The trunk chart has trunk step numbers on
+its x axis (`s1`, `s2`, so they cannot be mistaken for workload ids), one line per class in a fixed colour per class (`--series-1` STC,
+`--series-2` LTC, `--series-3` VLTC, `--series-4` SMP) with its band, and a
+legend; the lineage table below it is its data table (`aria-details`), newest
+step first, with candidates above the commit they branched from, a verdict
+badge per measurement and a link to every underlying workload and to the
+GitHub commit and compare pages (only for an `https://` repository). The share
+bars carry `data-share`, which `site.js` copies into `--share` like every other
+page. The page follows the site's Content-Security-Policy
+(`docs/SECURITY.md`): its only inline `<script>` is the `application/json` data
+island, which is never executed, and it has no inline event handler or `style`
+attribute. `OpenBench/tests/test_csp.py` scans the template and the rendered
+`/progress/` pages.
 
-- **Cumulative Elo from greens**: a stepped line over time from `elo_steps`
-  (linear axis in milliseconds with ticks on UTC day multiples), one marker per
-  step, a zero line, and a caption stating that the sum is an estimate that
-  overstates. The tooltip names the test, its Elo interval, games and date when
-  the step's green is among those sent, and always the running sum.
-- **SPRT outcomes per week**: stacked columns, `--pass` for passed, `--fail`
-  for failed and `--neutral-edge` for stopped (result colours, as on the test
-  lists), with a legend, a 2 px surface gap between segments and the pass rate
-  in the tooltip. The pass rate for the window is a tile rather than a second
-  axis.
-- **Games per day**: columns in `--series-1`.
-- Both bar charts have a table view in a `<details>` below them. The greens
-  table lists the newest 100 greens with their Elo, bounds, games and the
-  running sum; the contributors and authors tables show share bars.
-- Charts follow the rules in `docs/UI.md`: colours from tokens at render time,
-  re-rendered on theme change, no animation under reduced motion, `role="img"`
-  canvases whose `aria-label` states the totals.
+A lineage, candidate, direct-check or detached row that stands for exactly one
+workload is a navigable row (`data-row-href` and its one `.row-link`, see
+[UI.md](UI.md)); a row pooled from several workloads has no single
+destination, so each run keeps its own link. Step subjects and short commit
+names come from `OpenBench/listing_rows.py` (`split_info`, `short_name`), the
+same as the listings.
 
-`seed_demo` adds eighteen finished SPRT tests spread over the last six months
-(passed, failed, stopped and one non-regression pass, from all three demo
-authors), so every window of the page has data.
+The lineage demo is `seed_demo`'s one pinned chain, `COMMIT_CHAIN`: three trunk
+steps with STC and LTC stages, a repeated STC to pool, a rejected sibling, a
+running LTC confirmation on the newest step and a running candidate off it.
+`progress_checks` adds the one run the lab agent does not make, a fixed-games
+LTC run of the newest accepted commit against the chain root, which the page
+shows as a direct check. The unpinned seeded tests are the detached trees.

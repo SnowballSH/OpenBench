@@ -124,6 +124,7 @@ and upstream changes are merged in periodically.
   `OpenBench/machine_info.py`, `OpenBench/navigation/`, `OpenBench/progress/`, `OpenBench/security/`, `OpenBench/storage/`,
   `OpenBench/page_queries.py`, `OpenBench/upstream.py`,
   `OpenBench/workloads/clone.py`,
+  `OpenBench/management/commands/prune_machines.py`,
   `OpenBench/management/commands/seed_demo.py` and `OpenBench/tests/`. These
   are held to the full rule set in `pyproject.toml`, to `ruff format` and to
   mypy's strict profile.

@@ -2,17 +2,17 @@
 
 {% load mytags %}
 
-{% block title %}{{ detail.row.name|default:"Machine" }} #{{ detail.row.id }} · OpenBench{% endblock %}
+{% block title %}{{ detail.host.name|default:"Machine" }} · {{ detail.host.owner }} · OpenBench{% endblock %}
 
 {% block page_heading %}{% endblock %}
 
 {% block content %}
 
-    {% with row=detail.row %}
+    {% with row=detail.host %}
     <div class="fleet">
 
         <header class="fleet-heading">
-            <h1>{{row.name|default:"Machine"}} <span class="muted mono">#{{row.id}}</span></h1>
+            <h1>{{row.name|default:"Machine"}} <span class="muted">{{row.cpu_name}}</span></h1>
             {% if row.online %}
                 <span class="badge badge-pass">Online</span>
             {% else %}
@@ -46,6 +46,11 @@
                 <span class="stat-value">{{row.lifetime_games|insertCommas}}</span>
                 <span class="stat-meta">{{detail.workloads_total|insertCommas}} workload{{detail.workloads_total|pluralize}}</span>
             </div>
+            <div class="stat-tile">
+                <span class="stat-label">Sessions</span>
+                <span class="stat-value">{{detail.sessions_total|insertCommas}}</span>
+                <span class="stat-meta">since <span class="timestamp">{{row.first_seen|date:'U'}}</span></span>
+            </div>
         </section>
 
         <div class="fleet-columns">
@@ -73,6 +78,7 @@
                     <dt>Fastchess</dt><dd class="mono">{{machine.info.fastchess_ver|default:"—"}}</dd>
                     <dt>Python</dt><dd class="mono">{{machine.info.python_ver|default:"—"}}</dd>
                     <dt>CLI options</dt><dd class="mono">{{machine.info.cli_options|default:"—"}}</dd>
+                    <dt>Newest session</dt><dd class="mono"><a href="/machines/{{machine.id}}/">#{{machine.id}}</a></dd>
                     {% if machine.info.tokens %}<dt>Tokens</dt><dd>{{machine.info.tokens|join:" "}}</dd>{% endif %}
                     {% if machine.info.compilers %}<dt>Compilers</dt><dd><pre class="mono">{{machine|compilerBlock}}</pre></dd>{% endif %}
                 </dl>
@@ -93,6 +99,7 @@
                                 <th>Workload</th>
                                 <th>Mode</th>
                                 <th class="numeric">Games</th>
+                                <th class="numeric">Sessions</th>
                                 <th class="numeric">Elo</th>
                                 <th class="numeric">NPS</th>
                                 <th>Updated</th>
@@ -104,6 +111,7 @@
                                     <td><a class="row-link" href="{{item.test|workload_url}}"><span class="row-id">#{{item.test.id}}</span> {{item.test|workload_pretty_name}}</a></td>
                                     <td class="mono">{{item.test.test_mode}}</td>
                                     <td class="numeric">{{item.games|insertCommas}}</td>
+                                    <td class="numeric">{{item.sessions|insertCommas}}</td>
                                     <td class="numeric">{% if item.elo %}{{item.elo.value|floatformat:2}} ± {{item.elo_margin|floatformat:2}}{% else %}<span class="muted">—</span>{% endif %}</td>
                                     <td class="numeric">{% if item.nps %}{{item.nps|insertCommas}}{% else %}<span class="muted">—</span>{% endif %}</td>
                                     <td><time class="muted" datetime="{{item.updated|date:'c'}}" title="{{item.updated|date:'c'}}">{{item.updated_ago}}</time></td>
@@ -115,6 +123,48 @@
             {% else %}
                 <p class="card muted">This machine has not contributed to any workload yet.</p>
             {% endif %}
+        </section>
+
+        <section class="fleet-section" aria-labelledby="machine-sessions-title">
+            <div class="card-header">
+                <h2 class="card-title" id="machine-sessions-title">Sessions</h2>
+                <span class="muted">{% if detail.sessions_truncated %}Newest {{detail.sessions|length}} of {{detail.sessions_total|insertCommas}}. {% endif %}Each Client start registers a new session</span>
+            </div>
+            <div class="table-wrap w-100">
+                <table class="hoverable">
+                    <thead>
+                        <tr class="table-header">
+                            <th>Session</th>
+                            <th>Last heartbeat</th>
+                            <th class="numeric">Threads</th>
+                            <th>Workload</th>
+                            <th class="numeric">Games</th>
+                            <th>Client options</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for session in detail.sessions %}
+                            <tr data-row-href="/machines/{{session.machine_id}}/"{% if session.selected %} class="fleet-selected" aria-current="true"{% endif %}>
+                                <td class="mono"><a class="row-link" href="/machines/{{session.machine_id}}/">#{{session.machine_id}}</a></td>
+                                <td>
+                                    {% if session.online %}<span class="badge badge-pass">Online</span>{% endif %}
+                                    <time class="muted" datetime="{{session.last_seen|date:'c'}}" title="{{session.last_seen|date:'c'}}">{{session.last_seen_ago}}</time>
+                                </td>
+                                <td class="numeric">{{session.threads}}</td>
+                                <td>
+                                    {% if session.workload %}
+                                        <a href="{{session.workload|workload_url}}">{{session.workload|workload_pretty_name}}</a>
+                                    {% else %}
+                                        <span class="muted">None</span>
+                                    {% endif %}
+                                </td>
+                                <td class="numeric">{{session.games|insertCommas}}</td>
+                                <td class="mono fleet-options">{{session.cli_options|default:"—"}}</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
         </section>
 
     </div>

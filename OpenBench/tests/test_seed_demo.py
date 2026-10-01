@@ -6,7 +6,12 @@ from django.core.management.base import CommandError
 from django.test import SimpleTestCase, TestCase, override_settings
 from django.utils import timezone
 
+from OpenBench.fleet.pools import pool_label
+from OpenBench.fleet.sessions import never_used
 from OpenBench.management.commands.seed_demo import (
+    BATCH_CPU,
+    BATCH_IDLE_HOSTS_HOURS_AGO,
+    BATCH_PLAYING_HOSTS,
     CHAIN_ROOT,
     COMMIT_CHAIN,
     LTC,
@@ -18,8 +23,12 @@ from OpenBench.management.commands.seed_demo import (
     DemoStage,
     chain_workloads,
     commit_sha,
+    progress_checks,
 )
 from OpenBench.models import Engine, Machine, Profile, Result, Test, WorkloadSnapshot
+from OpenBench.progress.domain import TimeClass, Window
+from OpenBench.progress.report import progress_report
+from OpenBench.tests.fixtures import present
 
 
 class SeedDemoTests(TestCase):
@@ -32,7 +41,7 @@ class SeedDemoTests(TestCase):
     def test_fills_an_empty_database_consistently(self):
         call_command('seed_demo', stdout=io.StringIO())
 
-        chained = sum(len(commit.stages) for commit in COMMIT_CHAIN)
+        chained = sum(len(commit.stages) for commit in COMMIT_CHAIN) + len(progress_checks(COMMIT_CHAIN))
         self.assertEqual(Test.objects.count(), len(WORKLOADS) + len(PAST_SPRTS) + chained + len(TUNES))
         self.assertTrue(Machine.objects.exists())
 
@@ -161,6 +170,23 @@ class SeedDemoTests(TestCase):
             self.assertFalse(Result.objects.filter(machine=machine, updated__gt=machine.updated).exists())
 
     @override_settings(DEBUG=True)
+    def test_a_supervised_host_and_ephemeral_jobs_are_seeded(self):
+        call_command('seed_demo', stdout=io.StringIO())
+
+        supervised = Machine.objects.filter(info__machine_name='demo-3')
+        self.assertGreater(supervised.count(), 10)
+        self.assertEqual(supervised.values('host_key').distinct().count(), 1)
+        self.assertTrue(never_used(supervised).exists())
+
+        jobs = Machine.objects.filter(info__cpu_name=BATCH_CPU)
+        names = set(jobs.values_list('info__machine_name', flat=True))
+        hosts = BATCH_PLAYING_HOSTS + len(BATCH_IDLE_HOSTS_HOURS_AGO)
+        self.assertEqual((len(names), jobs.values('host_key').distinct().count()), (hosts, hosts))
+        self.assertEqual({pool_label(name, BATCH_CPU) for name in names}, {'batch-*'})
+        self.assertEqual(Result.objects.filter(machine__in=jobs).count(), BATCH_PLAYING_HOSTS)
+        self.assertFalse(jobs.filter(updated__gte=timezone.now() - timedelta(minutes=2)).exists())
+
+    @override_settings(DEBUG=True)
     def test_commit_chain_is_pinned_like_the_lab_agent_pins_it(self):
         call_command('seed_demo', stdout=io.StringIO())
 
@@ -244,3 +270,29 @@ class ChainWorkloadTests(SimpleTestCase):
         self.assertEqual(ages, sorted(ages, reverse=True))
         self.assertGreater(min(ages), 0)
         self.assertLess(max(ages), 6)
+
+
+class SeededLineageTests(TestCase):
+    @override_settings(DEBUG=True)
+    def test_the_commit_chain_gives_the_progress_page_a_lineage(self):
+        call_command('seed_demo', stdout=io.StringIO())
+
+        lineage = present(progress_report(Window.ALL, 'Avalanche').lineage)
+        accepted = [commit.subject for commit in COMMIT_CHAIN if commit.accepted]
+        self.assertEqual([row.step.subject for row in lineage.steps], [*accepted, COMMIT_CHAIN[3].subject])
+        self.assertEqual(lineage.origin.sha, commit_sha(CHAIN_ROOT))
+        self.assertEqual(lineage.classes, [TimeClass.STC, TimeClass.LTC])
+        self.assertEqual([len(row.candidates) for row in lineage.steps], [1, 1, 0])
+
+        repeated = present(lineage.steps[1].step.measurement(TimeClass.STC))
+        self.assertEqual(len(repeated.runs), 2)
+        running = present(lineage.steps[2].step.measurement(TimeClass.LTC))
+        self.assertTrue(running.provisional)
+        stc, ltc = lineage.series
+        self.assertEqual((stc.measured, stc.provisional), (3, 0))
+        self.assertEqual((ltc.measured, ltc.provisional), (2, 1))
+
+        (check,) = lineage.direct
+        self.assertEqual((check.time_class, check.first_index, check.last_index), (TimeClass.LTC, 1, 2))
+        self.assertEqual((check.measured, check.steps), (2, 2))
+        self.assertTrue(lineage.detached)

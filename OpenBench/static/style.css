@@ -2135,6 +2135,24 @@ td.contribution-name {
     color: var(--text-muted);
 }
 
+.fleet-selected > td {
+    background-color: var(--accent-soft);
+}
+
+.fleet-selected > td:first-child {
+    box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.fleet-pool > td:first-child > .muted {
+    margin-left: var(--space-1);
+    white-space: nowrap;
+}
+
+.fleet-options {
+    max-width: 24rem;
+    overflow-wrap: anywhere;
+}
+
 .fleet-tile-link {
     overflow: hidden;
     font-size: var(--text-lg);
@@ -2289,10 +2307,6 @@ th[aria-sort="descending"] .sort-button::after {
     gap: var(--space-4);
 }
 
-.progress-chart-wide {
-    grid-column: 1 / -1;
-}
-
 .progress-chart-wide .chart-box {
     height: 16rem;
 }
@@ -2320,10 +2334,77 @@ th[aria-sort="descending"] .sort-button::after {
     flex-wrap: wrap;
 }
 
-td.progress-test-name {
-    max-width: 22rem;
+.progress-subheading {
+    margin: var(--space-4) 0 var(--space-1);
+    font-size: var(--text-md);
+}
+
+.progress-note {
+    margin: 0 0 var(--space-2);
+    font-size: var(--text-sm);
+}
+
+.progress-detached {
+    margin-top: var(--space-4);
+}
+
+.lineage-table :is(td, th) {
+    vertical-align: top;
+}
+
+.lineage-step {
+    max-width: 26rem;
+}
+
+.lineage-subject {
+    display: block;
     overflow: hidden;
     text-overflow: ellipsis;
+}
+
+.lineage-detail {
+    display: block;
+    font-size: var(--text-xs);
+}
+
+.lineage-diff {
+    font-family: var(--font-sans);
+    font-size: var(--text-xs);
+}
+
+.lineage-trunk > td:first-child {
+    border-left: 2px solid var(--series-1);
+    font-weight: 600;
+}
+
+.lineage-candidate {
+    background-color: var(--surface-2);
+}
+
+.lineage-candidate > td:first-child {
+    border-left: 2px dashed var(--border);
+    font-size: var(--text-xs);
+}
+
+.lineage-depth-1 > .lineage-step { padding-left: var(--space-5); }
+.lineage-depth-2 > .lineage-step { padding-left: calc(2 * var(--space-5)); }
+.lineage-depth-3 > .lineage-step { padding-left: calc(3 * var(--space-5)); }
+
+.lineage-origin > td:first-child {
+    border-left: 2px solid var(--series-1);
+}
+
+.lineage-provisional {
+    color: var(--text-muted);
+    font-style: italic;
+}
+
+.lineage-measurement {
+    display: block;
+}
+
+.lineage-measurement + .lineage-measurement {
+    margin-top: var(--space-2);
 }
 
 /* ==========================================================================
