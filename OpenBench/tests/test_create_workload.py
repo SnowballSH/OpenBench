@@ -11,8 +11,9 @@ REPO = 'https://github.com/SnowballSH/Avalanche'
 
 
 def github_commit(url, **kwargs):
-    branch = {'sha': 'c' * 40, 'commit': {'message': 'Change things\n\nBench: 1234567'}}
-    return mock.Mock(**{'json.return_value': {'commit': branch}})
+    commit = {'sha': 'c' * 40, 'commit': {'message': 'Change things\n\nBench: 1234567'}}
+    # GitHub answers /commits/<sha> with the commit itself and /branches/<name> with it nested
+    return mock.Mock(**{'json.return_value': commit if '/commits/' in url else {'commit': commit}})
 
 
 def github_listing(url, **kwargs):
