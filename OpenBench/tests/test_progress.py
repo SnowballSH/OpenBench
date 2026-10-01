@@ -275,6 +275,24 @@ class ProgressDataTests(TestCase):
         self.assertEqual(rows[games.id].finished_at, NOW - timedelta(days=2))
         self.assertEqual(rows[pending.id].status, RunStatus.PENDING)
 
+    def test_a_restarted_run_is_running_whatever_flags_it_kept(self):
+        passed = self.pinned('1', '2', NOW, finished=False)
+        failed = self.pinned('1', '3', NOW, passed=False, failed=True, finished=False)
+        waiting = self.pinned('1', '4', NOW, finished=False, approved=False)
+        rows = {row.id: row for row in sources.load_runs('Avalanche', time_class)}
+        self.assertEqual(rows[passed.id].status, RunStatus.RUNNING)
+        self.assertEqual(rows[failed.id].status, RunStatus.RUNNING)
+        self.assertEqual(rows[waiting.id].status, RunStatus.PENDING)
+        self.assertIsNone(rows[passed.id].finished_at)
+
+    def test_a_restarted_step_is_provisional_on_the_trunk(self):
+        self.pinned('1', '2', NOW - timedelta(days=3))
+        self.pinned('2', '3', NOW - timedelta(days=2), finished=False)
+        self.pinned('3', '4', NOW - timedelta(days=1))
+        series = self.report(engine='Avalanche').lineage.series[0]
+        self.assertEqual((series.steps, series.measured, series.provisional), (3, 2, 1))
+        self.assertIsNone(series.points[1].cumulative)
+
     def test_the_window_keeps_a_suffix_of_the_trunk(self):
         self.pinned('1', '2', NOW - timedelta(days=200))
         recent = self.pinned('2', '3', NOW - timedelta(days=5))
