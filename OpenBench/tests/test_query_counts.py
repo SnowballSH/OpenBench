@@ -41,7 +41,12 @@ PAGE_QUERIES = {
     '/errors/': 7,
     '/networks/': 5,
     '/api/insights/server/': 11,
+    '/machines/': 11,
+    '/machines/?show=7d': 11,
+    '/users/': 8,
 }
+
+MACHINE_QUERIES = 11
 
 WORKLOAD_QUERIES = {
     '/test/{}/': 10,
@@ -77,6 +82,10 @@ class QueryBudgetTests(TestCase):
     def test_workload_pages(self) -> None:
         for url, queries in WORKLOAD_QUERIES.items():
             self.assert_page_queries(url.format(self.data.workload.id), queries)
+
+    def test_machine_page(self) -> None:
+        for machine in (self.data.machines[0], self.data.machines[-1]):
+            self.assert_page_queries(f'/machines/{machine.id}/', MACHINE_QUERIES)
 
     def test_compare_page(self) -> None:
         other = next(test for test in self.data.tests if test.test_mode == 'SPRT' and test != self.data.workload)

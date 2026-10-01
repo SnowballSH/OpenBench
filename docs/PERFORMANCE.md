@@ -19,6 +19,9 @@ there first.
 | `/api/workload/<id>/history.csv` | 5 |
 | `/compare/?a=<id>&b=<id>` | 7 |
 | `/api/insights/server/` | 11 |
+| `/machines/`, `/machines/?show=…` | 11 (9 before any snapshot exists in the last 24 hours, and 8 with no listed workload: empty lookups are skipped) |
+| `/machines/<id>/` | 11 |
+| `/users/` | 8 |
 
 Budgets include the session, user and Profile lookups every logged-in page
 pays.
@@ -43,6 +46,12 @@ pays.
   `request_profile`, and cached on the request.
 - **The Machine status** line sums concurrency and MNPS in SQL, reading
   `concurrency` out of the `info` JSON, instead of loading every online Machine.
+  It counts each host once, by its current session
+  ([INSIGHTS.md](INSIGHTS.md#hosts)): two correlated `EXISTS` probes of
+  `machine_host_updated` per online registration.
+- **The fleet pages** group registrations into hosts in three queries (current
+  sessions in the window, per-host session totals, per-host games), then
+  fetch the listed Workloads in one.
 - **Search** is paged like the index (`/search/<page>/?<params>`), newest
   first, instead of rendering every match.
 
@@ -66,6 +75,40 @@ measured with 20,000 Tests, 50,000 LogEvents and 100,000 PGNs:
 | `logevent_machine` | `/events/` count and page | `SCAN logevent` → `SEARCH USING COVERING INDEX (machine_id=?)` | count 1.7 → 0.5 ms |
 | `pgn_unprocessed`: `test_id WHERE NOT processed` | The PGN watcher's batch, `/api/pgns/<id>/` | `SCAN pgn` + temp B-tree sort → `SCAN/SEARCH USING INDEX` | watcher 5.1 → 0.7 ms, api 3.8 → 0.01 ms |
 | `network_engine_sha` | The dev Network annotation on every listed row, network lookups | correlated `SCAN network` per row → `SEARCH` | |
+
+### `Machine.host_key`
+
+Grouping registrations into hosts could be done at query time, by extracting
+the identifying fields from `Machine.info`. It is stored instead, in an
+indexed column filled at registration, because every grouped read would
+otherwise parse every registration's JSON. Measured on SQLite with 50,000
+Machines of 400 hosts (the largest with 1,270 registrations) and 133,000
+Results:
+
+| Query | From `info` at query time | With `host_key` and `machine_host_updated` |
+|---|---|---|
+| Registrations of one host | `SEARCH … (user_id=?)`, then JSON per row: 13.1 ms | `SEARCH USING COVERING INDEX (host_key=?)`: 1.4 ms |
+| Group every registration by host | `SCAN` + temp B-tree for `GROUP BY`: 635 ms | `SCAN USING COVERING INDEX`: 7.3 ms |
+| Is this the host's current session? | not expressible without the scan above | two `SEARCH USING COVERING INDEX (host_key=? AND updated>?)` |
+
+`machine_host_updated` is `(host_key, updated)`: it serves the host lookup,
+covers the per-host session count and first-seen aggregate, and answers the
+current-session probes without touching the table. With it, at that size:
+`/machines/` 9 ms online, 180 ms for 24 hours and 300 ms for 7 days (all 400
+hosts, dominated by summing every Result of the listed hosts for lifetime
+games); `/machines/<id>/` 45 ms for the largest host; the index status line
+and the server payload's `fleet` 1.7 ms each.
+
+`machine_user_updated` is `(user, updated)`. The registration-time prune
+reads the owner's newest 500 stale registrations through it
+(`SEARCH USING INDEX machine_user_updated (user_id=? AND updated<?)`, plus a
+covering `SEARCH` of the Result index per row): 2.0 ms for an owner holding
+45,000 of 50,000 registrations, and 13.5 ms including the delete of 328 rows.
+It also covers the `/users/` last-heartbeat aggregate, which was a table scan
+(131 ms → 14 ms).
+
+The cost is one `sha256` at registration and a 32-character column. The
+migration keys existing rows in batches of 500.
 
 No index was added for Results by `(test, machine)`: the existing `test_id`
 index already turns every Result filter into a `SEARCH`, and the remaining

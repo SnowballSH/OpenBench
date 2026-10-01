@@ -6,7 +6,12 @@ from django.core.management.base import CommandError
 from django.test import SimpleTestCase, TestCase, override_settings
 from django.utils import timezone
 
+from OpenBench.fleet.pools import pool_label
+from OpenBench.fleet.sessions import never_used
 from OpenBench.management.commands.seed_demo import (
+    BATCH_CPU,
+    BATCH_IDLE_HOSTS_HOURS_AGO,
+    BATCH_PLAYING_HOSTS,
     CHAIN_ROOT,
     COMMIT_CHAIN,
     LTC,
@@ -163,6 +168,23 @@ class SeedDemoTests(TestCase):
 
         for machine in Machine.objects.exclude(id__in=online):
             self.assertFalse(Result.objects.filter(machine=machine, updated__gt=machine.updated).exists())
+
+    @override_settings(DEBUG=True)
+    def test_a_supervised_host_and_ephemeral_jobs_are_seeded(self):
+        call_command('seed_demo', stdout=io.StringIO())
+
+        supervised = Machine.objects.filter(info__machine_name='demo-3')
+        self.assertGreater(supervised.count(), 10)
+        self.assertEqual(supervised.values('host_key').distinct().count(), 1)
+        self.assertTrue(never_used(supervised).exists())
+
+        jobs = Machine.objects.filter(info__cpu_name=BATCH_CPU)
+        names = set(jobs.values_list('info__machine_name', flat=True))
+        hosts = BATCH_PLAYING_HOSTS + len(BATCH_IDLE_HOSTS_HOURS_AGO)
+        self.assertEqual((len(names), jobs.values('host_key').distinct().count()), (hosts, hosts))
+        self.assertEqual({pool_label(name, BATCH_CPU) for name in names}, {'batch-*'})
+        self.assertEqual(Result.objects.filter(machine__in=jobs).count(), BATCH_PLAYING_HOSTS)
+        self.assertFalse(jobs.filter(updated__gte=timezone.now() - timedelta(minutes=2)).exists())
 
     @override_settings(DEBUG=True)
     def test_commit_chain_is_pinned_like_the_lab_agent_pins_it(self):

@@ -48,6 +48,7 @@ from OpenBench.stats import TrinomialSPRT, PentanomialSPRT
 
 import OpenBench.views
 import OpenBench.model_utils
+import OpenBench.fleet.sessions
 import OpenBench.insights.recorder
 
 
@@ -224,6 +225,9 @@ def getMachineStatus(username=None):
 
     if username != None:
         machines = machines.filter(user__username=username)
+
+    # One row per physical machine: a restarted Client leaves its old registration online
+    machines = OpenBench.fleet.sessions.current_sessions(machines)
 
     # Summed in the database, so no Machine's info blob is ever deserialized
     threads = Cast(KT('info__concurrency'), IntegerField())

@@ -36,8 +36,10 @@ from OpenBench.workloads.modify_workload import modify_workload
 from OpenBench.workloads.verify_workload import verify_workload
 from OpenBench.workloads.view_workload import view_workload, fetch_results, fetch_result_summaries
 from OpenBench.insights.api import workload_payload
-from OpenBench.fleet.machine_detail import load_machine_detail
+from OpenBench.fleet.housekeeping import registration_housekeeping
+from OpenBench.fleet.machine_detail import load_host_detail
 from OpenBench.fleet.machines import load_machines_page
+from OpenBench.fleet.pools import parse_pool_key
 from OpenBench.fleet.status import OfflineWindow
 from OpenBench.fleet.users import load_user_rows
 
@@ -506,13 +508,14 @@ def events_errors(request, page=1):
 def machines(request, pk=None):
 
     if pk is None:
-        page = load_machines_page(timezone.now(), OfflineWindow.parse(request.GET.get('show')))
+        page = load_machines_page(
+            timezone.now(), OfflineWindow.parse(request.GET.get('show')), expanded=parse_pool_key(request.GET.get('pool')))
         return render(request, 'machines.html', { 'page' : page })
 
-    if not (detail := load_machine_detail(int(pk), timezone.now())):
+    if not (detail := load_host_detail(int(pk), timezone.now())):
         return redirect(request, '/machines/', error='Machine does not exist')
 
-    return render(request, 'machine.html', { 'detail' : detail, 'machine' : detail.machine })
+    return render(request, 'machine.html', { 'detail' : detail, 'machine' : detail.current })
 
 
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
@@ -856,8 +859,9 @@ def client_worker_info(request):
     # Tag engines that the Machine can build and/or run with binaries
     machine.info['supported'] = supported_engines(machine.info)
 
-    # Finish up
+    # Finish up, and drop this user's registrations that exited without being used
     machine.save()
+    registration_housekeeping(user.id, timezone.now())
 
     # Pass back the Machine Id, and Secret Token for this session
     return JsonResponse({ 'machine_id' : machine.id, 'secret' : machine.secret })

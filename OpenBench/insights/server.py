@@ -6,11 +6,11 @@ from typing import Any
 from django.db.models import Max, Min
 from django.utils import timezone
 
+from OpenBench.fleet.sessions import ACTIVE_MACHINE, current_sessions
 from OpenBench.insights.domain import WorkloadMode, spsa_target_games, tune_completed
 from OpenBench.machine_info import int_of
 from OpenBench.models import Machine, Profile, Test, WorkloadSnapshot
 
-ACTIVE_MACHINE = timedelta(minutes=2)
 GAMES_WINDOW = timedelta(hours=24)
 FINISHED_WINDOW = timedelta(days=7)
 TOP_CONTRIBUTORS = 10
@@ -124,7 +124,8 @@ def summarize_finished(workloads: Iterable[FinishedWorkload], window: timedelta)
 
 
 def load_fleet(now: datetime) -> FleetStatus:
-    return fleet_status(Machine.objects.filter(updated__gte=now - ACTIVE_MACHINE).values_list('info', 'mnps'))
+    online = Machine.objects.filter(updated__gte=now - ACTIVE_MACHINE)
+    return fleet_status(current_sessions(online).values_list('info', 'mnps'))
 
 
 def load_workload_counts() -> WorkloadCounts:

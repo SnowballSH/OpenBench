@@ -22,7 +22,9 @@ OPENBENCH_DEBUG=1 python manage.py seed_demo
 OPENBENCH_DEBUG=1 python manage.py runserver
 ```
 
-`seed_demo` fills an empty development database with accounts, Machines and
+`seed_demo` fills an empty development database with accounts, Machines (one
+of them a supervised host with a registration per workload and idle ones in
+between, and a few ephemeral `batch-<uuid>` cloud jobs) and
 Workloads of every mode (SPRT, fixed games, SPSA tunes, datagen) in every
 state, so pages can be seen with realistic data. Its `COMMIT_CHAIN` also seeds
 commit-pinned SPRT tests the way the lab agent creates them: both branch names
@@ -180,6 +182,92 @@ POST body like the other API endpoints. Otherwise it answers 401 with
 | `media.skipped_symlinks`, `media.unreadable_dirs` | Symbolic links not followed, and directories that could not be listed (their contents are not counted). |
 | `media.truncated` | The scan hit its entry limit, so totals are low. |
 | `upload_spool` | `null` when `OPENBENCH_UPLOAD_TEMP_DIR` is unset. `truncated` is true when it holds more than 10,000 entries, so the figures are low. |
+
+## Machine registrations
+
+The Client registers a new `Machine` row on every start. A supervisor running
+it with `--single-workload` starts it once a minute while there is no work, so
+an idle host would add about 1,440 rows a day that never play a game. Rows
+with Results are history and are never removed (`Result.machine` is
+`PROTECT`); the never-used ones are removed in two ways.
+
+**At registration**, `clientWorkerInfo` deletes, in the same transaction as
+the new row, registrations that are all of:
+
+- of the same owner as the one registering (not the same machine: an
+  ephemeral cloud job is a new host every time and never registers again, so
+  only another of its owner's hosts can clean up after it),
+- without any Result,
+- made by a Client that exits when it has no work (`--single-workload` or
+  `--fleet` in the `cli_options` it registered with),
+- last heard from more than 15 minutes ago,
+
+looking only at the owner's 500 most recently seen registrations older than
+15 minutes. Such a registration made one workload request and its Client has
+exited: it cannot come back, whichever machine it ran on. The 15 minutes cover
+a Client that registered and is still retrying its first request through a
+network outage. The 500-row window makes the cost constant: one query down the
+`machine_user_updated` index (2 ms for an owner with 45,000 registrations) and
+one delete. In steady state every never-used row sits inside the window, so an
+owner keeps roughly one row per idle host per minute for 15 minutes, plus the
+registrations that played. A backlog deeper than the window (never-used rows
+buried under more than 500 newer ones) is left for `prune_machines`. Reusing
+the newest idle row instead of inserting was rejected: it would change the id
+and secret handed to a Client that may still be starting, and would never
+shrink a backlog.
+
+Registrations of a Client that keeps polling are deliberately left alone at
+registration. `clientGetWorkload` does not refresh `Machine.updated` when it
+has no work to give, so an idle polling Client is indistinguishable from a dead
+one by its heartbeat. If its row is deleted, its next request is answered
+`Bad Client Version: Bad Machine Id`; the Client re-downloads itself and
+registers again, but one started with `--no-client-downloads` exits instead.
+
+The tidy-up runs after the new registration is saved, in its own transaction,
+and is best effort: a database error in it is logged
+(`OpenBench.fleet.housekeeping`) and the Client still gets its id and secret.
+
+**On demand**, `prune_machines` reports, and with `--apply` deletes, across
+the whole server:
+
+```bash
+python manage.py prune_machines                              # dry run: counts only
+python manage.py prune_machines --apply                      # delete exited registrations
+python manage.py prune_machines --apply --include-polling --days 30
+```
+
+- *exited*: as above, for every owner and without the window; this is what
+  clears a backlog, and all that a plain `--apply` deletes.
+- *polling*, only with `--include-polling`: never-used registrations of
+  Clients that keep polling, last heard from more than `--days` days ago
+  (default 7, minimum 1). Mind the caveat above: a polling Client idle for
+  that long loses its registration and registers again, or exits under
+  `--no-client-downloads`. Raise `--days` beyond the longest quiet period.
+
+It never deletes a registration that has a Result or a heartbeat within the
+last 15 minutes, deletes in batches of 500, re-checks for Results at delete
+time, and reports how many it actually deleted. `--apply` also gives a host
+key to every registration that lacks one. Deleting a registration does not
+change any count of games, and LogEvents that name its id keep their text.
+Take a database backup before the first `--apply`.
+
+### Rolling back past the host key
+
+Migration `0019` adds `Machine.host_key` and two indexes. Rolling the image
+back to one from before it does not undo the migration, and does not need to:
+
+- The column is `NOT NULL DEFAULT ''` in the database, so the older code,
+  which does not know the column, still inserts Machines; workers keep
+  registering. Those rows have an empty key.
+- The indexes are invisible to older code.
+- Do not run `migrate OpenBench 0018` to "match" the old image: it would drop
+  the column and every key, for no benefit.
+
+When the newer image runs again, nothing has to be done by hand. Rows with an
+empty key are never merged with each other, and are keyed by the first
+registration that arrives (200 per registration), by the row's own next
+heartbeat, and by the fleet pages when they meet one. `prune_machines --apply`
+keys all of them at once; the dry run reports how many there are.
 
 ## Response compression
 
