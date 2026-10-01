@@ -1,0 +1,377 @@
+import math
+from collections import defaultdict
+from collections.abc import Iterable, Iterator, Mapping, Sequence
+from datetime import datetime
+
+from OpenBench.insights.strength import EloInterval, elo_interval
+from OpenBench.progress.domain import (
+    CANDIDATES_SENT,
+    DETACHED_SENT,
+    TRUNK_STEPS_SENT,
+    Candidate,
+    ChainPoint,
+    ChainSeries,
+    Commit,
+    DirectCheck,
+    DirectRun,
+    Lineage,
+    LineageReport,
+    LineageSummary,
+    Measurement,
+    Pooling,
+    Run,
+    RunRow,
+    RunStatus,
+    Step,
+    TimeClass,
+    TrunkStep,
+)
+
+type Edge = tuple[Commit, Commit]
+type Children = Mapping[Commit, Sequence[Step]]
+
+UNDECIDED_ORDER = (RunStatus.RUNNING, RunStatus.PENDING, RunStatus.COMPLETED, RunStatus.STOPPED)
+DECIDED = (RunStatus.PASSED, RunStatus.FAILED)
+
+
+def run_of(row: RunRow) -> Run:
+    return Run(
+        id=row.id,
+        mode=row.mode,
+        status=row.status,
+        time_control=row.time_control,
+        created_at=row.created_at,
+        finished_at=row.finished_at,
+        games=row.games,
+        elo=elo_interval(row.outcomes.primary()),
+    )
+
+
+def pooled_verdict(rows: Sequence[RunRow]) -> RunStatus:
+    decided = [row for row in rows if row.status in DECIDED]
+    if decided:
+        return max(decided, key=lambda row: (row.created_at, row.id)).status
+    present = {row.status for row in rows}
+    return next(status for status in UNDECIDED_ORDER if status in present)
+
+
+def pool(time_class: TimeClass, rows: Sequence[RunRow]) -> Measurement:
+    ordered = sorted(rows, key=lambda row: (row.created_at, row.id))
+    use_penta = all(row.outcomes.use_penta for row in ordered)
+    counts = [row.outcomes.pentanomial if use_penta else row.outcomes.trinomial for row in ordered]
+    return Measurement(
+        time_class=time_class,
+        verdict=pooled_verdict(ordered),
+        games=sum(row.games for row in ordered),
+        pooling=Pooling.PENTANOMIAL if use_penta else Pooling.TRINOMIAL,
+        elo=elo_interval([sum(column) for column in zip(*counts, strict=True)]),
+        runs=[run_of(row) for row in ordered],
+    )
+
+
+def last_activity(row: RunRow) -> datetime:
+    return row.finished_at or row.created_at
+
+
+def subject_line(info: str) -> str:
+    return next((line.strip() for line in info.splitlines() if line.strip()), '')
+
+
+def step_of(rows: Sequence[RunRow]) -> Step:
+    first = min(rows, key=lambda row: row.id)
+    subjects = (subject_line(row.subject) for row in sorted(rows, key=lambda row: row.id))
+    by_class: defaultdict[TimeClass, list[RunRow]] = defaultdict(list)
+    for row in rows:
+        by_class[row.time_class].append(row)
+    return Step(
+        base=first.base,
+        dev=first.dev,
+        repo=first.repo,
+        subject=next((subject for subject in subjects if subject), ''),
+        author=first.author,
+        first_run=first.id,
+        first_tested_at=min(row.created_at for row in rows),
+        last_tested_at=max(row.created_at for row in rows),
+        measured_at=max(last_activity(row) for row in rows),
+        measurements=[pool(time_class, by_class[time_class]) for time_class in TimeClass if time_class in by_class],
+    )
+
+
+def build_steps(rows: Iterable[RunRow]) -> list[Step]:
+    pairs: defaultdict[Edge, list[RunRow]] = defaultdict(list)
+    for row in rows:
+        if row.base != row.dev:
+            pairs[row.base, row.dev].append(row)
+    return sorted((step_of(found) for found in pairs.values()), key=lambda step: step.first_run)
+
+
+def edge(step: Step) -> Edge:
+    return step.base, step.dev
+
+
+def children_of(steps: Iterable[Step]) -> dict[Commit, list[Step]]:
+    children: defaultdict[Commit, list[Step]] = defaultdict(list)
+    for step in steps:
+        children[step.base].append(step)
+    return dict(children)
+
+
+def topological(steps: Sequence[Step], children: Children) -> tuple[list[Commit], set[Edge]]:
+    finished: dict[Commit, bool] = {}
+    postorder: list[Commit] = []
+    cyclic: set[Edge] = set()
+
+    for start in (commit for step in steps for commit in edge(step)):
+        if start in finished:
+            continue
+        finished[start] = False
+        stack: list[tuple[Commit, Iterator[Step]]] = [(start, iter(children.get(start, ())))]
+        while stack:
+            node, pending = stack[-1]
+            for step in pending:
+                if step.dev not in finished:
+                    finished[step.dev] = False
+                    stack.append((step.dev, iter(children.get(step.dev, ()))))
+                    break
+                if not finished[step.dev]:
+                    cyclic.add(edge(step))
+            else:
+                finished[node] = True
+                postorder.append(node)
+                stack.pop()
+
+    return postorder[::-1], cyclic
+
+
+def primary_steps(steps: Sequence[Step]) -> dict[Commit, Step]:
+    children = children_of(steps)
+    order, cyclic = topological(steps, children)
+    depth: dict[Commit, int] = {}
+    primary: dict[Commit, Step] = {}
+
+    for node in order:
+        reached = depth.get(node, 0) + 1
+        for step in children.get(node, ()):
+            if edge(step) in cyclic:
+                continue
+            current = primary.get(step.dev)
+            if current is None or (reached, -step.first_run) > (depth[step.dev], -current.first_run):
+                depth[step.dev], primary[step.dev] = reached, step
+
+    return primary
+
+
+def passed_unopposed(step: Step) -> bool:
+    verdicts = {measurement.verdict for measurement in step.measurements}
+    return RunStatus.PASSED in verdicts and RunStatus.FAILED not in verdicts
+
+
+def accepted(step: Step, children: Children) -> bool:
+    return step.dev in children or passed_unopposed(step)
+
+
+def find_head(forest: Sequence[Step], primary: Mapping[Commit, Step], children: Children) -> Commit:
+    newest_first = sorted(forest, key=lambda step: (step.last_tested_at, step.first_run), reverse=True)
+    anchor = next(
+        (
+            step.dev if accepted(step, children) else step.base
+            for step in newest_first
+            if accepted(step, children) or step.base in primary
+        ),
+        newest_first[0].base,
+    )
+    while taken := [step for step in children.get(anchor, ()) if accepted(step, children)]:
+        anchor = max(taken, key=lambda step: (step.measured_at, step.first_run)).dev
+    return anchor
+
+
+def trunk_to(head: Commit, primary: Mapping[Commit, Step]) -> list[Step]:
+    trunk: list[Step] = []
+    node = head
+    while (step := primary.get(node)) is not None:
+        trunk.append(step)
+        node = step.base
+    return trunk[::-1]
+
+
+def branch(node: Commit, children: Children, on_trunk: set[Edge]) -> list[Candidate]:
+    found: list[Candidate] = []
+    stack = [(1, step) for step in reversed(children.get(node, ())) if edge(step) not in on_trunk]
+    while stack:
+        depth, step = stack.pop()
+        found.append(Candidate(depth, step))
+        stack.extend((depth + 1, child) for child in reversed(children.get(step.dev, ())))
+    return found
+
+
+def build_lineage(steps: Sequence[Step]) -> Lineage | None:
+    if not steps:
+        return None
+
+    primary = primary_steps(steps)
+    forest = sorted(primary.values(), key=lambda step: step.first_run)
+    children = children_of(forest)
+    head = find_head(forest, primary, children)
+    trunk = trunk_to(head, primary)
+    root = trunk[0].base if trunk else head
+
+    on_trunk = {edge(step) for step in trunk}
+    position = {node: index for index, node in enumerate([root, *(step.dev for step in trunk)])}
+    branches = {node: found for node in position if (found := branch(node, children, on_trunk))}
+
+    in_forest = {edge(step) for step in forest}
+    placed = on_trunk | {edge(found.step) for candidates in branches.values() for found in candidates}
+    direct = [
+        DirectRun(position[step.base] + 1, position[step.dev], step)
+        for step in steps
+        if edge(step) not in in_forest and position.get(step.base, len(position)) < position.get(step.dev, -1)
+    ]
+    placed |= {edge(run.step) for run in direct}
+
+    return Lineage(
+        root=root,
+        head=head,
+        trunk=trunk,
+        branches=branches,
+        direct=direct,
+        detached=[step for step in steps if edge(step) not in placed],
+    )
+
+
+def half_width(interval: EloInterval) -> float:
+    return (interval.upper - interval.lower) / 2
+
+
+def chain(estimates: Iterable[EloInterval]) -> EloInterval | None:
+    found = list(estimates)
+    if not found:
+        return None
+    value = sum(interval.value for interval in found)
+    margin = math.sqrt(sum(half_width(interval) ** 2 for interval in found))
+    return EloInterval(value - margin, value, value + margin)
+
+
+def step_estimate(step: Step, time_class: TimeClass) -> EloInterval | None:
+    measurement = step.measurement(time_class)
+    return measurement.elo if measurement else None
+
+
+def chain_series(steps: Sequence[Step], time_class: TimeClass, first_index: int) -> ChainSeries:
+    points: list[ChainPoint] = []
+    measured: list[EloInterval] = []
+    for index, step in enumerate(steps, start=first_index):
+        estimate = step_estimate(step, time_class)
+        if estimate is not None:
+            measured.append(estimate)
+        points.append(ChainPoint(index, estimate, chain(measured) if estimate is not None else None))
+    return ChainSeries(time_class, points, chain(measured), len(measured), len(steps))
+
+
+def window_offset(trunk: Sequence[Step], since: datetime | None) -> int:
+    if since is None:
+        return 0
+    stale = (index for index in range(len(trunk), 0, -1) if trunk[index - 1].measured_at < since)
+    return next(stale, 0)
+
+
+def direct_checks(lineage: Lineage, offset: int) -> list[DirectCheck]:
+    checks: list[DirectCheck] = []
+    for run in lineage.direct:
+        if run.last_index <= offset:
+            continue
+        spanned = lineage.trunk[run.first_index - 1 : run.last_index]
+        for measurement in run.step.measurements:
+            if not measurement.time_class.chained:
+                continue
+            estimates = [found for step in spanned if (found := step_estimate(step, measurement.time_class))]
+            checks.append(
+                DirectCheck(
+                    time_class=measurement.time_class,
+                    base=run.step.base,
+                    dev=run.step.dev,
+                    repo=run.step.repo,
+                    first_index=run.first_index,
+                    last_index=run.last_index,
+                    direct=measurement,
+                    chained=chain(estimates),
+                    measured=len(estimates),
+                    steps=len(spanned),
+                )
+            )
+    return checks
+
+
+def newest(candidates: Sequence[Candidate], limit: int) -> list[Candidate]:
+    if len(candidates) <= limit:
+        return list(candidates)
+    kept = sorted(candidates, key=lambda found: found.step.last_tested_at)[-limit:]
+    keep = {edge(found.step) for found in kept}
+    return [found for found in candidates if edge(found.step) in keep]
+
+
+def classes_measured(steps: Iterable[Step]) -> set[TimeClass]:
+    return {measurement.time_class for step in steps for measurement in step.measurements}
+
+
+def lineage_report(engine: str, lineage: Lineage, since: datetime | None) -> LineageReport:
+    offset = window_offset(lineage.trunk, since)
+    shown = lineage.trunk[offset:]
+    origin = shown[0].base if shown else lineage.head
+    origin_candidates = lineage.branches.get(origin, [])
+    sent = shown[-TRUNK_STEPS_SENT:]
+    omitted = len(shown) - len(sent)
+
+    trunk_steps = [
+        TrunkStep(
+            index=index,
+            step=step,
+            candidates=newest(candidates, CANDIDATES_SENT),
+            candidates_omitted=max(0, len(candidates) - CANDIDATES_SENT),
+        )
+        for index, step in enumerate(sent, start=offset + omitted + 1)
+        for candidates in [lineage.branches.get(step.dev, [])]
+    ]
+
+    on_trunk = classes_measured(shown)
+    listed = (
+        on_trunk
+        | classes_measured(found.step for row in trunk_steps for found in row.candidates)
+        | classes_measured(found.step for found in origin_candidates)
+    )
+    series = [
+        ChainSeries(full.time_class, full.points[omitted:], full.total, full.measured, full.steps)
+        for time_class in TimeClass
+        if time_class in on_trunk and time_class.chained
+        for full in [chain_series(shown, time_class, offset + 1)]
+    ]
+    detached = sorted(lineage.detached, key=lambda step: (step.last_tested_at, step.first_run), reverse=True)
+
+    return LineageReport(
+        engine=engine,
+        classes=[time_class for time_class in TimeClass if time_class in listed] or [TimeClass.STC],
+        origin=origin,
+        origin_candidates=newest(origin_candidates, CANDIDATES_SENT),
+        origin_candidates_omitted=max(0, len(origin_candidates) - CANDIDATES_SENT),
+        head=lineage.head,
+        trunk_length=len(lineage.trunk),
+        steps=trunk_steps,
+        steps_omitted=omitted,
+        series=series,
+        direct=direct_checks(lineage, offset),
+        detached=detached[:DETACHED_SENT],
+        detached_omitted=max(0, len(detached) - DETACHED_SENT),
+    )
+
+
+def summarize_lineage(lineage: Lineage, since: datetime | None) -> LineageSummary:
+    shown = lineage.trunk[window_offset(lineage.trunk, since) :]
+    origin = shown[0].base if shown else lineage.head
+    nodes = [origin, *(step.dev for step in shown)]
+    candidates = [found.step for node in nodes for found in lineage.branches.get(node, [])]
+    measurements = [measurement for step in [*shown, *candidates] for measurement in step.measurements]
+    return LineageSummary(
+        steps_accepted=len(shown),
+        candidates=len(candidates),
+        measurements=len(measurements),
+        runs=sum(len(measurement.runs) for measurement in measurements),
+    )

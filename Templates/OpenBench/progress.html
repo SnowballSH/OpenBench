@@ -52,18 +52,116 @@
             {% endfor %}
         </section>
 
-        <div class="progress-charts">
+        <figure class="card chart-card progress-chart-wide">
+            <figcaption class="chart-caption">
+                <span class="card-title">Progress along the trunk</span>
+                <span class="chart-subtitle" id="progress-trunk-description">A chained estimate: each accepted step is measured against the commit before it, and the line adds one pooled measurement per step, separately for each time-control class. The band is the 95% half-widths added in quadrature. A step with no measurement at a class leaves a gap and adds nothing. Passed tests are selected for looking good, Elo is not strictly additive, and conditions differ between steps, so read it as a trend, not a rating.</span>
+            </figcaption>
+            <div class="chart-box" data-progress-chart="trunk">
+                <canvas role="img" aria-label="Progress along the trunk chart" aria-describedby="progress-trunk-description" aria-details="progress-lineage"></canvas>
+            </div>
+            <p class="chart-empty" hidden></p>
+        </figure>
 
-            <figure class="card chart-card progress-chart-wide">
-                <figcaption class="chart-caption">
-                    <span class="card-title">Cumulative Elo from greens</span>
-                    <span class="chart-subtitle" id="progress-elo-description">Each passed SPRT with non-negative bounds adds its own Elo point estimate, at the time it finished. Summed estimates overstate real progress: greens are selected for looking good, and each estimate is measured against its own base, not a fixed reference.</span>
-                </figcaption>
-                <div class="chart-box" data-progress-chart="elo">
-                    <canvas role="img" aria-label="Cumulative Elo chart" aria-describedby="progress-elo-description" aria-details="progress-greens"></canvas>
+        <section class="card progress-section" id="progress-lineage" aria-labelledby="progress-lineage-title">
+            <div class="card-header">
+                <h2 id="progress-lineage-title" class="card-title">Lineage</h2>
+                {% if page.lineage %}
+                    <span class="muted">{{page.lineage.engine}} trunk, newest first; candidates sit above the commit they branched from{% if page.lineage.steps_hidden %}; {{page.lineage.steps_hidden}} older steps are not listed{% endif %}{% if page.lineage.candidates_hidden %}; {{page.lineage.candidates_hidden}} older candidates are not listed{% endif %}</span>
+                {% endif %}
+            </div>
+            {% if page.lineage %}
+                <div class="table-wrap w-100">
+                    <table class="hoverable w-100 lineage-table">
+                        <caption class="visually-hidden">Accepted steps of the trunk and the candidates that branched from it</caption>
+                        <thead>
+                            <tr class="table-header">
+                                <th scope="col" class="numeric">Step</th>
+                                <th scope="col">Base → dev</th>
+                                {% for label in page.lineage.classes %}
+                                    <th scope="col">{{label}} Elo (95%)</th>
+                                {% endfor %}
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for line in page.lineage.lines %}
+                                <tr class="{% if line.on_trunk %}lineage-trunk{% else %}lineage-candidate lineage-depth-{{line.depth}}{% endif %}">
+                                    <td class="numeric">{% if line.on_trunk %}{{line.position}}{% else %}<span class="muted">candidate</span>{% endif %}</td>
+                                    <td class="lineage-step"><span class="lineage-commits mono">{% if line.base.url %}<a href="{{line.base.url}}">{{line.base.label}}</a>{% else %}{{line.base.label}}{% endif %} → {% if line.dev.url %}<a href="{{line.dev.url}}">{{line.dev.label}}</a>{% else %}{{line.dev.label}}{% endif %}{% if line.compare_url %} <a class="lineage-diff" href="{{line.compare_url}}">diff<span class="visually-hidden"> {{line.base.label}} to {{line.dev.label}}</span></a>{% endif %}</span>{% if line.subject %}<span class="lineage-subject">{{line.subject}}</span>{% endif %}<span class="lineage-detail muted">{{line.tested_on|date:"M j, Y"}} · {{line.author}}</span></td>
+                                    {% for cell in line.cells %}
+                                        <td class="lineage-cell">{% if cell %}<span class="mono">{{cell.elo}}</span> <span class="badge{% if cell.tone %} badge-{{cell.tone}}{% endif %}">{{cell.verdict}}</span><span class="lineage-detail muted">{{cell.detail}} ·{% for run in cell.runs %} <a href="{{run.url}}"><span class="visually-hidden">Workload </span>{{run.label}}</a>{% endfor %}</span>{% else %}<span class="muted">not measured</span>{% endif %}</td>
+                                    {% endfor %}
+                                </tr>
+                            {% endfor %}
+                            <tr class="lineage-origin">
+                                <td class="numeric muted">0</td>
+                                <td colspan="{{page.lineage.columns|add:"-1"}}"><span class="mono">{% if page.lineage.origin.url %}<a href="{{page.lineage.origin.url}}">{{page.lineage.origin.label}}</a>{% else %}{{page.lineage.origin.label}}{% endif %}</span> <span class="muted">where this window's chain starts</span></td>
+                            </tr>
+                        </tbody>
+                    </table>
                 </div>
-                <p class="chart-empty" hidden></p>
-            </figure>
+
+                {% if page.lineage.checks %}
+                    <h3 class="progress-subheading" id="progress-checks-title">Direct checks</h3>
+                    <p class="muted progress-note">A test whose base lies several steps up the trunk measures the same span in one run. It is independent of the chained estimate, so the two should agree within their margins.</p>
+                    <div class="table-wrap w-100">
+                        <table class="stripes w-100" aria-labelledby="progress-checks-title">
+                            <thead>
+                                <tr class="table-header">
+                                    <th scope="col">Span</th>
+                                    <th scope="col">Class</th>
+                                    <th scope="col">Direct Elo (95%)</th>
+                                    <th scope="col">Chained Elo (95%)</th>
+                                    <th scope="col">Direct − chained</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for check in page.lineage.checks %}
+                                    <tr>
+                                        <td><span class="mono">{% if check.base.url %}<a href="{{check.base.url}}">{{check.base.label}}</a>{% else %}{{check.base.label}}{% endif %} → {% if check.dev.url %}<a href="{{check.dev.url}}">{{check.dev.label}}</a>{% else %}{{check.dev.label}}{% endif %}</span><span class="lineage-detail muted">{{check.span}}</span></td>
+                                        <td>{{check.label}}</td>
+                                        <td class="lineage-cell">{% with cell=check.direct %}{% if cell %}<span class="mono">{{cell.elo}}</span> <span class="badge{% if cell.tone %} badge-{{cell.tone}}{% endif %}">{{cell.verdict}}</span><span class="lineage-detail muted">{{cell.detail}} ·{% for run in cell.runs %} <a href="{{run.url}}"><span class="visually-hidden">Workload </span>{{run.label}}</a>{% endfor %}</span>{% else %}<span class="muted">not measured</span>{% endif %}{% endwith %}</td>
+                                        <td class="lineage-cell"><span class="mono">{{check.chained}}</span><span class="lineage-detail muted">{{check.coverage}}</span></td>
+                                        <td class="mono">{{check.difference}}</td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% endif %}
+
+                {% if page.lineage.detached %}
+                    <details class="progress-data-table progress-detached">
+                        <summary>Tests not connected to the trunk{% if page.lineage.detached_hidden %} (the newest of them; {{page.lineage.detached_hidden}} more are not listed){% endif %}</summary>
+                        <div class="table-wrap w-100">
+                            <table class="stripes w-100 lineage-table">
+                                <caption class="visually-hidden">Steps whose commits do not link to the trunk</caption>
+                                <thead>
+                                    <tr class="table-header">
+                                        <th scope="col">Base → dev</th>
+                                        <th scope="col">Measurements</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for line in page.lineage.detached %}
+                                        <tr>
+                                            <td class="lineage-step"><span class="lineage-commits mono">{% if line.base.url %}<a href="{{line.base.url}}">{{line.base.label}}</a>{% else %}{{line.base.label}}{% endif %} → {% if line.dev.url %}<a href="{{line.dev.url}}">{{line.dev.label}}</a>{% else %}{{line.dev.label}}{% endif %}{% if line.compare_url %} <a class="lineage-diff" href="{{line.compare_url}}">diff<span class="visually-hidden"> {{line.base.label}} to {{line.dev.label}}</span></a>{% endif %}</span>{% if line.subject %}<span class="lineage-subject">{{line.subject}}</span>{% endif %}<span class="lineage-detail muted">{{line.tested_on|date:"M j, Y"}} · {{line.author}}</span></td>
+                                            <td class="lineage-cell">{% for cell in line.cells %}<span class="lineage-measurement"><span class="muted">{{cell.label}}</span> {% if cell %}<span class="mono">{{cell.elo}}</span> <span class="badge{% if cell.tone %} badge-{{cell.tone}}{% endif %}">{{cell.verdict}}</span><span class="lineage-detail muted">{{cell.detail}} ·{% for run in cell.runs %} <a href="{{run.url}}"><span class="visually-hidden">Workload </span>{{run.label}}</a>{% endfor %}</span>{% else %}<span class="muted">not measured</span>{% endif %}</span>{% endfor %}</td>
+                                        </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </details>
+                {% endif %}
+            {% elif page.lineage_engines %}
+                <p class="insights-empty">A lineage follows one engine's commits. Choose an engine:{% for engine in page.lineage_engines %} <a href="{{engine.url}}">{{engine.name}}</a>{% endfor %}</p>
+            {% else %}
+                <p class="insights-empty">No test of one commit against another yet.</p>
+            {% endif %}
+        </section>
+
+        <div class="progress-charts">
 
             <figure class="card chart-card">
                 <figcaption class="chart-caption">
@@ -139,43 +237,6 @@
                 </details>
             </figure>
         </div>
-
-        <section class="card progress-section" id="progress-greens" aria-labelledby="progress-greens-title">
-            <div class="card-header">
-                <h2 id="progress-greens-title" class="card-title">Contributing greens</h2>
-                <span class="muted">Newest first{% if page.greens_hidden %}; the {{page.greens_hidden}} oldest are left out of this table but counted in the sum{% endif %}</span>
-            </div>
-            {% if page.greens %}
-                <div class="table-wrap w-100">
-                    <table class="stripes hoverable w-100">
-                        <thead>
-                            <tr class="table-header">
-                                <th>Test</th>
-                                <th>Finished</th>
-                                <th class="numeric">Elo (95%)</th>
-                                <th class="numeric">Bounds</th>
-                                <th class="numeric">Games</th>
-                                <th class="numeric">Running sum</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for green in page.greens %}
-                                <tr data-row-href="{{green.url}}">
-                                    <td class="progress-test-name"><a class="row-link" href="{{green.url}}">{{green.name}}</a></td>
-                                    <td>{{green.finished_on|date:"M j, Y"}}</td>
-                                    <td class="numeric mono">{{green.elo}}</td>
-                                    <td class="numeric mono">{{green.bounds}}</td>
-                                    <td class="numeric">{{green.games}}</td>
-                                    <td class="numeric mono">{{green.cumulative}}</td>
-                                </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
-            {% else %}
-                <p class="insights-empty">No SPRT with non-negative bounds passed in this window.</p>
-            {% endif %}
-        </section>
 
         <div class="fleet-columns">
             <section class="card progress-section" aria-labelledby="progress-contributors-title">

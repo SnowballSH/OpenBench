@@ -1,12 +1,12 @@
 (() => {
     'use strict';
 
-    const DAY_MS = 86_400_000;
     const DASH = '—';
     const MINUS = '−';
     const MAX_TICKS = 6;
-    const DAY_STEPS = [1, 2, 7, 14, 28, 56, 91, 182, 364, 728];
     const BAR_THICKNESS = 24;
+    const SHORT_SHA = 8;
+    const CLASS_LABELS = { stc: 'STC', ltc: 'LTC', vltc: 'VLTC', smp: 'SMP' };
 
     const count_format = new Intl.NumberFormat();
     const compact_format = new Intl.NumberFormat(undefined, { notation: 'compact', maximumFractionDigits: 1 });
@@ -14,7 +14,6 @@
     const long_day_format = new Intl.DateTimeFormat(undefined, {
         weekday: 'short', month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC',
     });
-    const month_format = new Intl.DateTimeFormat(undefined, { month: 'short', year: 'numeric', timeZone: 'UTC' });
 
     const is_number = value => typeof value === 'number' && Number.isFinite(value);
 
@@ -54,6 +53,7 @@
         const read = name => style.getPropertyValue(name).trim();
         return {
             series: read('--series-1'),
+            classes: { stc: read('--series-1'), ltc: read('--series-2'), vltc: read('--series-3'), smp: read('--series-4') },
             grid: read('--chart-grid'),
             axis: read('--chart-axis'),
             text: read('--text'),
@@ -86,17 +86,6 @@
             ctx.restore();
         },
     };
-
-    function day_ticks(min, max) {
-        const span_days = (max - min) / DAY_MS;
-        const step = DAY_STEPS.find(days => span_days / days <= MAX_TICKS) ?? DAY_STEPS.at(-1);
-        return scale => {
-            const first = Math.ceil(scale.min / DAY_MS) * DAY_MS;
-            const ticks = [];
-            for (let value = first; value <= scale.max; value += step * DAY_MS) ticks.push({ value });
-            scale.ticks = ticks;
-        };
-    }
 
     function axis(palette, extra) {
         const font = { family: palette.font };
@@ -143,55 +132,116 @@
         };
     }
 
-    function elo_chart(report, palette, quiet) {
-        const steps = report.elo_steps;
-        if (!steps.length) return { empty: 'No greens finished in this window.' };
+    function with_alpha(color, alpha) {
+        const hex = color.replace('#', '');
+        const full = hex.length === 3 ? [...hex].map(c => c + c).join('') : hex;
+        if (!/^[0-9a-f]{6}$/i.test(full)) return color;
+        const [r, g, b] = [0, 2, 4].map(i => parseInt(full.slice(i, i + 2), 16));
+        return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+    }
 
-        const green_of = step => report.greens[step.greens - 1 - report.greens_omitted] ?? null;
-        const start = day_ms(report.start);
-        const last = steps.at(-1);
-        const end = Math.max(Date.parse(report.generated_at), Date.parse(last.finished_at));
-        const points = [
-            { x: start, y: 0 },
-            ...steps.map(step => ({ x: Date.parse(step.finished_at), y: step.cumulative_elo, step, green: green_of(step) })),
-            { x: end, y: last.cumulative_elo },
+    function chain_points(series, origin) {
+        return [
+            { x: origin, y: 0, lower: 0, upper: 0 },
+            ...series.points.map(point => ({
+                x: point.index,
+                y: point.cumulative ? point.cumulative.value : null,
+                lower: point.cumulative ? point.cumulative.lower : null,
+                upper: point.cumulative ? point.cumulative.upper : null,
+                point,
+            })),
         ];
-        const values = points.map(point => point.y);
-        const low = Math.min(0, ...values);
-        const high = Math.max(0, ...values);
+    }
+
+    function chain_datasets(series, origin, color, palette) {
+        const points = chain_points(series, origin);
+        const hidden = { borderWidth: 0, pointRadius: 0, pointHoverRadius: 0, pointHitRadius: 0, spanGaps: false, band: true };
+        const label = CLASS_LABELS[series.time_class] ?? series.time_class;
+        return [
+            { ...hidden, label: `${label} lower`, data: points.map(point => ({ x: point.x, y: point.lower })), fill: false },
+            {
+                ...hidden,
+                label: `${label} upper`,
+                data: points.map(point => ({ x: point.x, y: point.upper })),
+                fill: '-1',
+                backgroundColor: with_alpha(color, 0.14),
+            },
+            {
+                label,
+                series,
+                data: points,
+                spanGaps: false,
+                clip: false,
+                borderColor: color,
+                backgroundColor: color,
+                borderWidth: 2,
+                borderJoinStyle: 'round',
+                borderCapStyle: 'round',
+                pointRadius: context => (context.raw && context.raw.point ? 4 : 0),
+                pointHoverRadius: context => (context.raw && context.raw.point ? 6 : 0),
+                pointHitRadius: 12,
+                pointBorderWidth: 2,
+                pointBorderColor: palette.surface,
+                pointHoverBorderColor: palette.surface,
+                tension: 0,
+            },
+        ];
+    }
+
+    function step_title(row) {
+        const step = row.step;
+        const commits = `${step.base.sha.slice(0, SHORT_SHA)} → ${step.dev.sha.slice(0, SHORT_SHA)}`;
+        return step.subject ? [`Step ${row.index}: ${commits}`, step.subject] : `Step ${row.index}: ${commits}`;
+    }
+
+    function chain_summary(series) {
+        const label = CLASS_LABELS[series.time_class] ?? series.time_class;
+        if (!series.total) return `${label}: no step measured`;
+        return `${label} ${format_interval(series.total)} over ${series.measured} of ${series.steps} steps`;
+    }
+
+    function trunk_chart(report, palette, quiet) {
+        const lineage = report.lineage;
+        if (!lineage) return { empty: 'A lineage follows one engine; choose an engine to see its trunk.' };
+        if (!lineage.steps.length) return { empty: 'No step was accepted onto the trunk in this window.' };
+        if (!lineage.series.some(series => series.measured)) return { empty: 'No trunk step in this window has an Elo estimate.' };
+
+        const rows = new Map(lineage.steps.map(row => [row.index, row]));
+        const origin = lineage.steps[0].index - 1;
+        const last = lineage.steps.at(-1).index;
+        const datasets = lineage.series.flatMap(series => chain_datasets(series, origin, palette.classes[series.time_class], palette));
+        const bounds = datasets.flatMap(dataset => dataset.data.map(point => point.y)).filter(is_number);
+        const low = Math.min(0, ...bounds);
+        const high = Math.max(0, ...bounds);
         const pad = 0.08 * (high - low || 1);
 
         return {
-            label: `Cumulative Elo estimate ${format_signed(last.cumulative_elo)} from ${last.greens} greens since ${day_format.format(start)}.`,
+            label: `Chained Elo along ${lineage.steps.length} trunk steps. ${lineage.series.map(chain_summary).join('. ')}.`,
             config: {
                 type: 'line',
-                data: {
-                    datasets: [{
-                        label: 'Cumulative Elo',
-                        data: points,
-                        stepped: true,
-                        borderColor: palette.series,
-                        backgroundColor: palette.series,
-                        borderWidth: 2,
-                        borderJoinStyle: 'round',
-                        borderCapStyle: 'round',
-                        pointRadius: context => (context.raw && context.raw.step ? 4 : 0),
-                        pointHoverRadius: context => (context.raw && context.raw.step ? 6 : 0),
-                        pointHitRadius: context => (context.raw && context.raw.step ? 12 : 0),
-                        pointBorderWidth: 2,
-                        pointBorderColor: palette.surface,
-                        pointHoverBorderColor: palette.surface,
-                    }],
-                },
+                data: { datasets },
                 options: base_options(palette, {
                     quiet,
                     interaction: { mode: 'nearest', axis: 'x', intersect: false },
+                    legend: {
+                        display: true,
+                        position: 'top',
+                        align: 'start',
+                        labels: {
+                            color: palette.muted,
+                            font: { family: palette.font },
+                            boxWidth: 10,
+                            boxHeight: 10,
+                            padding: 12,
+                            filter: (item, data) => !data.datasets[item.datasetIndex].band,
+                        },
+                        onClick: () => {},
+                    },
                     x: axis(palette, {
                         type: 'linear',
-                        min: start,
-                        max: end,
-                        afterBuildTicks: day_ticks(start, end),
-                        ticks: { callback: value => ((end - start) > 400 * DAY_MS ? month_format : day_format).format(value) },
+                        min: origin,
+                        max: last,
+                        ticks: { precision: 0, maxTicksLimit: 12, callback: value => (Number.isInteger(value) ? `#${value}` : '') },
                     }),
                     y: axis(palette, {
                         min: low - pad,
@@ -199,22 +249,20 @@
                         ticks: { callback: value => format_signed(value, Math.abs(high - low) < 10 ? 1 : 0), maxTicksLimit: MAX_TICKS },
                     }),
                     lines: [{ value: 0, color: palette.axis }],
-                    tooltip_filter: item => Boolean(item.raw && item.raw.step),
+                    tooltip_filter: item => Boolean(!item.dataset.band && item.raw && item.raw.point),
                     tooltip: {
                         title: items => {
-                            const raw = items[0] && items[0].raw;
-                            if (!raw) return '';
-                            return raw.green ? raw.green.name : `${format_count(raw.step.greens)} greens`;
+                            const row = items[0] && rows.get(items[0].raw.x);
+                            return row ? step_title(row) : '';
                         },
-                        label: item => (item.raw.green ? `Elo ${format_interval(item.raw.green.elo)}` : ''),
+                        label: item => {
+                            const point = item.raw.point;
+                            const step = point.elo ? `step ${format_interval(point.elo)}` : 'step not measured';
+                            return `${item.dataset.label}: chained ${format_interval(point.cumulative)} (${step})`;
+                        },
                         footer: items => {
-                            const raw = items[0] && items[0].raw;
-                            if (!raw) return '';
-                            const when = long_day_format.format(Date.parse(raw.step.finished_at));
-                            return [
-                                `Running sum ${format_signed(raw.step.cumulative_elo)}`,
-                                raw.green ? `${format_count(raw.green.games)} games · ${when}` : when,
-                            ];
+                            const row = items[0] && rows.get(items[0].raw.x);
+                            return row ? long_day_format.format(Date.parse(row.step.measured_at)) : '';
                         },
                     },
                 }),
@@ -329,7 +377,7 @@
         };
     }
 
-    const BUILDERS = { elo: elo_chart, outcomes: outcome_chart, games: games_chart };
+    const BUILDERS = { trunk: trunk_chart, outcomes: outcome_chart, games: games_chart };
 
     class ChartPanel {
         constructor(box) {

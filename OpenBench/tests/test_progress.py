@@ -9,16 +9,19 @@ from django.test import SimpleTestCase, TestCase
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
-from OpenBench.insights.domain import Outcomes
 from OpenBench.insights.strength import EloInterval
-from OpenBench.models import Machine, Result, Test, WorkloadSnapshot
+from OpenBench.models import Engine, Machine, Result, Test, WorkloadSnapshot
 from OpenBench.progress import analysis, sources
+from OpenBench.progress.conditions import time_class
 from OpenBench.progress.domain import (
     DEFAULT_WINDOW,
+    NO_LINEAGE,
     DailyGames,
     DayMaximum,
-    GreenRow,
+    LineageSummary,
     OutcomeCounts,
+    RunStatus,
+    TimeClass,
     Window,
 )
 from OpenBench.progress.present import elo_text, progress_url, summary_tiles
@@ -39,17 +42,6 @@ from OpenBench.tests.fixtures import (
 NOW = datetime(2026, 9, 30, 12, tzinfo=UTC)
 PENTA = (5, 40, 100, 45, 10)
 STRONG = (2, 20, 100, 60, 18)
-
-
-def green_row(id: int, finished_at: datetime, penta=PENTA) -> GreenRow:
-    return GreenRow(
-        id=id,
-        name=f'patch-{id}',
-        finished_at=finished_at,
-        games=2 * sum(penta),
-        elo_bounds=(0.0, 3.0),
-        outcomes=Outcomes((0, 0, 0), penta, True),
-    )
 
 
 class WindowParsingTests(SimpleTestCase):
@@ -84,22 +76,6 @@ class WindowParsingTests(SimpleTestCase):
 
 
 class AnalysisTests(SimpleTestCase):
-    def test_greens_accumulate_their_point_estimates_in_finish_order(self):
-        late, early = NOW, NOW - timedelta(days=3)
-        greens = analysis.green_tests([green_row(2, late, STRONG), green_row(1, early)])
-
-        self.assertEqual([green.id for green in greens], [1, 2])
-        expected = [Elo(PENTA)[1], Elo(PENTA)[1] + Elo(STRONG)[1]]
-        for green, total in zip(greens, expected, strict=True):
-            self.assertAlmostEqual(green.cumulative_elo, total)
-        self.assertAlmostEqual(present(greens[0].elo).lower, Elo(PENTA)[0])
-
-    def test_greens_without_an_estimate_add_nothing(self):
-        greens = analysis.green_tests([green_row(1, NOW, (0, 0, 1, 0, 0)), green_row(2, NOW, PENTA)])
-        self.assertIsNone(greens[0].elo)
-        self.assertEqual(greens[0].cumulative_elo, 0.0)
-        self.assertAlmostEqual(greens[1].cumulative_elo, Elo(PENTA)[1])
-
     def test_games_by_day_differences_daily_maxima_from_the_baseline(self):
         first, second = date(2026, 9, 1), date(2026, 9, 2)
         maxima = [
@@ -125,16 +101,6 @@ class AnalysisTests(SimpleTestCase):
         )
         self.assertEqual((weeks[1].passed, weeks[1].failed), (2, 1))
 
-    def test_elo_steps_thin_to_the_limit_and_keep_both_ends(self):
-        greens = analysis.green_tests([green_row(index, NOW + timedelta(hours=index)) for index in range(1200)])
-        steps = analysis.elo_steps(greens, limit=500)
-        self.assertEqual(len(steps), 500)
-        self.assertEqual((steps[0].greens, steps[-1].greens), (1, 1200))
-        self.assertEqual(steps[-1].cumulative_elo, greens[-1].cumulative_elo)
-        for step in steps:
-            self.assertEqual(step.cumulative_elo, greens[step.greens - 1].cumulative_elo)
-        self.assertEqual(len(analysis.elo_steps(greens[:3], limit=500)), 3)
-
     def test_week_start_is_monday(self):
         self.assertEqual(analysis.week_start(date(2026, 9, 30)), date(2026, 9, 28))
         self.assertEqual(analysis.week_start(date(2026, 9, 28)), date(2026, 9, 28))
@@ -158,16 +124,16 @@ class AnalysisTests(SimpleTestCase):
         self.assertEqual([author.username for author in authors], ['c', 'a', 'b'])
 
     def test_summary(self):
-        greens = analysis.green_tests([green_row(1, NOW), green_row(2, NOW, STRONG)])
+        lineage = LineageSummary(steps_accepted=3, candidates=1, measurements=5, runs=6)
         daily = [DailyGames(date(2026, 9, day), 10 * day) for day in (1, 2, 3)]
         summary = analysis.summarize(
-            greens,
+            lineage,
             [OutcomeCounts(2, 3, 1), OutcomeCounts(1, 0, 0)],
             daily,
             {'a': 3, 'b': 1},
             {'w': 5, 'y': 2},
         )
-        self.assertAlmostEqual(summary.elo_gained, greens[-1].cumulative_elo)
+        self.assertEqual(summary.lineage, lineage)
         self.assertEqual(summary.sprt, OutcomeCounts(3, 3, 1))
         self.assertEqual(summary.sprt_pass_rate, 0.5)
         self.assertEqual((summary.games, summary.games_per_day), (60, 20.0))
@@ -175,16 +141,16 @@ class AnalysisTests(SimpleTestCase):
         self.assertEqual(summary.contributors, 2)
 
     def test_empty_summary(self):
-        summary = analysis.summarize([], [], [], {}, {})
-        self.assertEqual(summary.elo_gained, 0.0)
+        summary = analysis.summarize(NO_LINEAGE, [], [], {}, {})
+        self.assertEqual(summary.lineage.steps_accepted, 0)
         self.assertIsNone(summary.sprt_pass_rate)
         self.assertIsNone(summary.games_per_day)
 
 
 class PresentTests(SimpleTestCase):
     def test_elo_text(self):
-        self.assertEqual(elo_text(EloInterval(-1.0, 2.5, 7.0)), '+2.50 ± 4.50')
-        self.assertEqual(elo_text(EloInterval(-5.0, -2.0, 0.5)), '−2.00 ± 3.00')
+        self.assertEqual(elo_text(EloInterval(-1.0, 2.5, 7.0)), '+2.50 ± 4.00')
+        self.assertEqual(elo_text(EloInterval(-5.0, -2.0, 0.5)), '−2.00 ± 2.75')
         self.assertEqual(elo_text(None), '—')
 
     def test_urls_quote_the_engine(self):
@@ -192,11 +158,12 @@ class PresentTests(SimpleTestCase):
         self.assertEqual(progress_url('A B', Window.DAYS_30), '/progress/A%20B/?window=30d')
         self.assertEqual(progress_url('A/B', Window.YEAR), '/progress/?engine=A%2FB&window=1y')
 
-    def test_tiles_label_the_elo_sum_an_estimate(self):
-        greens = analysis.green_tests([green_row(1, NOW)])
-        tiles = summary_tiles(analysis.summarize(greens, [], [], {}, {}))
-        self.assertEqual(tiles[0].label, 'Elo gained (estimate)')
-        self.assertEqual(tiles[0].meta, 'sum over 1 green')
+    def test_tiles_never_headline_a_sum_across_classes(self):
+        tiles = summary_tiles(analysis.summarize(NO_LINEAGE, [], [], {}, {}))
+        self.assertEqual([tile.label for tile in tiles[:2]], ['Chained Elo · STC', 'Chained Elo · LTC'])
+        self.assertEqual(tiles[0].value, '—')
+        self.assertEqual(tiles[0].meta, 'no trunk step measured at STC')
+        self.assertNotIn('Elo gained', ' '.join(tile.label for tile in tiles))
 
 
 class ProgressDataTests(TestCase):
@@ -207,23 +174,27 @@ class ProgressDataTests(TestCase):
         self.worker = create_user('worker')
         self.machine = Machine.objects.create(user=self.worker, info=system_info(), mnps=1.0)
 
+    def pinned(self, base, dev, finished_at=NOW, penta=PENTA, **fields):
+        test = self.sprt(finished_at, penta, **{'passed': True, **fields})
+        Engine.objects.filter(id=test.dev_id).update(sha=(dev * 40)[:40])
+        Engine.objects.filter(id=test.base_id).update(sha=(base * 40)[:40])
+        return test
+
     def sprt(self, finished_at, penta=PENTA, author=None, engine='Avalanche', **flags):
         wins, losses = 2 * penta[4] + penta[3], 2 * penta[0] + penta[1]
-        test = create_test(
-            author or self.author,
-            engine=engine,
-            games=2 * sum(penta),
-            wins=wins,
-            losses=losses,
-            draws=2 * sum(penta) - wins - losses,
-            LL=penta[0],
-            LD=penta[1],
-            DD=penta[2],
-            DW=penta[3],
-            WW=penta[4],
-            finished=True,
-            **flags,
-        )
+        counts = {
+            'games': 2 * sum(penta),
+            'wins': wins,
+            'losses': losses,
+            'draws': 2 * sum(penta) - wins - losses,
+            'LL': penta[0],
+            'LD': penta[1],
+            'DD': penta[2],
+            'DW': penta[3],
+            'WW': penta[4],
+            'finished': True,
+        }
+        test = create_test(author or self.author, engine=engine, **{**counts, **flags})
         Test.objects.filter(id=test.id).update(creation=finished_at - timedelta(hours=6), updated=finished_at)
         return test
 
@@ -263,23 +234,72 @@ class ProgressDataTests(TestCase):
     def report(self, window=Window.DAYS_90, engine=None):
         return progress_report(window, engine, now=NOW)
 
-    def test_greens_follow_the_greens_definition(self):
-        self.seed()
+    def test_lineage_chains_pinned_commits_and_pools_repeats(self):
+        first = self.pinned('1', '2', NOW - timedelta(days=9))
+        repeat = self.pinned('1', '2', NOW - timedelta(days=8), STRONG)
+        ltc = self.pinned(
+            '1', '2', NOW - timedelta(days=7), dev_time_control='40.0+0.40', base_time_control='40.0+0.40'
+        )
+        second = self.pinned('2', '3', NOW - timedelta(days=5))
+        failed = self.pinned('2', '4', NOW - timedelta(days=4), passed=False, failed=True)
+        self.pinned('3', '3', NOW - timedelta(days=3), test_mode='GAMES')
+        self.pinned('5', '6', NOW - timedelta(days=2), deleted=True)
+        self.pinned('5', '6', NOW - timedelta(days=2), test_mode='SPSA')
+
+        lineage = present(self.report(engine='Avalanche').lineage)
+        self.assertEqual([row.step.first_run for row in lineage.steps], [first.id, second.id])
+        self.assertEqual(lineage.classes, [TimeClass.STC, TimeClass.LTC])
+        self.assertEqual(lineage.detached, [])
+
+        stc = present(lineage.steps[0].step.measurement(TimeClass.STC))
+        self.assertEqual([run.id for run in stc.runs], [first.id, repeat.id])
+        pooled = tuple(a + b for a, b in zip(PENTA, STRONG, strict=True))
+        self.assertAlmostEqual(present(stc.elo).value, Elo(pooled)[1])
+        self.assertEqual(present(lineage.steps[0].step.measurement(TimeClass.LTC)).runs[0].id, ltc.id)
+        self.assertEqual([found.step.first_run for found in lineage.steps[0].candidates], [failed.id])
+
+        series = {found.time_class: found for found in lineage.series}
+        self.assertAlmostEqual(present(series[TimeClass.STC].total).value, Elo(pooled)[1] + Elo(PENTA)[1])
+        self.assertEqual((series[TimeClass.LTC].measured, series[TimeClass.LTC].steps), (1, 2))
+        self.assertIsNone(series[TimeClass.LTC].points[1].cumulative)
+
+    def test_run_statuses_and_finish_times(self):
+        running = self.pinned('1', '2', NOW, passed=False, finished=False)
+        games = self.pinned('1', '2', NOW - timedelta(days=1), test_mode='GAMES')
+        pending = self.pinned('1', '3', NOW, passed=False, finished=False, approved=False)
+        self.history(games, (NOW - timedelta(days=2), 100))
+        rows = {row.id: row for row in sources.load_runs('Avalanche', time_class)}
+        self.assertEqual(rows[running.id].status, RunStatus.RUNNING)
+        self.assertIsNone(rows[running.id].finished_at)
+        self.assertEqual(rows[games.id].status, RunStatus.COMPLETED)
+        self.assertEqual(rows[games.id].finished_at, NOW - timedelta(days=2))
+        self.assertEqual(rows[pending.id].status, RunStatus.PENDING)
+
+    def test_the_window_keeps_a_suffix_of_the_trunk(self):
+        self.pinned('1', '2', NOW - timedelta(days=200))
+        recent = self.pinned('2', '3', NOW - timedelta(days=5))
+        report = self.report(Window.DAYS_30, 'Avalanche')
+        lineage = present(report.lineage)
+        self.assertEqual([(row.index, row.step.first_run) for row in lineage.steps], [(2, recent.id)])
+        self.assertEqual((lineage.trunk_length, lineage.origin.sha), (2, '2' * 40))
+        self.assertEqual(report.summary.lineage.steps_accepted, 1)
+        self.assertEqual(len(present(self.report(Window.ALL, 'Avalanche').lineage).steps), 2)
+
+    def test_all_engines_show_a_lineage_only_when_one_engine_has_steps(self):
+        self.pinned('1', '2')
+        self.assertEqual(present(self.report().lineage).engine, 'Avalanche')
+        self.pinned('7', '8', engine='Other')
+        self.pinned('1', '9', base_engine='Other')
         report = self.report()
-        self.assertEqual(
-            [green.id for green in report.greens],
-            [self.green.id, self.foreign.id, self.strong.id],
-        )
-        self.assertAlmostEqual(
-            report.summary.elo_gained,
-            2 * Elo(PENTA)[1] + Elo(STRONG)[1],
-        )
+        self.assertIsNone(report.lineage)
+        self.assertEqual(report.lineage_engines, ['Avalanche', 'Other'])
+        self.assertEqual(report.summary.lineage, NO_LINEAGE)
+        self.assertEqual(len(present(self.report(engine='Other').lineage).steps), 1)
 
     def test_finish_time_is_the_last_report_for_decided_tests(self):
         self.seed()
         Test.objects.filter(id=self.green.id).update(updated=NOW)
-        report = self.report()
-        green = next(green for green in report.greens if green.id == self.green.id)
+        green = Test.objects.annotate(finished_at=sources.finish_time()).get(id=self.green.id)
         self.assertEqual(green.finished_at, NOW - timedelta(days=10))
 
     def test_finish_time_of_a_stopped_test_survives_later_edits(self):
@@ -327,37 +347,21 @@ class ProgressDataTests(TestCase):
     def test_engine_filter(self):
         self.seed()
         report = self.report(engine='Other')
-        self.assertEqual([green.id for green in report.greens], [self.foreign.id])
         self.assertEqual(report.summary.games, 50)
         self.assertEqual(report.top_contributors, [])
         self.assertEqual(self.report(engine='Missing').summary.sprt.total, 0)
+        self.assertIsNone(self.report(engine='Missing').lineage)
 
-    def test_trinomial_greens_use_their_trinomial_counts(self):
-        tri = create_test(
-            self.author,
-            games=300,
-            losses=80,
-            draws=100,
-            wins=120,
-            use_tri=True,
-            use_penta=False,
-            passed=True,
-            finished=True,
-        )
-        Test.objects.filter(id=tri.id).update(updated=NOW - timedelta(days=1))
-        (green,) = self.report().greens
-        self.assertEqual(green.id, tri.id)
-        self.assertAlmostEqual(green.elo.value, Elo((80, 100, 120))[1])
-        self.assertAlmostEqual(green.cumulative_elo, Elo((80, 100, 120))[1])
-
-    def test_greens_sent_are_capped_but_counted(self):
-        self.seed()
-        with mock.patch('OpenBench.progress.report.GREENS_SENT', 1):
-            report = self.report()
-        self.assertEqual([green.id for green in report.greens], [self.strong.id])
-        self.assertEqual(report.greens_omitted, 2)
-        self.assertEqual(report.summary.greens, 3)
-        self.assertEqual(report.elo_steps[-1].greens, 3)
+    def test_trinomial_runs_pool_their_trinomial_counts(self):
+        tri = {'use_tri': True, 'use_penta': False}
+        self.pinned('1', '2', NOW - timedelta(days=2), games=300, losses=80, draws=100, wins=120, **tri)
+        self.pinned('1', '2', NOW - timedelta(days=1))
+        step = present(self.report(engine='Avalanche').lineage).steps[0].step
+        wins, losses = 2 * PENTA[4] + PENTA[3], 2 * PENTA[0] + PENTA[1]
+        pooled = (80 + losses, 100 + 2 * sum(PENTA) - wins - losses, 120 + wins)
+        measurement = present(step.measurement(TimeClass.STC))
+        self.assertEqual(measurement.pooling.value, 'trinomial')
+        self.assertAlmostEqual(present(measurement.elo).value, Elo(pooled)[1])
 
     def test_utc_days_match_truncdate_around_midnight(self):
         test = self.sprt(NOW)
@@ -383,13 +387,14 @@ class ProgressDataTests(TestCase):
             small = self.report()
 
         for index in range(25):
-            test = self.sprt(NOW - timedelta(days=15, hours=index), passed=True)
+            test = self.pinned(f'{index:02x}', f'{index + 1:02x}', NOW - timedelta(days=15, hours=-index))
             self.history(test, (NOW - timedelta(days=16), 10), (NOW - timedelta(days=15), 90))
             self.result(test, 90, NOW - timedelta(days=15))
 
         with self.assertNumQueries(6):
-            large = self.report()
-        self.assertEqual(len(large.greens), len(small.greens) + 25)
+            self.report()
+        self.assertIsNone(small.lineage)
+        self.assertEqual(len(present(self.report(engine='Avalanche').lineage).detached), 25)
         with self.assertNumQueries(5):
             self.report(Window.ALL)
 
@@ -432,9 +437,10 @@ class ProgressViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         page = response.context['page']
         self.assertEqual(page.window, Window.DAYS_90)
-        self.assertEqual([green.url for green in page.greens], [f'/test/{self.test.id}/'])
+        self.assertEqual(page.lineage.lines[0].cells[0].runs[0].url, f'/test/{self.test.id}/')
         self.assertContains(response, 'id="progress-data"')
-        self.assertContains(response, 'Elo gained (estimate)')
+        self.assertContains(response, 'Chained Elo · STC')
+        self.assertContains(response, 'https://github.com/SnowballSH/Avalanche/compare/' + 'b' * 40 + '...' + 'a' * 40)
         self.assertContains(response, 'href="/progress/?window=30d"')
 
     def test_engine_path_and_query(self):
@@ -442,9 +448,10 @@ class ProgressViewTests(TestCase):
         response = self.client.get('/progress/Avalanche/?window=1y')
         self.assertEqual(response.context['page'].engine, 'Avalanche')
         self.assertEqual(response.context['page'].window, Window.YEAR)
-        self.assertEqual(len(response.context['page'].greens), 1)
+        self.assertEqual(len(response.context['page'].lineage.lines), 1)
         create_engine_config('Other')
-        self.assertEqual(self.client.get('/progress/Other/').context['page'].greens, [])
+        self.assertIsNone(self.client.get('/progress/Other/').context['page'].lineage)
+        self.assertContains(self.client.get('/progress/Other/'), 'No test of one commit against another yet.')
 
         redirect = self.client.get('/progress/?engine=Avalanche&window=30d')
         self.assertEqual(redirect.status_code, 302)
@@ -477,9 +484,9 @@ class ProgressViewTests(TestCase):
         self.login()
         self.client.get('/progress/')
         Test.objects.filter(id=self.test.id).update(deleted=True)
-        self.assertEqual(len(self.client.get('/progress/').context['page'].greens), 1)
+        self.assertIsNotNone(self.client.get('/progress/').context['page'].lineage)
         cache.clear()
-        self.assertEqual(self.client.get('/progress/').context['page'].greens, [])
+        self.assertIsNone(self.client.get('/progress/').context['page'].lineage)
 
     def test_unknown_window_falls_back_to_the_default(self):
         self.login()
@@ -514,11 +521,11 @@ class ProgressViewTests(TestCase):
         ]
         self.assertEqual(payload['window'], 'all')
         self.assertEqual(payload['engine'], 'Avalanche')
-        self.assertEqual(len(payload['greens']), 1)
+        self.assertEqual(len(payload['lineage']['steps']), 1)
 
         create_engine_config('Other')
         other = self.client.post('/api/progress/?engine=Other', credentials(self.reader))
-        self.assertEqual(other.json()['progress']['greens'], [])
+        self.assertIsNone(other.json()['progress']['lineage'])
 
     def test_api_shape(self):
         self.login()
@@ -532,9 +539,8 @@ class ProgressViewTests(TestCase):
                 'start',
                 'end',
                 'summary',
-                'elo_steps',
-                'greens',
-                'greens_omitted',
+                'lineage',
+                'lineage_engines',
                 'weekly_outcomes',
                 'daily_games',
                 'top_contributors',
@@ -543,39 +549,72 @@ class ProgressViewTests(TestCase):
         )
         self.assertEqual(payload['window'], '90d')
         self.assertIsNone(payload['engine'])
+        self.assertEqual(payload['lineage_engines'], ['Avalanche'])
         self.assertEqual(len(payload['daily_games']), 90)
         self.assertRegex(payload['start'], r'^\d{4}-\d{2}-\d{2}$')
-        green = payload['greens'][0]
         self.assertEqual(
-            set(green),
+            payload['summary']['lineage'], {'steps_accepted': 1, 'candidates': 0, 'measurements': 1, 'runs': 1}
+        )
+
+        lineage = payload['lineage']
+        self.assertEqual(
+            set(lineage),
             {
-                'id',
-                'name',
-                'finished_at',
-                'games',
-                'elo_bounds',
-                'elo',
-                'cumulative_elo',
+                'engine',
+                'classes',
+                'origin',
+                'origin_candidates',
+                'origin_candidates_omitted',
+                'head',
+                'trunk_length',
+                'steps',
+                'steps_omitted',
+                'series',
+                'direct',
+                'detached',
+                'detached_omitted',
             },
         )
-        self.assertEqual(set(green['elo']), {'lower', 'value', 'upper'})
-        self.assertEqual(payload['greens_omitted'], 0)
+        self.assertEqual((lineage['engine'], lineage['classes']), ('Avalanche', ['stc']))
+        self.assertEqual(lineage['origin'], {'sha': 'b' * 40, 'network': ''})
+        self.assertEqual(lineage['head'], {'sha': 'a' * 40, 'network': ''})
+
+        (row,) = lineage['steps']
+        self.assertEqual(set(row), {'index', 'step', 'candidates', 'candidates_omitted'})
+        step = row['step']
         self.assertEqual(
-            payload['elo_steps'],
-            [
-                {
-                    'finished_at': green['finished_at'],
-                    'cumulative_elo': green['cumulative_elo'],
-                    'greens': 1,
-                }
-            ],
+            set(step),
+            {
+                'base',
+                'dev',
+                'repo',
+                'subject',
+                'author',
+                'first_run',
+                'first_tested_at',
+                'last_tested_at',
+                'measured_at',
+                'measurements',
+            },
         )
+        (measurement,) = step['measurements']
+        self.assertEqual(set(measurement), {'time_class', 'verdict', 'games', 'pooling', 'elo', 'runs'})
+        self.assertEqual((measurement['time_class'], measurement['verdict']), ('stc', 'passed'))
+        self.assertEqual(set(measurement['elo']), {'lower', 'value', 'upper'})
+        (run,) = measurement['runs']
+        self.assertEqual(
+            set(run), {'id', 'mode', 'status', 'time_control', 'created_at', 'finished_at', 'games', 'elo'}
+        )
+        self.assertTrue(re.match(r'^\d{4}-\d{2}-\d{2}T', run['finished_at']))
+
+        (series,) = lineage['series']
+        self.assertEqual(set(series), {'time_class', 'points', 'total', 'measured', 'steps'})
+        self.assertEqual(series['points'], [{'index': 1, 'elo': measurement['elo'], 'cumulative': series['total']}])
         self.assertEqual(set(payload['summary']['sprt']), {'passed', 'failed', 'stopped'})
         self.assertEqual(
             set(payload['weekly_outcomes'][0]),
             {'week_start', 'passed', 'failed', 'stopped'},
         )
-        self.assertTrue(re.match(r'^\d{4}-\d{2}-\d{2}T', green['finished_at']))
 
     def test_api_rejects_an_unknown_window(self):
         self.login()
