@@ -346,7 +346,7 @@
             ], openings.drawn));
 
         block.append(element('p', 'insights-note',
-            `${plural(openings.tracked, 'opening')} played; ${format_count(openings.always_drawn)} drew every game over two or more pairs. Each table lists at most ten.`));
+            `${plural(openings.tracked, 'opening')} played, ${format_count(openings.repeated)} of them in two or more pairs; ${format_count(openings.always_drawn)} of those drew every game. The tables rank openings played in two or more pairs and list at most ten each.`));
         return block;
     }
 

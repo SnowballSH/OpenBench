@@ -103,6 +103,19 @@ class Aggregate:
         if sweep:
             row[OPENING_FIELDS.index(sweep.value)] += 1
 
+    def merge(self, other: Aggregate) -> None:
+
+        for item in fields(self):
+            if item.name != 'openings':
+                getattr(self, item.name).update(getattr(other, item.name))
+
+        for opening, row in other.openings.items():
+            if opening not in self.openings and len(self.openings) >= MAX_TRACKED_OPENINGS:
+                self.totals['untracked_opening_pairs'] += sum(row[: len(PAIR_KINDS)])
+            else:
+                mine = self.openings.setdefault(opening, [0] * len(OPENING_FIELDS))
+                mine[:] = [count + added for count, added in zip(mine, row, strict=True)]
+
     def to_state(self) -> dict[str, Any]:
         return {item.name: dict(getattr(self, item.name)) for item in fields(self)}
 

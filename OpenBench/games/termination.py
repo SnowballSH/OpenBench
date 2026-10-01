@@ -26,6 +26,7 @@ COMMENT_TERMINATIONS = (
 )
 
 DECISIVE = frozenset({'1-0', '0-1'})
+PAWN_FILES = 'abcdefgh'
 
 
 def first_match(text: str, table: Sequence[tuple[str, Termination]]) -> Termination | None:
@@ -71,26 +72,41 @@ def resigned(game: Game, rules: Adjudication, first_mover: Colour) -> bool:
     )
 
 
-def drawn_by_scores(game: Game, rules: Adjudication, first_move_number: int) -> bool:
+def resets_draw_count(san: str) -> bool:
+    return 'x' in san or san[0] in PAWN_FILES
+
+
+def quiet_drawish_streak(moves: Sequence[Move], bound_cp: int) -> int:
+    """The match runner's draw counter: zeroed by a capture or pawn move, then by any score outside the bound."""
+
+    streak = 0
+    for move in moves:
+        if resets_draw_count(move.san):
+            streak = 0
+        streak = streak + 1 if move.score_cp is not None and abs(move.score_cp) <= bound_cp else 0
+    return streak
+
+
+def full_moves_completed(plies: int, first_mover: Colour, first_move_number: int) -> int:
+    black_moves = plies // 2 if first_mover is Colour.WHITE else (plies + 1) // 2
+    return first_move_number + black_moves - 1
+
+
+def drawn_by_scores(game: Game, rules: Adjudication, first_mover: Colour, first_move_number: int) -> bool:
 
     if rules.draw_score_cp is None:
         return False
 
-    plies = 2 * rules.draw_moves
-    scores = [move.score_cp for move in game.moves[-plies:]]
-    move_number = first_move_number + len(game.moves) // 2
-
     return (
-        len(scores) == plies
-        and move_number >= rules.draw_from_move
-        and all(score is not None and abs(score) <= rules.draw_score_cp for score in scores)
+        full_moves_completed(len(game.moves), first_mover, first_move_number) >= rules.draw_from_move
+        and quiet_drawish_streak(game.moves, rules.draw_score_cp) >= 2 * rules.draw_moves
     )
 
 
 def inferred_termination(game: Game, rules: Adjudication, first_mover: Colour, first_move_number: int) -> Termination:
 
     if game.result not in DECISIVE:
-        drawn = drawn_by_scores(game, rules, first_move_number)
+        drawn = drawn_by_scores(game, rules, first_mover, first_move_number)
         return Termination.DRAW_ADJUDICATION if drawn else Termination.DRAW_BY_RULE
 
     if game.moves and game.moves[-1].mates:

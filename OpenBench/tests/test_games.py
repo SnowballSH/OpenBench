@@ -16,7 +16,7 @@ from django.core.files.storage import FileSystemStorage
 from django.test import SimpleTestCase, TestCase
 
 from OpenBench.games.aggregate import STATE_VERSION, Aggregate, PairTracker, pair_kind
-from OpenBench.games.archive import Budget, analyse_archive, analyse_member
+from OpenBench.games.archive import Budget, analyse_archive, analyse_member, on_member_boundary
 from OpenBench.games.domain import Adjudication, Colour, Outcome, Side, Termination, adjudication_of
 from OpenBench.games.facts import game_facts
 from OpenBench.games.pgn import MATE_CP, Game, parse_games
@@ -37,10 +37,13 @@ from OpenBench.tests.fixtures import (
 
 WHITE_FIRST = 'rnbqkb1r/ppp2ppp/4pn2/3p4/2PP4/2N5/PP2PPPP/R1BQKBNR w KQkq - 2 4'
 BLACK_FIRST = 'rnbqkbnr/ppp2ppp/4p3/3p4/3PP3/2N5/PPP2PPP/R1BQKBNR b KQkq - 1 3'
+ONCE = 'rnbqkbnr/pp2pppp/2p5/3p4/2PP4/8/PP2PPPP/RNBQKBNR w KQkq - 0 3'
 RULES = adjudication_of('movecount=3 score=400', 'movenumber=40 movecount=8 score=10')
 UNLIMITED = Budget(compressed_bytes=1 << 40, games=1 << 40, seconds=3600.0)
 ONE_MEMBER = Budget(compressed_bytes=0, games=0, seconds=3600.0)
 DEV, BASE = 'Avalanche-dev', 'Avalanche-base'
+NO_DEADLINE = float('inf')
+SETTLE = 'OpenBench.games.archive.TAIL_SETTLE_SECONDS'
 
 
 def comment(score: str, depth: int = 12, reason: str = '') -> str:
@@ -56,6 +59,7 @@ def raw_game(
     mate: bool = False,
     reason: str = '',
     termination: str = 'normal',
+    sans: dict[int, str] | None = None,
 ) -> str:
     """A game as fastchess writes it, before the Client reformats it for upload."""
 
@@ -69,7 +73,7 @@ def raw_game(
         elif ply == 0:
             tokens.append(f'{number}...')
         last = ply == len(scores) - 1
-        san = ('Qh7' if white_moves else 'Qh2') + ('#' if last and mate else '')
+        san = (sans or {}).get(ply, 'Qh7' if white_moves else 'Qh2') + ('#' if last and mate else '')
         tokens.append(f'{san} {{{comment(score, reason=reason if last else "")}}}')
         number += not white_moves
 
@@ -113,7 +117,7 @@ def facts_of(raw: str, compact: bool = True, rules: Adjudication = RULES):
 
 def aggregate_of(*raws: str, compact: bool = True) -> Aggregate:
     aggregate = Aggregate()
-    analyse_member(io.BytesIO(upload_batch(list(raws), 1.0, compact)), aggregate, RULES)
+    analyse_member(io.BytesIO(upload_batch(list(raws), 1.0, compact)), aggregate, RULES, NO_DEADLINE)
     return aggregate
 
 
@@ -224,7 +228,7 @@ class MalformedGameTests(SimpleTestCase):
     def test_games_between_unknown_engines_are_not_counted_as_games(self):
         text = self.GOOD.replace(DEV, 'Stockfish').replace(BASE, 'Other')
         aggregate = Aggregate()
-        analyse_member(io.BytesIO(bz2.compress(text.encode())), aggregate, RULES)
+        analyse_member(io.BytesIO(bz2.compress(text.encode())), aggregate, RULES, NO_DEADLINE)
         self.assertEqual((aggregate.totals['games'], aggregate.totals['malformed']), (0, 1))
 
     def test_unfinished_games_are_set_aside(self):
@@ -249,6 +253,42 @@ class TerminationTests(SimpleTestCase):
             facts = facts_of(raw)
             self.assertEqual(facts.termination, expected)
             self.assertTrue(facts.termination_inferred)
+
+    def test_a_capture_or_pawn_move_restarts_the_draw_count(self):
+        flat = ['0.00', '+0.05'] * 40
+        for ply, san, expected in (
+            (64, 'Rxe5', Termination.DRAW_ADJUDICATION),
+            (64, 'e5', Termination.DRAW_ADJUDICATION),
+            (65, 'Rxe5', Termination.DRAW_BY_RULE),
+            (70, 'h4', Termination.DRAW_BY_RULE),
+            (79, 'gxh8=Q+', Termination.DRAW_BY_RULE),
+            (70, 'O-O', Termination.DRAW_ADJUDICATION),
+        ):
+            facts = facts_of(raw_game('1/2-1/2', flat, sans={ply: san}))
+            self.assertEqual(facts.termination, expected, (ply, san))
+
+    def test_a_score_outside_the_bound_restarts_the_draw_count(self):
+        flat = ['0.00'] * 80
+        self.assertEqual(
+            facts_of(raw_game('1/2-1/2', [*flat[:70], '+0.30', *flat[71:]])).termination, Termination.DRAW_BY_RULE
+        )
+        self.assertEqual(
+            facts_of(raw_game('1/2-1/2', [*flat[:63], '+0.30', *flat[64:]])).termination,
+            Termination.DRAW_ADJUDICATION,
+        )
+
+    def test_the_draw_move_number_counts_from_the_fen_as_fastchess_does(self):
+        late = WHITE_FIRST.replace(' 2 4', ' 2 30')
+        self.assertEqual(
+            facts_of(raw_game('1/2-1/2', ['0.00'] * 22, fen=late)).termination, Termination.DRAW_ADJUDICATION
+        )
+        self.assertEqual(facts_of(raw_game('1/2-1/2', ['0.00'] * 20, fen=late)).termination, Termination.DRAW_BY_RULE)
+
+        black_late = BLACK_FIRST.replace(' 1 3', ' 1 30')
+        self.assertEqual(
+            facts_of(raw_game('1/2-1/2', ['0.00'] * 21, fen=black_late)).termination, Termination.DRAW_ADJUDICATION
+        )
+        self.assertEqual(facts_of(raw_game('1/2-1/2', ['0.00'] * 22)).termination, Termination.DRAW_BY_RULE)
 
     def test_the_loser_may_have_moved_last(self):
         raw = raw_game('1-0', ['+5.00', '-4.00', '+5.00', '-4.00', '+5.00', '-4.00', '+5.00'])
@@ -377,11 +417,12 @@ class AggregationTests(SimpleTestCase):
             *self.pair('1-0', '0-1', 2),
             *self.pair('1/2-1/2', '1/2-1/2', 3, fen=BLACK_FIRST),
             *self.pair('1/2-1/2', '1/2-1/2', 4, fen=BLACK_FIRST),
+            *self.pair('1-0', '1-0', 5, fen=ONCE),
         ]
         openings = self.report(aggregate_of(*games)).openings
         white_first, black_first = (' '.join(fen.split()[:4]) for fen in (WHITE_FIRST, BLACK_FIRST))
 
-        self.assertEqual(openings.tracked, 2)
+        self.assertEqual((openings.tracked, openings.repeated), (3, 2))
         self.assertEqual(
             [(row.opening, row.pairs, row.dev_score) for row in openings.lopsided], [(white_first, 2, 1.0)]
         )
@@ -389,7 +430,9 @@ class AggregationTests(SimpleTestCase):
         self.assertEqual([(row.opening, row.pairs) for row in openings.drawn], [(black_first, 2)])
         self.assertEqual(openings.always_drawn, 1)
 
-        swept = self.report(aggregate_of(*self.pair('1-0', '1-0', 1))).openings.colour_bound
+        swept = self.report(
+            aggregate_of(*self.pair('1-0', '1-0', 1), *self.pair('1/2-1/2', '1/2-1/2', 2))
+        ).openings.colour_bound
         self.assertEqual([(row.white_sweeps, row.black_sweeps) for row in swept], [(1, 0)])
 
     def test_the_same_opening_in_another_round_is_another_pair(self):
@@ -405,7 +448,7 @@ class AggregationTests(SimpleTestCase):
         first, second = self.pair('1-0', '1-0', 1)
         aggregate = Aggregate()
         for raw in (first, second):
-            analyse_member(io.BytesIO(upload_batch([raw], 1.0, True)), aggregate, RULES)
+            analyse_member(io.BytesIO(upload_batch([raw], 1.0, True)), aggregate, RULES, NO_DEADLINE)
         self.assertEqual((sum(aggregate.pairs.values()), aggregate.totals['unpaired']), (0, 2))
 
     def test_openings_beyond_the_limit_are_counted_not_tracked(self):
@@ -473,7 +516,7 @@ class AggregationTests(SimpleTestCase):
     def test_games_without_scores_have_no_eval_section(self):
         text = f'[White "{DEV}"]\n[Black "{BASE}"]\n[Result "1-0"]\n\ne4 {{unknown}} e5 {{unknown}} 1-0\n\n'
         aggregate = Aggregate()
-        analyse_member(io.BytesIO(bz2.compress(text.encode())), aggregate, RULES)
+        analyse_member(io.BytesIO(bz2.compress(text.encode())), aggregate, RULES, NO_DEADLINE)
         self.assertIsNone(self.report(aggregate).evals)
 
     def test_state_round_trips_through_json(self):
@@ -493,6 +536,7 @@ class ArchiveTests(SimpleTestCase):
         folder = tempfile.TemporaryDirectory()
         self.addCleanup(folder.cleanup)
         self.path = Path(folder.name) / '1.pgn.tar'
+        self.enterContext(mock.patch(SETTLE, 0.0))
 
     def analyse(self, offset: int = 0, aggregate: Aggregate | None = None, budget: Budget = UNLIMITED):
         aggregate = aggregate if aggregate is not None else Aggregate()
@@ -555,6 +599,77 @@ class ArchiveTests(SimpleTestCase):
         self.assertEqual((progress.members, progress.offset), (1, end.offset))
         self.assertEqual(resumed.to_state(), whole.to_state())
 
+    def test_a_header_written_into_the_old_padding_is_not_skipped(self):
+        first, second = synthetic_batches(2)
+        write_archive(self.path, [first])
+        _, end = self.analyse()
+        self.assertEqual(self.path.stat().st_size, tarfile.RECORDSIZE)
+
+        header = tarfile.TarInfo(second[0])
+        header.size = len(second[1])
+        self.assertLess(end.offset + tarfile.BLOCKSIZE + header.size, tarfile.RECORDSIZE)
+        with self.path.open('r+b') as handle:
+            handle.seek(end.offset)
+            handle.write(header.tobuf())
+
+        with mock.patch(SETTLE, 30.0):
+            racing, progress = self.analyse(end.offset)
+            self.assertEqual((progress.members, progress.offset, progress.reached_end), (0, end.offset, True))
+            self.assertEqual(racing.to_state(), Aggregate().to_state())
+
+            write_archive(self.path, [first, second])
+            finished, progress = self.analyse(end.offset)
+        self.assertEqual((progress.members, finished.totals['games'], finished.totals['damaged_members']), (1, 8, 0))
+
+    def test_a_damaged_last_batch_is_counted_once_the_archive_has_settled(self):
+        write_archive(self.path, [*synthetic_batches(1), ('1.1.9.pgn.bz2', b'not bzip2')])
+        with mock.patch(SETTLE, 30.0):
+            fresh, progress = self.analyse()
+            self.assertEqual((progress.members, fresh.totals['damaged_members']), (1, 0))
+
+            os.utime(self.path, (0, 0))
+            settled, progress = self.analyse(progress.offset, fresh)
+        self.assertEqual((progress.members, settled.totals['damaged_members'], settled.totals['games']), (1, 1, 8))
+
+    def test_a_damaged_batch_followed_by_another_is_passed_at_once(self):
+        good = synthetic_batches(1)[0]
+        write_archive(self.path, [('1.1.9.pgn.bz2', b'not bzip2'), good])
+        with mock.patch(SETTLE, 30.0):
+            aggregate, progress = self.analyse()
+        self.assertEqual((progress.members, aggregate.totals['damaged_members'], aggregate.totals['games']), (2, 1, 8))
+
+    def test_a_batch_that_outlasts_its_time_is_abandoned(self):
+        write_archive(self.path, synthetic_batches(2))
+        clock = iter(range(0, 10_000, 10))
+        with mock.patch('OpenBench.games.archive.time.monotonic', side_effect=lambda: next(clock)):
+            aggregate, progress = self.analyse(budget=Budget(compressed_bytes=1 << 40, games=1 << 40, seconds=15.0))
+
+        self.assertEqual((progress.members, progress.reached_end), (1, False))
+        self.assertEqual(aggregate.totals['damaged_members'], 1)
+        self.assertLess(aggregate.totals['games'], 8)
+
+    def test_a_decompression_bomb_stops_at_the_text_limit(self):
+        bomb = bz2.compress(b'[White "' + b'x' * (4 << 20) + b'"]\n' * 3)
+        self.assertLess(len(bomb), 4096)
+        write_archive(self.path, [('1.1.0.pgn.bz2', bomb), *synthetic_batches(1)])
+        with mock.patch('OpenBench.games.archive.MAX_MEMBER_CHARS', 1 << 20):
+            aggregate, progress = self.analyse()
+        self.assertEqual((progress.members, aggregate.totals['damaged_members'], aggregate.totals['games']), (2, 1, 8))
+
+    def test_garbage_in_a_settled_archive_is_reported_as_misaligned(self):
+        write_archive(self.path, synthetic_batches(1))
+        _, end = self.analyse()
+        self.assertFalse(end.misaligned)
+        self.assertTrue(on_member_boundary(self.path, end.offset))
+        self.assertFalse(on_member_boundary(self.path, end.offset - tarfile.BLOCKSIZE))
+        with self.path.open('r+b') as handle:
+            handle.seek(end.offset)
+            handle.write(os.urandom(2048))
+
+        with mock.patch(SETTLE, 30.0):
+            self.assertFalse(self.analyse(end.offset)[1].misaligned)
+        self.assertTrue(self.analyse(end.offset)[1].misaligned)
+
     def test_garbage_after_the_offset_ends_the_pass(self):
         write_archive(self.path, synthetic_batches(1))
         _, end = self.analyse()
@@ -585,6 +700,7 @@ class ArchiveTests(SimpleTestCase):
 class GameAnalysisTestCase(TestCase):
     def setUp(self):
         use_temporary_media(self)
+        self.enterContext(mock.patch(SETTLE, 0.0))
         create_engine_config()
         ensure_book()
         self.author = create_user('author')
@@ -648,6 +764,29 @@ class ServiceTests(GameAnalysisTestCase):
         self.archive(batches[:1])
         row = present(refresh(self.test, UNLIMITED))
         self.assertEqual((row.games, row.members), (8, 1))
+
+    def test_a_replaced_larger_archive_is_read_from_the_start(self):
+        self.archive(synthetic_batches(1))
+        refresh(self.test, UNLIMITED)
+        replacement = synthetic_batches(3, seed=11, compact=False)
+        self.archive(replacement)
+        cursor = GameAnalysis.objects.get().analysed_bytes
+        self.assertFalse(on_member_boundary(archive_path(self.test.id), cursor))
+
+        row = present(refresh(self.test, UNLIMITED))
+        self.assertEqual((row.games, row.members, row.complete), (24, 3, True))
+
+    def test_a_corrupt_tail_does_not_restart_the_analysis(self):
+        self.archive(synthetic_batches(2))
+        first = present(refresh(self.test, UNLIMITED))
+        with archive_path(self.test.id).open('r+b') as handle:
+            handle.seek(first.analysed_bytes)
+            handle.write(os.urandom(1024))
+
+        with mock.patch('OpenBench.games.service.analyse_archive', wraps=analyse_archive) as passes:
+            row = present(refresh(self.test, UNLIMITED))
+        self.assertEqual(passes.call_count, 1)
+        self.assertEqual((row.games, row.members, row.updated), (16, 2, first.updated))
 
     def test_a_concurrent_pass_is_not_overwritten(self):
         self.archive(synthetic_batches(2))
@@ -807,7 +946,9 @@ class GamesApiTests(GameAnalysisTestCase):
         self.assertTrue(report['evals']['has_timing'])
         self.assertEqual(len(report['evals']['advantage']), 6)
         self.assertEqual([row['key'] for row in report['evals']['phases']], ['early', 'middle', 'late'])
-        self.assertEqual(sorted(report['openings']), ['always_drawn', 'colour_bound', 'drawn', 'lopsided', 'tracked'])
+        self.assertEqual(
+            sorted(report['openings']), ['always_drawn', 'colour_bound', 'drawn', 'lopsided', 'repeated', 'tracked']
+        )
 
     def test_a_settled_analysis_is_served_with_a_constant_number_of_queries(self):
         self.client.force_login(self.author)
@@ -864,5 +1005,5 @@ class GamesPageTests(GameAnalysisTestCase):
         self.client.get(f'/test/{plain.id}/')
 
         for test in (plain, self.test):
-            with self.assertNumQueries(10):
+            with self.assertNumQueries(16):
                 self.assertEqual(self.client.get(f'/test/{test.id}/').status_code, 200)

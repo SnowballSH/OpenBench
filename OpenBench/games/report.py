@@ -8,7 +8,7 @@ from OpenBench.games.aggregate import OPENING_FIELDS, PAIR_KINDS, Aggregate
 from OpenBench.games.domain import (
     ADVANTAGE_THRESHOLDS_CP,
     HISTOGRAM_BIN_PLIES,
-    MIN_PAIRS_FOR_ALWAYS_DRAWN,
+    MIN_PAIRS_FOR_OPENING_TABLES,
     OPENING_TABLE_ROWS,
     PHASES,
     TERMINATION_LABELS,
@@ -122,6 +122,7 @@ class OpeningRow:
 @dataclass(frozen=True, slots=True)
 class Openings:
     tracked: int
+    repeated: int
     always_drawn: int
     lopsided: list[OpeningRow]
     colour_bound: list[OpeningRow]
@@ -335,13 +336,15 @@ def top_rows(rows: Iterable[OpeningRow], weight: dict[str, float]) -> list[Openi
 def openings(aggregate: Aggregate) -> Openings:
 
     rows = [opening_row(opening, row) for opening, row in aggregate.openings.items()]
-    always_drawn = [row for row in rows if row.dd == row.pairs and row.pairs >= MIN_PAIRS_FOR_ALWAYS_DRAWN]
+    repeated = [row for row in rows if row.pairs >= MIN_PAIRS_FOR_OPENING_TABLES]
+    always_drawn = [row for row in repeated if row.dd == row.pairs]
 
     return Openings(
         tracked=len(rows),
+        repeated=len(repeated),
         always_drawn=len(always_drawn),
-        lopsided=top_rows(rows, {row.opening: dev_margin(row) for row in rows}),
-        colour_bound=top_rows(rows, {row.opening: row.wl for row in rows}),
+        lopsided=top_rows(repeated, {row.opening: dev_margin(row) for row in repeated}),
+        colour_bound=top_rows(repeated, {row.opening: row.wl for row in repeated}),
         drawn=top_rows(always_drawn, {row.opening: row.pairs for row in always_drawn}),
     )
 

@@ -513,8 +513,15 @@ All of it is from dev's point of view unless it says White.
   | `checkmate` | Decisive and the last move ends in `#`. |
   | `win_adjudication` | Decisive, no mate, and the loser's last `movecount` own scores were all at or below `-score` of the Workload's Win ADJ. setting. |
   | `unexplained_win` | Any other decisive game: a time loss, an illegal move, a crash or disconnect, or a tablebase adjudication. The Workload's `crashes` and `timelosses` counters say how many of the first three there were. |
-  | `draw_adjudication` | Drawn, the game reached `movenumber` and the last `movecount` scores of both sides were within `score` of zero (Draw ADJ.). |
+  | `draw_adjudication` | Drawn, at least `movenumber` full moves were completed (counted from the `FEN`'s move number, as fastchess does), and the match runner's draw counter had reached `2 × movecount` plies at the end: consecutive scores within `score` of zero since the last capture or pawn move, that move included (Draw ADJ.). |
   | `draw_by_rule` | Any other draw: repetition, the fifty-move rule, stalemate, insufficient material or a tablebase adjudication. |
+
+  The draw split is an estimate. Captures and pawn moves are read off the
+  move text, and a repetition or a bare-kings draw that happens on the very
+  ply the counter fills is counted as an adjudication; a review sample of 88
+  real drawn games suggests about one in twenty lands in the wrong row. The decisive split has no such ambiguity between
+  mate and adjudication, but cannot separate the causes inside
+  `unexplained_win`.
 
   With adjudication set to `None` the two adjudication rows never appear. When
   a PGN states the reason, it is used as written and may also be `time_loss`,
@@ -527,9 +534,12 @@ All of it is from dev's point of view unless it says White.
   plies; longer games count as 600.
 - **Openings**: the key is the first four fields of the `FEN` header, or the
   book moves when there is no `FEN`. Three lists of at most ten openings:
-  `lopsided` ranks by `|2 × dev_score − 1| × pairs` (dev's net pairs won or
+  Openings played in fewer than two pairs are left out of all three (with a
+  large book most openings occur once, and one pair says nothing), so a list
+  can be empty and its table is then not shown; `repeated` counts the
+  openings that qualify. `lopsided` ranks by `|2 × dev_score − 1| × pairs` (dev's net pairs won or
   lost there), `colour_bound` by the number of `WL` pairs, `drawn` lists
-  openings whose pairs were all `DD` over at least two pairs, most pairs
+  openings whose pairs were all `DD`, most pairs
   first. `always_drawn` counts every such opening. At most 8,192 openings are
   tracked per Workload; pairs from further ones still count everywhere else
   and are reported as `untracked_opening_pairs`.
@@ -573,7 +583,8 @@ one query, and writes nothing. The write is conditional on the row still
 being at the offset the pass started from, so two concurrent passes cannot
 count a batch twice; the loser discards its work. A row from an older
 `version`, or an offset beyond the end of a replaced archive, restarts from
-the first byte. The watcher calls the analysis after it has flagged the PGN
+the first byte (so does a cursor that no longer sits on a member boundary;
+see the limits below). The watcher calls the analysis after it has flagged the PGN
 rows and deleted the batch files, inside a guard that logs any exception: a
 failing analysis never stops archiving.
 
@@ -581,10 +592,21 @@ Limits, each reported under `limits` and named in the page's "Partial" line:
 
 - `complete` is false while a budget stopped a pass before the end; the page
   then asks again every 4 s, and each request advances by one budget.
-- A member that is not valid bzip2, is truncated, or expands beyond 64 MiB is
-  a `damaged_members` entry; the games read before the damage are kept.
-- A member still being appended, or bytes after the cursor that are not a tar
-  header, end the pass without moving the cursor, so it is retried.
+- A member that is not valid bzip2, is truncated, expands beyond 8 MiB of
+  text, or takes longer than the pass's time budget on its own is a
+  `damaged_members` entry; the games read before the damage are kept. The
+  time and size are checked every 64 lines while the member is read, so one
+  hostile upload cannot hold the watcher thread.
+- A member still being appended ends the pass without moving the cursor. The
+  watcher overwrites the archive's zero padding in place, so a member whose
+  header is written but whose data is not yet can look complete and damaged:
+  a damaged member that is the last in the archive is therefore not counted
+  and not passed until the archive has been unmodified for 30 s.
+- Bytes at the cursor that are not a tar header, in a settled archive, mean
+  either a corrupt tail or an archive that was replaced by a larger one. A
+  walk over the headers from the start tells them apart: if it does not land
+  on the cursor the analysis restarts from the first byte, otherwise the pass
+  ends there.
 - Throughput is a few hundred to a few thousand games per second per core in
   pure Python; an archive that predates this feature is caught up over
   successive watcher passes and page views rather than in one request.
@@ -630,7 +652,7 @@ without a view permission, `404` for an unknown id).
         "histogram": [ { "first_ply": 1, "last_ply": 20, "decisive": 0, "drawn": 0 } ]
       },
       "openings": {
-        "tracked": 16, "always_drawn": 1,
+        "tracked": 16, "repeated": 16, "always_drawn": 1,
         "lopsided": [ {
           "opening": "rnbqkb1r/ppp2ppp/4pn2/3p4/2PP4/2N5/PP2PPPP/R1BQKBNR w KQkq -",
           "pairs": 15, "ww": 0, "wd": 4, "wl": 0, "dd": 11, "dl": 0, "ll": 0,

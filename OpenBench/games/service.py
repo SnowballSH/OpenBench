@@ -6,7 +6,7 @@ from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from OpenBench.games.aggregate import STATE_VERSION, Aggregate
-from OpenBench.games.archive import Budget, analyse_archive
+from OpenBench.games.archive import Budget, analyse_archive, on_member_boundary
 from OpenBench.games.domain import adjudication_of
 from OpenBench.models import GameAnalysis, Test
 
@@ -52,9 +52,12 @@ def refresh(test: Test, budget: Budget) -> GameAnalysis | None:
     aggregate = Aggregate.from_state(row.state) if resumed else Aggregate()
     offset = row.analysed_bytes if resumed else 0
 
-    progress = analyse_archive(
-        archive_path(test.id), offset, aggregate, adjudication_of(test.win_adj, test.draw_adj), budget
-    )
+    path, rules = archive_path(test.id), adjudication_of(test.win_adj, test.draw_adj)
+    progress = analyse_archive(path, offset, aggregate, rules, budget)
+    if progress.misaligned and offset and not on_member_boundary(path, offset):
+        resumed, aggregate = False, Aggregate()
+        progress = analyse_archive(path, 0, aggregate, rules, budget)
+
     if resumed and not progress.members and row.complete == progress.reached_end:
         return row
 

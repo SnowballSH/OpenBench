@@ -15,6 +15,7 @@ PIECES = ('', '', 'N', 'B', 'R', 'Q', 'K')
 FILES = 'abcdefgh'
 RANKS = '234567'
 
+QUIET_ENDING_PLIES = 20
 MIN_PLIES = 24
 MAX_PLIES = 420
 ADJUDICATED_DRAW_PLIES = 96
@@ -112,8 +113,8 @@ def pick[T](weighted: Sequence[tuple[float, T]], rng: random.Random) -> T:
     return rng.choices([item for _, item in weighted], weights=[weight for weight, _ in weighted])[0]
 
 
-def placeholder_move(rng: random.Random) -> str:
-    return rng.choice(PIECES) + rng.choice(FILES) + rng.choice(RANKS)
+def placeholder_move(rng: random.Random, quiet: bool) -> str:
+    return rng.choice(PIECES[2:] if quiet else PIECES) + rng.choice(FILES) + rng.choice(RANKS)
 
 
 def white_result(opening: Opening, white_edge: float, rng: random.Random) -> str:
@@ -193,7 +194,8 @@ def raw_game(setup: MatchSetup, opening: Opening, round_number: int, dev_is_whit
 
         last = ply == plies - 1
         mate_in = (plies - ply + 1) // 2 if ending.kind == 'mate' and plies - ply <= 6 else None
-        san = placeholder_move(rng) + ('#' if last and ending.kind == 'mate' else '')
+        quiet = ending.kind == 'flat' and plies - ply <= QUIET_ENDING_PLIES
+        san = placeholder_move(rng, quiet) + ('#' if last and ending.kind == 'mate' else '')
         own_cp = evals[ply] if white_moves else -evals[ply]
         nps = setup.dev_nps if white_moves == dev_is_white else setup.base_nps
         comment = move_comment(own_cp, mate_in, ply + 1, nps, rng)
