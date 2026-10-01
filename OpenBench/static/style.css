@@ -2170,6 +2170,33 @@ th[aria-sort="descending"] .sort-button::after {
     height: 16rem;
 }
 
+.progress-charts-small .chart-box {
+    height: 9rem;
+}
+
+.progress-economics {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    min-width: 0;
+}
+
+.progress-economics-heading {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--space-1) var(--space-3);
+    margin-top: var(--space-2);
+}
+
+.progress-economics-heading h2 {
+    margin: 0;
+}
+
+.progress-note.progress-spending {
+    margin: var(--space-3) 0 0;
+}
+
 .progress-data-table > summary {
     color: var(--text-muted);
     font-size: var(--text-sm);

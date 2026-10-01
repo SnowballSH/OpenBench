@@ -699,9 +699,11 @@ local-memory cache, so per process), which bounds the cost of repeated loads
 and of the API; since only configured engines reach the cache, a caller cannot
 fill it with arbitrary names.
 
-The page has two halves. The **lineage** answers "how much stronger did the
-engine get, and through which commits"; the **activity** charts answer "how
-much testing happened".
+The page has three parts. The **lineage** answers "how much stronger did the
+engine get, and through which commits"; **economics & speed** answers "what
+did that cost, how fast does the trunk move, and did the engine search slower
+as it got stronger"; the **activity** charts answer "how much testing
+happened".
 
 Code lives in `OpenBench/progress/`:
 
@@ -710,6 +712,9 @@ Code lives in `OpenBench/progress/`:
 | `domain.py` | `Window`, `TimeClass`, the source rows and the frozen report dataclasses: the contracts everything else is written against. |
 | `conditions.py` | Classifies a test's time control and thread count into a `TimeClass`. |
 | `lineage.py` | Pure graph functions: steps, pooling, the trunk, branches, chained series, direct checks, the window. |
+| `speed.py` | Pure functions for search speed: the dev-over-base ratio of a step from per-host node counters, its interval, the chained series. |
+| `economics.py` | Pure functions over the window's trunk and candidates: cost buckets, the per-class table, games per Elo, cadence. |
+| `options.py` | Reads `Threads` out of an options string (apart from `conditions.py` so the queries can use it without importing `utils`). |
 | `analysis.py` | Pure functions for the activity half: parsing, the window scope, games per day, weekly series, rankings, the summary. |
 | `sources.py` | The queries below. |
 | `report.py` | Runs the queries and assembles a `ProgressReport`. |
@@ -717,7 +722,9 @@ Code lives in `OpenBench/progress/`:
 | `views.py` | The page and the JSON endpoint. |
 
 `OpenBench/tests/test_progress_lineage.py` covers the graph functions on
-hand-built graphs without a database; `test_progress.py` covers the activity
+hand-built graphs without a database, and `test_progress_economics.py` does
+the same for speed, cost and cadence (missing counters, a single host, zero
+time); `test_progress.py` covers the activity
 functions, the queries against a small fixture, the page and the API.
 
 ### Why a lineage and not a sum
@@ -970,12 +977,127 @@ has steps; with several, the page lists them (`lineage_engines`) and
   and candidates) and the runs behind them; the SPRT pass rate; games played
   and the mean per day. No tile adds classes together or counts a commit twice.
 
+### Search speed
+
+"Is the engine getting slower as it gets stronger?" Every `Result` carries
+four counters the worker adds up from the PGN move comments of the games it
+played: nodes searched and milliseconds thought, for dev and for base
+(`dev_nodes`, `dev_time`, `base_nodes`, `base_time`). Both engines play the
+same games on the same machine, so their nodes-per-second ratio is a paired
+measurement that the machine's own speed cancels out of.
+
+- **Unit.** One observation per **host** (`Machine.host_key`, the physical
+  machine or batch job, see Fleet pages) per step: the counters of all its
+  Results on the step's runs are added, then
+  `x = ln( (dev_nodes / dev_time) / (base_nodes / base_time) )`. Only Results
+  with all four counters above zero count (a Result with no counters, or zero
+  time, is left out entirely, games included), and only runs of a chained
+  class: `other` mixes unlike conditions, so it is not used.
+- **Step ratio.** The weighted mean of `x` over hosts, weighted by the host's
+  thinking time `w = dev_time + base_time`; `ratio = exp(mean)`. A step whose
+  counted games number fewer than 30 has no speed.
+- **Interval.** With `n ≥ 2` hosts, the variance of the weighted mean is
+  estimated from the host-to-host scatter,
+  `n / (n − 1) · Σ w²(x − mean)² / (Σ w)²`, and the 95% half-width is its root
+  times the Student t quantile for `n − 1` degrees of freedom, applied in log
+  space. It is rough: hosts are few, and it assumes each host is an independent
+  draw. With one host there is no interval (`lower` and `upper` are `null`).
+- **Classes.** The step's speed pools every chained class. The same ratio is
+  also computed per class (`speed.classes`); when two classes that both have
+  intervals differ by more than their margins in quadrature, `classes_differ`
+  is true and the lineage row shows the classes next to the pooled figure.
+  Otherwise only the pooled figure is shown.
+- **Chain.** Along the window's trunk the log ratios add (the ratios
+  multiply): the cumulative ratio at step `k` is the engine's speed relative to
+  the window's origin commit, shown as a percentage change. Log half-widths add
+  in quadrature, like the Elo chain. A step without speed is a gap that adds
+  nothing (`measured` of `steps`). Once a step measured on a single host is in
+  the product, the cumulative interval is `null` from there on (`unbounded`
+  counts such steps): a band that left their uncertainty out would be too
+  narrow.
+
+Running tests count: node counters are not selected by a stopping rule, so a
+running test's speed is as valid as a finished one's. The figure is nodes per
+second, not time to depth: a change that searches fewer nodes for the same
+result is not "faster" here, and a slower engine that passes its test has paid
+for its slowdown in the Elo the test measured. `Engine.bench` (the node count
+of the engine's bench run) is shown per step for the same sanity purpose: a
+dev bench equal to the base's says the commit did not change the search
+("same as base"), a different one confirms a functional change.
+
+PR #42 (`result-insights`) adds counter helpers to `OpenBench/insights/speed.py`;
+this page does not depend on them and keeps its ratio maths in
+`OpenBench/progress/speed.py`.
+
+### Testing economics
+
+Everything here is over the **window's steps**: its trunk steps and the
+candidates that branched from them (and from the origin), all of them, not only
+the ones the payload lists.
+
+Per step (`step.cost`), over every run of the step at every class, finished or
+not:
+
+- `games`: the runs' games.
+- `decision_seconds`: for each finished run, its finish time minus its first
+  report (the first snapshot, or creation for a test without history), added
+  up. It is time under test, not elapsed time: queueing before the first report
+  is excluded, and two runs that overlapped count twice. `null` while no run
+  has finished.
+- `core_hours`: **search time**. The sum of `dev_time + base_time` over the
+  step's Results that have counters, times the run's `Threads`, in hours. At
+  one thread only one engine thinks at a time, so this is the core time the
+  engines spent searching. It is not machine uptime: engine start-up, the
+  book, adjudicated tails and idle workers are not in it, and it is unscaled
+  (real milliseconds on whatever hardware played). `null` when no Result has
+  counters; `counted_games` says how many games it covers. An estimate from
+  games × time control was rejected: it needs a guess at moves per game and at
+  how much of the clock is used, and the counters are measured.
+
+Window summaries (`economics`):
+
+- **Buckets** `trunk`, `failed`, `other`: the trunk steps; candidates with a
+  `failed` verdict at any class; the remaining candidates (still running,
+  stopped, or passed but not built on). Each has steps, runs, games, search
+  core-hours, and its share of the window's games and core-hours. "Spent on
+  failed changes" is the failed bucket's share of search time, with its share
+  of games beside it; without counters it falls back to games. A trunk step's
+  failed repeats count with the trunk: the bucket is the change's fate, not
+  the run's. `counter_coverage` is counted games over games.
+- **By class** (`classes`): decided SPRT runs `passed` and `failed`, the pass
+  rate `passed / (passed + failed)`, the median games of a passed run and of a
+  failed run, and all games and core-hours at the class (GAMES runs and
+  undecided runs included in those two).
+- **Games per Elo**: all games at the class in the window (trunk and
+  candidates, so the failures are paid for) divided by the chained Elo of the
+  window's trunk at that class; `null` unless the chained value is positive.
+  The chained value is biased upwards by selection (see Chained estimate), so
+  the figure is optimistic; the tile says so, and says when the chained total
+  is within its margin of zero.
+
+### Cadence
+
+- A trunk step **joins** at the finish of its newest passed run; a step that
+  was built on without a pass joins at its newest finish. `weekly` counts joins
+  per UTC week over the window (zeros included).
+- `steps_per_week` is joins × 7 divided by the days from the later of the
+  window's start and the day the window's first trunk step was first tested,
+  to today. On a young instance the rate is therefore over the time the
+  lineage has existed, not over an empty 90 days.
+- **First test to accepted**: for steps with a passed run, newest pass finish
+  minus the creation of the step's first run (queueing included). Median and
+  mean.
+- **STC pass to LTC pass**: for steps passed at both, the first LTC pass that
+  finished after the first STC pass, minus that STC pass. Median.
+
 ### Cost
 
-Six queries whatever the data size (five for `all`, which needs no baseline),
-each an aggregate or a bounded row set: the runs (one row per SPRT or GAMES
-test of the engine, joined to its two `Engine` rows for the SHAs, with a
-correlated newest-snapshot subquery served by the `(test, created)` index), the
+Seven queries whatever the data size (six for `all`, which needs no baseline),
+each an aggregate or a bounded row set: the usage (Results of the engine's
+runs grouped by test and host, one row per pair, summing games and the four
+counters), the runs (one row per SPRT or GAMES
+test of the engine, joined to its two `Engine` rows for the SHAs and benches, with
+correlated newest- and oldest-snapshot subqueries served by the `(test, created)` index), the
 weekly outcome counts (grouped in SQL), the daily snapshot maxima (grouped by
 Workload and day in SQL), the per-Workload baseline before the window (grouped
 in SQL), games grouped by owner, and Workloads grouped by author. The whole
@@ -1054,6 +1176,17 @@ estimate is `{ "lower", "value", "upper" }` (a 95% interval) or `null`.
             "first_tested_at": "2026-08-22T10:00:00+00:00",
             "last_tested_at": "2026-08-23T10:00:00+00:00",   // newest run created
             "measured_at": "2026-08-23T16:41:07+00:00",      // newest finish, or creation while running
+            "base_bench": 3271955,    // Engine.bench of each side, null when unknown (0)
+            "dev_bench": 3133448,
+            "speed": {                // dev over base nodes per second, or null without counters
+              "pooled": { "ratio": 0.9807, "lower": 0.9797, "upper": 0.9816,   // bounds null on one host
+                          "hosts": 5, "games": 69100 },                        // games with counters
+              "classes": [ { "time_class": "stc", "speed": { /* as pooled */ } } ],
+              "classes_differ": false },
+            "cost": { "runs": 3, "games": 69100,
+                      "decision_seconds": 85680.0,     // finished runs, first report → finish; or null
+                      "core_hours": 1156.5,            // search time; or null without counters
+                      "counted_games": 69100 },
             "measurements": [         // one per class, in class order
               { "time_class": "stc",  // stc | ltc | vltc | smp | other
                 "verdict": "passed",  // passed | failed | running | pending | completed | stopped
@@ -1068,7 +1201,10 @@ estimate is `{ "lower", "value", "upper" }` (a 95% interval) or `null`.
                     "created_at": "2026-08-22T10:00:00+00:00",
                     "finished_at": "2026-08-22T18:12:30+00:00",   // null until finished
                     "games": 29800,
-                    "elo": { "lower": 1.06, "value": 3.70, "upper": 6.34 } }
+                    "elo": { "lower": 1.06, "value": 3.70, "upper": 6.34 },
+                    "started_at": "2026-08-22T10:03:10+00:00",    // first report, or creation
+                    "counted_games": 29800,            // games in Results with node counters
+                    "core_hours": 212.4 }              // or null
                 ] }
             ]
           },
@@ -1109,6 +1245,44 @@ estimate is `{ "lower", "value", "upper" }` (a 95% interval) or `null`.
         { "root": { "sha": "f45c…", "network": "" }, "steps": 1, "taken": 1 }
       ]
     },
+    "economics": {                    // null whenever lineage is null
+      "trunk":  { "steps": 3, "runs": 7, "games": 157200,
+                  "core_hours": 2520.2,       // search time, see Testing economics
+                  "counted_games": 157200,    // games behind core_hours
+                  "games_share": 0.803, "core_share": 0.903 },   // of the three buckets; null when the total is zero
+      "failed": { /* as trunk: candidates with a failed verdict */ },
+      "other":  { /* as trunk: the remaining candidates */ },
+      "counter_coverage": 1.0,        // counted games / games, or null
+      "classes": [                    // classes tested in the window, in class order
+        { "time_class": "stc",
+          "passed": 4, "failed": 1,   // decided SPRT runs
+          "pass_rate": 0.8,           // or null
+          "median_games_to_pass": 24750.0,    // or null
+          "median_games_to_fail": 36800.0,    // or null
+          "games": 146000, "core_hours": 1018.9,   // every run at the class
+          "chained_elo": { "lower": 7.7, "value": 12.0, "upper": 16.3 },   // the window's trunk, or null
+          "games_per_elo": 12191.8 }  // games / chained value; null unless that is positive
+      ],
+      "speed": {
+        "points": [                   // one per step in lineage.steps
+          { "index": 1,
+            "step": { "ratio": 0.9941, "lower": 0.9911, "upper": 0.9971, "hosts": 5, "games": 47500 },   // or null
+            "cumulative": { "ratio": 0.9941, "lower": 0.9911, "upper": 0.9971 } }   // null at a gap
+        ],
+        "total": { "ratio": 0.9437, "lower": 0.9400, "upper": 0.9474 },   // whole window, or null
+        "measured": 3,                // steps with a speed
+        "unbounded": 0,               // of those, steps on one host (no interval; total bounds are then null)
+        "steps": 3 },
+      "cadence": {
+        "weekly": [ { "week_start": "2026-09-28", "steps": 2 } ],   // every week of the window
+        "joined": 3,
+        "steps_per_week": 3.5,        // or null
+        "acceptance_samples": 3,
+        "median_acceptance_seconds": 77100.4,     // first test created → newest pass, or null
+        "mean_acceptance_seconds": 77100.4,
+        "confirmation_samples": 2,
+        "median_confirmation_seconds": 72000.6 }  // STC pass → LTC pass, or null
+    },
     "lineage_engines": ["Avalanche"], // engines that have steps
     "weekly_outcomes": [              // every week from start's Monday, zeros included
       { "week_start": "2026-06-29", "passed": 1, "failed": 0, "stopped": 0 }
@@ -1131,7 +1305,9 @@ when its dev lies in the window; its chained side is summed over the whole
 span even where that reaches before the window. The page embeds this same
 object (without the `progress` wrapper) as a `json_script` data island. The
 shape replaced the earlier `greens` / `elo_steps` / `summary.elo_gained`
-fields, which nothing else consumed.
+fields, which nothing else consumed. `economics`, and the `base_bench`,
+`dev_bench`, `speed` and `cost` of a step and `started_at`, `counted_games`
+and `core_hours` of a run, were added later; no earlier field changed.
 
 ### The page
 
@@ -1152,6 +1328,14 @@ island, which is never executed, and it has no inline event handler or `style`
 attribute. `OpenBench/tests/test_csp.py` scans the template and the rendered
 `/progress/` pages.
 
+Each lineage row carries the dev bench after the date and author, and a second
+detail line with the step's speed and cost. The **Economics & speed** section
+sits below the lineage: a tile row (speed since the window's start, the share
+spent on failed changes, games per Elo at STC and LTC, trunk velocity and the
+two latencies), two short charts (speed along the trunk, on the same step axis
+as the trunk chart; trunk steps per week), each with its data table, and the
+per-class table. It is absent when there is no lineage.
+
 A lineage, candidate, direct-check or detached row that stands for exactly one
 workload is a navigable row (`data-row-href` and its one `.row-link`, see
 [UI.md](UI.md)); a row pooled from several workloads has no single
@@ -1165,3 +1349,7 @@ running LTC confirmation on the newest step and a running candidate off it.
 `progress_checks` adds the one run the lab agent does not make, a fixed-games
 LTC run of the newest accepted commit against the chain root, which the page
 shows as a direct check. The unpinned seeded tests are the detached trees.
+Each `DemoCommit` has a `speed` (dev over base nodes per second) that its
+Results' node counters follow with a little per-host noise, and the counters'
+times follow the time control, so the speed chain and core-hours are
+plausible.

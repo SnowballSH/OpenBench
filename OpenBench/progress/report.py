@@ -5,6 +5,7 @@ from django.utils import timezone
 from OpenBench.progress import analysis, sources
 from OpenBench.progress.conditions import time_class
 from OpenBench.progress.domain import NO_LINEAGE, Lineage, ProgressReport, RunRow, Window
+from OpenBench.progress.economics import economics
 from OpenBench.progress.lineage import build_lineage, build_steps, lineage_report, summarize_lineage
 
 
@@ -28,7 +29,7 @@ def progress_report(window: Window, engine: str | None, now: datetime | None = N
     now = now or timezone.now()
     scope = analysis.make_scope(window, engine, now)
 
-    runs = sources.load_runs(scope.engine, time_class)
+    runs = sources.load_runs(scope.engine, time_class, sources.load_usage(scope.engine))
     engines = engines_with_steps(runs)
     charted = lineage_engine(engine, engines)
     lineage = engine_lineage(runs, charted)
@@ -56,6 +57,7 @@ def progress_report(window: Window, engine: str | None, now: datetime | None = N
             games_by_user,
         ),
         lineage=lineage_report(charted, lineage, scope.since) if charted and lineage else None,
+        economics=economics(lineage, scope.since, start, scope.today) if charted and lineage else None,
         lineage_engines=engines,
         weekly_outcomes=analysis.weekly_series(outcomes, start, scope.today),
         daily_games=daily,

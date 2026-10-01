@@ -410,7 +410,161 @@
         };
     }
 
-    const BUILDERS = { trunk: trunk_chart, outcomes: outcome_chart, games: games_chart };
+    const change = ratio => (is_number(ratio) ? 100 * (ratio - 1) : null);
+
+    function format_change(ratio) {
+        return is_number(ratio) ? `${format_signed(change(ratio), 1)}%` : DASH;
+    }
+
+    function format_speed(speed) {
+        if (!speed) return DASH;
+        if (!is_number(speed.lower) || !is_number(speed.upper)) return format_change(speed.ratio);
+        return `${format_change(speed.ratio)} (${format_change(speed.lower)} to ${format_change(speed.upper)})`;
+    }
+
+    function speed_points(series, origin) {
+        return [
+            { x: origin, y: 0, lower: 0, upper: 0 },
+            ...series.points.map(point => ({
+                x: point.index,
+                y: point.cumulative ? change(point.cumulative.ratio) : null,
+                lower: point.cumulative ? change(point.cumulative.lower) : null,
+                upper: point.cumulative ? change(point.cumulative.upper) : null,
+                point,
+            })),
+        ];
+    }
+
+    function speed_summary(series) {
+        const coverage = `${series.measured} of ${plural(series.steps, 'step')} measured`;
+        return series.total ? `Search speed ${format_speed(series.total)} since the window's start, ${coverage}.` : `${coverage}.`;
+    }
+
+    function speed_chart(report, palette, quiet) {
+        const lineage = report.lineage;
+        const series = report.economics && report.economics.speed;
+        if (!lineage || !series || !series.points.length) return { empty: 'No step joined the trunk in this window.' };
+        if (!series.measured) return { empty: 'No trunk step in this window has node counters.' };
+
+        const rows = new Map(lineage.steps.map(row => [row.index, row]));
+        const origin = series.points[0].index - 1;
+        const last = series.points.at(-1).index;
+        const points = speed_points(series, origin);
+        const hidden = { borderWidth: 0, pointRadius: 0, pointHoverRadius: 0, pointHitRadius: 0, spanGaps: false, band: true };
+        const bounds = points.flatMap(point => [point.y, point.lower, point.upper]).filter(is_number);
+        const low = Math.min(0, ...bounds);
+        const high = Math.max(0, ...bounds);
+        const pad = 0.12 * (high - low || 1);
+
+        return {
+            label: speed_summary(series),
+            config: {
+                type: 'line',
+                data: {
+                    datasets: [
+                        { ...hidden, label: 'lower', data: points.map(point => ({ x: point.x, y: point.lower })), fill: false },
+                        {
+                            ...hidden,
+                            label: 'upper',
+                            data: points.map(point => ({ x: point.x, y: point.upper })),
+                            fill: '-1',
+                            backgroundColor: with_alpha(palette.series, 0.14),
+                        },
+                        {
+                            label: 'Speed',
+                            data: points,
+                            spanGaps: false,
+                            clip: false,
+                            borderColor: palette.series,
+                            backgroundColor: palette.series,
+                            borderWidth: 2,
+                            borderJoinStyle: 'round',
+                            borderCapStyle: 'round',
+                            pointRadius: context => (context.raw && context.raw.point ? 4 : 0),
+                            pointHoverRadius: context => (context.raw && context.raw.point ? 6 : 0),
+                            pointHitRadius: 12,
+                            pointBorderWidth: 2,
+                            pointBorderColor: palette.surface,
+                            pointHoverBorderColor: palette.surface,
+                            tension: 0,
+                        },
+                    ],
+                },
+                options: base_options(palette, {
+                    quiet,
+                    interaction: { mode: 'nearest', axis: 'x', intersect: false },
+                    x: axis(palette, {
+                        type: 'linear',
+                        min: origin,
+                        max: last,
+                        ticks: { precision: 0, maxTicksLimit: 8, callback: value => (Number.isInteger(value) ? `s${value}` : '') },
+                    }),
+                    y: axis(palette, {
+                        min: low - pad,
+                        max: high + pad,
+                        ticks: { callback: value => `${format_signed(value, 1)}%`, maxTicksLimit: 4 },
+                    }),
+                    lines: [{ value: 0, color: palette.axis }],
+                    tooltip_filter: item => Boolean(!item.dataset.band && item.raw && item.raw.point),
+                    tooltip: {
+                        title: items => {
+                            const row = items[0] && rows.get(items[0].raw.x);
+                            return row ? step_title(row) : '';
+                        },
+                        label: item => `Chained ${format_speed(item.raw.point.cumulative)}`,
+                        footer: items => {
+                            const step = items[0] && items[0].raw.point.step;
+                            return step ? `This step ${format_speed(step)}, ${plural(step.hosts, 'host')}` : '';
+                        },
+                    },
+                }),
+            },
+        };
+    }
+
+    function cadence_chart(report, palette, quiet) {
+        const cadence = report.economics && report.economics.cadence;
+        if (!cadence || !cadence.joined) return { empty: 'No step joined the trunk in this window.' };
+        const weeks = cadence.weekly;
+
+        return {
+            label: `${plural(cadence.joined, 'trunk step')} over ${plural(weeks.length, 'week')}.`,
+            config: {
+                type: 'bar',
+                data: {
+                    labels: weeks.map(week => week.week_start),
+                    datasets: [{
+                        label: 'Trunk steps',
+                        data: weeks.map(week => week.steps),
+                        backgroundColor: palette.series,
+                        borderRadius: { topLeft: 4, topRight: 4 },
+                        borderSkipped: 'start',
+                        maxBarThickness: BAR_THICKNESS,
+                        categoryPercentage: 1,
+                        barPercentage: 0.8,
+                    }],
+                },
+                options: base_options(palette, {
+                    quiet,
+                    interaction: { mode: 'index', intersect: false },
+                    x: axis(palette, {
+                        grid: { display: false },
+                        ticks: { callback: index => day_format.format(day_ms(weeks[index].week_start)), autoSkip: true, maxTicksLimit: 8, maxRotation: 0 },
+                    }),
+                    y: axis(palette, {
+                        beginAtZero: true,
+                        ticks: { precision: 0, maxTicksLimit: 4 },
+                    }),
+                    tooltip: {
+                        title: items => (items[0] ? `Week of ${long_day_format.format(day_ms(weeks[items[0].dataIndex].week_start))}` : ''),
+                        label: item => plural(item.raw, 'trunk step'),
+                    },
+                }),
+            },
+        };
+    }
+
+    const BUILDERS = { trunk: trunk_chart, outcomes: outcome_chart, games: games_chart, speed: speed_chart, cadence: cadence_chart };
 
     class ChartPanel {
         constructor(box) {

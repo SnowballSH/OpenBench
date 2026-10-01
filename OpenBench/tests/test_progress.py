@@ -381,9 +381,39 @@ class ProgressDataTests(TestCase):
         if connection.vendor == 'sqlite':
             self.assertNotIsInstance(sources.utc_date('created'), TruncDate)
 
+    def test_usage_groups_counters_by_run_and_host(self):
+        test = self.pinned('b', 'a')
+        other = Machine.objects.create(user=self.worker, info=system_info(machine_name='second'), mnps=1.0)
+        self.assertNotEqual(self.machine.host_key, other.host_key)
+        counters = {'dev_nodes': 980, 'dev_time': 1000, 'base_nodes': 1000, 'base_time': 1000}
+        Result.objects.create(test=test, machine=self.machine, games=100, **counters)
+        Result.objects.create(test=test, machine=self.machine, games=60, **counters)
+        Result.objects.create(test=test, machine=self.machine, games=40, dev_nodes=5, base_nodes=5)
+        Result.objects.create(test=test, machine=other, games=50, **counters)
+        Result.objects.create(test=test, machine=other, games=0)
+        Test.objects.filter(id=test.id).update(games=250)
+        self.history(test, (NOW - timedelta(hours=5), 10), (NOW - timedelta(hours=1), 250))
+
+        usage = sources.load_usage('Avalanche')
+        mine, theirs = sorted(usage[test.id], key=lambda host: -host.games)
+        self.assertEqual(
+            (mine.host, mine.games, mine.counted_games, mine.dev_nodes, mine.dev_ms, mine.base_nodes, mine.base_ms),
+            (self.machine.host_key, 200, 160, 1960, 2000, 2000, 2000),
+        )
+        self.assertEqual((theirs.games, theirs.counted_games), (50, 50))
+
+        report = self.report(engine='Avalanche')
+        (row,) = present(report.lineage).steps
+        self.assertAlmostEqual(present(row.step.speed).pooled.ratio, 0.98)
+        self.assertEqual(present(row.step.speed).pooled.hosts, 2)
+        self.assertEqual(row.step.cost.decision_seconds, 4 * 3600)
+        self.assertEqual(row.step.cost.counted_games, 210)
+        self.assertAlmostEqual(present(present(report.economics).counter_coverage), 210 / 250)
+        self.assertEqual((row.step.base_bench, row.step.dev_bench), (1, 1))
+
     def test_query_count_does_not_grow_with_the_data(self):
         self.seed()
-        with self.assertNumQueries(6):
+        with self.assertNumQueries(7):
             small = self.report()
 
         for index in range(25):
@@ -391,11 +421,11 @@ class ProgressDataTests(TestCase):
             self.history(test, (NOW - timedelta(days=16), 10), (NOW - timedelta(days=15), 90))
             self.result(test, 90, NOW - timedelta(days=15))
 
-        with self.assertNumQueries(6):
+        with self.assertNumQueries(7):
             self.report()
         self.assertIsNone(small.lineage)
         self.assertEqual(present(self.report(engine='Avalanche').lineage).trunk_length, 25)
-        with self.assertNumQueries(5):
+        with self.assertNumQueries(6):
             self.report(Window.ALL)
 
 
@@ -440,6 +470,9 @@ class ProgressViewTests(TestCase):
         self.assertEqual(page.lineage.lines[0].cells[0].runs[0].url, f'/test/{self.test.id}/')
         self.assertContains(response, 'id="progress-data"')
         self.assertContains(response, 'Chained Elo · STC')
+        self.assertContains(response, 'id="progress-economics"')
+        self.assertContains(response, 'data-progress-chart="speed"')
+        self.assertContains(response, 'Games per Elo · LTC')
         self.assertContains(response, 'https://github.com/SnowballSH/Avalanche/compare/' + 'b' * 40 + '...' + 'a' * 40)
         self.assertContains(response, 'href="/progress/?window=30d"')
 
@@ -540,6 +573,7 @@ class ProgressViewTests(TestCase):
                 'end',
                 'summary',
                 'lineage',
+                'economics',
                 'lineage_engines',
                 'weekly_outcomes',
                 'daily_games',
@@ -596,15 +630,34 @@ class ProgressViewTests(TestCase):
                 'last_tested_at',
                 'measured_at',
                 'measurements',
+                'base_bench',
+                'dev_bench',
+                'speed',
+                'cost',
             },
         )
+        self.assertEqual(set(step['cost']), {'runs', 'games', 'decision_seconds', 'core_hours', 'counted_games'})
+        self.assertEqual((step['base_bench'], step['dev_bench'], step['speed']), (1, 1, None))
         (measurement,) = step['measurements']
         self.assertEqual(set(measurement), {'time_class', 'verdict', 'games', 'pooling', 'provisional', 'elo', 'runs'})
         self.assertEqual((measurement['time_class'], measurement['verdict']), ('stc', 'passed'))
         self.assertEqual(set(measurement['elo']), {'lower', 'value', 'upper'})
         (run,) = measurement['runs']
         self.assertEqual(
-            set(run), {'id', 'mode', 'status', 'time_control', 'created_at', 'finished_at', 'games', 'elo'}
+            set(run),
+            {
+                'id',
+                'mode',
+                'status',
+                'time_control',
+                'created_at',
+                'finished_at',
+                'games',
+                'elo',
+                'started_at',
+                'counted_games',
+                'core_hours',
+            },
         )
         self.assertTrue(re.match(r'^\d{4}-\d{2}-\d{2}T', run['finished_at']))
 
@@ -615,6 +668,46 @@ class ProgressViewTests(TestCase):
             [{'index': 1, 'elo': measurement['elo'], 'cumulative': series['total'], 'projected': None}],
         )
         self.assertEqual(set(payload['summary']['sprt']), {'passed', 'failed', 'stopped'})
+
+        economics = payload['economics']
+        self.assertEqual(
+            set(economics), {'trunk', 'failed', 'other', 'counter_coverage', 'classes', 'speed', 'cadence'}
+        )
+        self.assertEqual(
+            set(economics['trunk']),
+            {'steps', 'runs', 'games', 'core_hours', 'counted_games', 'games_share', 'core_share'},
+        )
+        self.assertEqual(
+            set(economics['classes'][0]),
+            {
+                'time_class',
+                'passed',
+                'failed',
+                'pass_rate',
+                'median_games_to_pass',
+                'median_games_to_fail',
+                'games',
+                'core_hours',
+                'chained_elo',
+                'games_per_elo',
+            },
+        )
+        self.assertEqual(set(economics['speed']), {'points', 'total', 'measured', 'unbounded', 'steps'})
+        self.assertEqual(economics['speed']['points'], [{'index': 1, 'step': None, 'cumulative': None}])
+        self.assertEqual(
+            set(economics['cadence']),
+            {
+                'weekly',
+                'joined',
+                'steps_per_week',
+                'acceptance_samples',
+                'median_acceptance_seconds',
+                'mean_acceptance_seconds',
+                'confirmation_samples',
+                'median_confirmation_seconds',
+            },
+        )
+        self.assertEqual(set(economics['cadence']['weekly'][0]), {'week_start', 'steps'})
         self.assertEqual(
             set(payload['weekly_outcomes'][0]),
             {'week_start', 'passed', 'failed', 'stopped'},

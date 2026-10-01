@@ -27,9 +27,11 @@ from OpenBench.progress.domain import (
     RunRow,
     RunStatus,
     Step,
+    StepCost,
     TimeClass,
     TrunkStep,
 )
+from OpenBench.progress.speed import core_hours, has_counters, step_speed
 
 type Edge = tuple[Commit, Commit]
 type Children = Mapping[Commit, Sequence[Step]]
@@ -56,6 +58,9 @@ def run_of(row: RunRow) -> Run:
         finished_at=row.finished_at,
         games=row.games,
         elo=estimate(row.outcomes.primary()),
+        started_at=row.started_at,
+        counted_games=sum(host.counted_games for host in row.hosts if has_counters(host)),
+        core_hours=core_hours(row),
     )
 
 
@@ -88,6 +93,24 @@ def last_activity(row: RunRow) -> datetime:
     return row.finished_at or row.created_at
 
 
+def decision_seconds(row: RunRow) -> float | None:
+    if row.finished_at is None:
+        return None
+    return max(0.0, (row.finished_at - (row.started_at or row.created_at)).total_seconds())
+
+
+def step_cost(rows: Sequence[RunRow]) -> StepCost:
+    durations = [found for row in rows if (found := decision_seconds(row)) is not None]
+    spent = [found for row in rows if (found := core_hours(row)) is not None]
+    return StepCost(
+        runs=len(rows),
+        games=sum(row.games for row in rows),
+        decision_seconds=sum(durations) if durations else None,
+        core_hours=sum(spent) if spent else None,
+        counted_games=sum(host.counted_games for row in rows for host in row.hosts if has_counters(host)),
+    )
+
+
 def step_of(rows: Sequence[RunRow]) -> Step:
     first = min(rows, key=lambda row: row.id)
     subjects = (split_info(row.subject)[0] for row in sorted(rows, key=lambda row: row.id))
@@ -105,6 +128,10 @@ def step_of(rows: Sequence[RunRow]) -> Step:
         last_tested_at=max(row.created_at for row in rows),
         measured_at=max(last_activity(row) for row in rows),
         measurements=[pool(time_class, by_class[time_class]) for time_class in TimeClass if time_class in by_class],
+        base_bench=first.base_bench or None,
+        dev_bench=first.dev_bench or None,
+        speed=step_speed(rows),
+        cost=step_cost(rows),
     )
 
 
