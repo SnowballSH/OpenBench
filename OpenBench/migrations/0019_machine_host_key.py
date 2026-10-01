@@ -33,4 +33,8 @@ class Migration(migrations.Migration):
             model_name='machine',
             index=models.Index(fields=['host_key', 'updated'], name='machine_host_updated'),
         ),
+        migrations.AddIndex(
+            model_name='machine',
+            index=models.Index(fields=['user', 'updated'], name='machine_user_updated'),
+        ),
     ]

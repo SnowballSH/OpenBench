@@ -275,10 +275,12 @@
 
     function machine_label(row) {
         const cell = element('td', 'contribution-name');
-        const link = element('a', null, row.machine_name || 'Unnamed machine');
+        const link = element('a', null, row.machine_label || 'Unnamed machine');
         link.href = `/machines/${encodeURIComponent(row.machine_id)}/`;
+        if (row.machine_name && row.machine_name !== row.machine_label) link.title = row.machine_name;
         const sessions = row.registrations.length;
-        const detail = [row.owner, sessions > 1 ? `${sessions} sessions` : null].filter(Boolean).join(' · ');
+        const pool = row.machine_name && row.pool !== row.machine_name ? row.pool : null;
+        const detail = [row.owner, pool, sessions > 1 ? `${sessions} sessions` : null].filter(Boolean).join(' · ');
         cell.append(link, element('span', 'contribution-sub', detail));
         return cell;
     }

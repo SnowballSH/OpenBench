@@ -45,7 +45,11 @@
         </nav>
 
         {% if page.truncated %}
-            <p class="muted">Listing every online machine and the {{page.offline_listed}} most recently seen of {{page.summary.offline|insertCommas}} offline machines. Tiles and the CPU table count all {{page.summary.hosts|insertCommas}}.</p>
+            <p class="muted">Listing every online machine and the {{page.offline_listed|insertCommas}} most recently seen of {{page.summary.offline|insertCommas}} offline machines. Tiles and the CPU table count all {{page.summary.hosts|insertCommas}}.</p>
+        {% endif %}
+
+        {% if page.expanded %}
+            <p class="muted">Listing every machine of <strong>{{page.expanded.label}}</strong> ({{page.expanded.owner}}). <a href="?show={{page.window.value}}">Group them again</a></p>
         {% endif %}
 
         {% if page.rows %}
@@ -70,8 +74,30 @@
                     </thead>
                     <tbody>
                         {% for row in page.rows %}
+                            {% if row.is_pool %}
+                            <tr class="fleet-offline fleet-pool">
+                                <td>
+                                    <a href="?show={{page.window.value}}&amp;pool={{row.key}}" title="List these machines">{{row.name}}</a>
+                                    <span class="muted">{{row.hosts|insertCommas}} machines</span>
+                                </td>
+                                <td><a href="/user/{{row.owner|urlencode:''}}/">{{row.owner}}</a></td>
+                                <td class="fleet-cpu" title="{{row.cpu_name}}">{{row.cpu_name}}</td>
+                                <td class="muted">—</td>
+                                <td class="muted">—</td>
+                                <td class="numeric muted" data-sort-value="0">—</td>
+                                <td class="numeric muted" data-sort-value="0">—</td>
+                                <td class="muted">—</td>
+                                <td data-sort-value="{{row.last_seen|date:'U'}}">
+                                    <span class="badge">Offline</span>
+                                    <time class="muted" datetime="{{row.last_seen|date:'c'}}" title="{{row.last_seen|date:'c'}}">{{row.last_seen_ago}}</time>
+                                </td>
+                                <td class="timestamp muted" data-sort-value="{{row.first_seen|date:'U'}}">{{row.first_seen|date:'U'}}</td>
+                                <td class="numeric" data-sort-value="{{row.sessions}}">{{row.sessions|insertCommas}}</td>
+                                <td class="numeric" data-sort-value="{{row.lifetime_games}}">{{row.lifetime_games|insertCommas}}</td>
+                            </tr>
+                            {% else %}
                             <tr{% if not row.online %} class="fleet-offline"{% endif %}>
-                                <td><a href="/machines/{{row.machine_id}}/">{{row.name|default:"Unnamed"}}</a></td>
+                                <td><a href="/machines/{{row.machine_id}}/"{% if row.label != row.name %} title="{{row.name}}"{% endif %}>{{row.label|default:"Unnamed"}}</a></td>
                                 <td><a href="/user/{{row.owner|urlencode:''}}/">{{row.owner}}</a></td>
                                 <td class="fleet-cpu" title="{{row.cpu_name}}">{{row.cpu_name}}</td>
                                 <td class="mono">{{row.isa_name|default:"—"}}</td>
@@ -97,6 +123,7 @@
                                 <td class="numeric" data-sort-value="{{row.sessions}}">{{row.sessions|insertCommas}}</td>
                                 <td class="numeric" data-sort-value="{{row.lifetime_games}}">{{row.lifetime_games|insertCommas}}</td>
                             </tr>
+                            {% endif %}
                         {% endfor %}
                     </tbody>
                 </table>

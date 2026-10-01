@@ -149,8 +149,12 @@ class InsightsApiTests(TestCase):
         self.assertEqual([m['machine_name'] for m in contributions['machines']], ['fast-box', None])
         host = contributions['machines'][0]
         self.assertEqual((host['stats']['games'], host['stats']['pairs']), (292 + 2 * sum(extra), 146 + sum(extra)))
-        self.assertEqual(set(host), {'machine_id', 'machine_name', 'owner', 'cpu_name', 'registrations', 'stats'})
+        self.assertEqual(
+            set(host),
+            {'machine_id', 'machine_name', 'machine_label', 'pool', 'owner', 'cpu_name', 'registrations', 'stats'},
+        )
         self.assertEqual(host['machine_id'], again.id)
+        self.assertEqual((host['machine_label'], host['pool']), ('fast-box', 'fast-box'))
         self.assertEqual(
             host['registrations'],
             [

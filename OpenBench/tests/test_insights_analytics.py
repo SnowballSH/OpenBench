@@ -339,6 +339,13 @@ class ContributionTests(SimpleTestCase):
         self.assertEqual((elo.lower, elo.value, elo.upper), Elo(pooled))
         self.assertEqual([(c.cpu_name, c.machines) for c in summary.cpus], [('Ryzen', 2)])
 
+    def test_ephemeral_job_names_are_shortened_and_pooled(self):
+        name = 'batch-a0741747-7d81-49a2-b96e-4b14d4c304c3:0'
+        rows = [self.row(1, 'AMD EPYC 9R14', (0, 1, 2, 1, 0), name), self.row(2, 'AMD EPYC 9R14', (0, 1, 1, 1, 0))]
+        job, unnamed = summarize_contributions(rows, use_penta=True, elapsed_seconds=None).machines
+        self.assertEqual((job.machine_name, job.machine_label, job.pool), (name, 'batch-a0741747…:0', 'batch-*'))
+        self.assertEqual((unnamed.machine_label, unnamed.pool), (None, 'AMD EPYC 9R14'))
+
     def test_empty_and_no_elapsed(self):
         self.assertEqual(summarize_contributions([], True, None).machines, [])
         summary = summarize_contributions([self.row(1, 'x', (0, 0, 0, 0, 0))], True, 0.0)

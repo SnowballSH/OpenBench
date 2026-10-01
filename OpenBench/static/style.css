@@ -1911,6 +1911,11 @@ td.contribution-name {
     box-shadow: inset 3px 0 0 var(--accent);
 }
 
+.fleet-pool > td:first-child > .muted {
+    margin-left: var(--space-1);
+    white-space: nowrap;
+}
+
 .fleet-options {
     max-width: 24rem;
     overflow-wrap: anywhere;

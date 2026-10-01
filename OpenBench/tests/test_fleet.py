@@ -1,4 +1,5 @@
 import io
+import uuid
 import zlib
 from datetime import UTC, datetime, timedelta
 from importlib import import_module
@@ -28,13 +29,15 @@ from OpenBench.fleet.machines import (
     CurrentSession,
     HostRow,
     HostTotals,
+    MachinesPage,
+    PoolRow,
     cpu_groups,
-    display_order,
     host_row,
     listed,
     load_machines_page,
     summarize_fleet,
 )
+from OpenBench.fleet.pools import Pool, parse_pool_key, pool_label, short_name
 from OpenBench.fleet.sessions import current_sessions, never_used
 from OpenBench.fleet.status import (
     OfflineWindow,
@@ -72,11 +75,12 @@ def row(
     online: bool = True,
     games: int = 0,
     seen: timedelta = timedelta(),
+    name: str | None = None,
 ) -> HostRow:
     return HostRow(
         key=HostKey(f'host-{id}'),
         machine_id=id,
-        name=None,
+        name=name,
         owner='owner',
         cpu_name=cpu,
         isa_name=None,
@@ -92,6 +96,14 @@ def row(
         sessions=1,
         lifetime_games=games,
     )
+
+
+JOB_IDS = (
+    'a0741747-7d81-49a2-b96e-4b14d4c304c3',
+    '5b1e0c52-93aa-4f0e-8a67-0d2f6c1e9b11',
+    'c97d2a10-0b6f-4d3c-b5e4-7a1f33e0d2aa',
+    '0e4f9b7c-61d2-4a85-9c3b-f2a7d5e81c46',
+)
 
 
 def mac_of(name: str) -> str:
@@ -153,6 +165,10 @@ def add_result(
         dev_nodes=nodes,
         dev_time=time,
     )
+
+
+def host_rows(page: MachinesPage) -> list[HostRow]:
+    return [item for item in page.rows if isinstance(item, HostRow)]
 
 
 def query_count(client, url: str) -> int:
@@ -227,15 +243,51 @@ class FleetAnalyticsTests(SimpleTestCase):
         self.assertEqual(ryzen, CpuGroup('Ryzen', 1, 2, 8, 12.0, 15))
         self.assertEqual(m4, CpuGroup('M4', 1, 1, 2, 2.0, 1))
 
-    def test_display_order_puts_online_first_by_cpu_then_offline_by_recency(self):
+    def test_listing_puts_online_first_by_cpu_then_offline_by_recency(self):
         rows = [
             row(1, cpu='b', online=False, seen=timedelta(hours=3)),
             row(2, cpu='B'),
             row(3, cpu='a'),
             row(4, cpu='A', online=False, seen=timedelta(hours=1)),
         ]
-        self.assertEqual([item.machine_id for item in display_order(rows)], [3, 2, 4, 1])
-        self.assertEqual([item.machine_id for item in listed(rows, offline_limit=1)], [3, 2, 4])
+        self.assertEqual(
+            [item.machine_id for item in listed(rows, 5, None, NOW) if isinstance(item, HostRow)], [3, 2, 4, 1]
+        )
+        self.assertEqual(len(listed(rows, 1, None, NOW)), 3)
+
+    def test_offline_hosts_of_a_pool_roll_up_into_one_row(self):
+        jobs = [
+            row(
+                index,
+                cpu='EPYC',
+                online=False,
+                games=10 * index,
+                seen=timedelta(hours=index),
+                name=f'batch-{JOB_IDS[index]}:0',
+            )
+            for index in (1, 2, 3)
+        ]
+        running = row(4, cpu='EPYC', name=f'batch-{JOB_IDS[0]}:0')
+        other_cpu = row(5, cpu='Xeon', online=False, seen=timedelta(hours=9), name=f'batch-{JOB_IDS[0]}:1')
+        stable = row(6, cpu='EPYC', online=False, seen=timedelta(hours=2), name='demo-3')
+
+        shown = listed([*jobs, running, other_cpu, stable], 10, None, NOW)
+
+        self.assertEqual([item.name for item in shown], [running.name, 'batch-*', 'demo-3', other_cpu.name])
+        pool = shown[1]
+        assert isinstance(pool, PoolRow)
+        self.assertEqual(
+            (pool.hosts, pool.sessions, pool.lifetime_games, pool.owner, pool.cpu_name), (3, 3, 60, 'owner', 'EPYC')
+        )
+        self.assertEqual((pool.last_seen, pool.first_seen), (NOW - timedelta(hours=1), NOW - timedelta(hours=3)))
+        self.assertEqual(
+            (pool.last_seen_ago, pool.is_pool, pool.online, running.is_pool), ('1h ago', True, False, False)
+        )
+        self.assertEqual(pool.key, Pool('owner', 'batch-*', 'EPYC').key)
+
+        expanded = listed([*jobs, running, other_cpu, stable], 10, pool.key, NOW)
+        self.assertEqual([item.hosts for item in expanded], [1] * 6)
+        self.assertEqual(jobs[0].label, f'batch-{JOB_IDS[1][:8]}…:0')
 
     def test_host_row_reads_the_current_session(self):
         session = CurrentSession(
@@ -338,6 +390,55 @@ class HostIdentityTests(SimpleTestCase):
         self.assertEqual(host_identity('lab', None).logical_cores, 0)
         self.assertEqual(host_identity('lab', {'cpu_name': 7}).cpu_name, '7')
 
+    def test_ephemeral_jobs_are_distinct_hosts(self):
+        first = {**self.INFO, 'machine_name': f'batch-{JOB_IDS[0]}:0', 'cpu_name': 'AMD EPYC 9R14'}
+        other_vm = {**first, 'machine_name': f'batch-{JOB_IDS[1]}:0', 'mac_address': '0A58A9000002'}
+        self.assertNotEqual(host_key('lab-worker', first), host_key('lab-worker', other_vm))
+        self.assertEqual(host_key('lab-worker', first), host_key('lab-worker', {**first, 'cli_options': 'again'}))
+
+        unaddressed = {**first, 'mac_address': 'None'}
+        self.assertNotEqual(
+            host_key('lab-worker', unaddressed),
+            host_key('lab-worker', {**unaddressed, 'machine_name': f'batch-{JOB_IDS[1]}:0'}),
+        )
+        self.assertEqual(
+            host_key('lab-worker', first), host_key('lab-worker', {**first, 'machine_name': f'batch-{JOB_IDS[0]}:1'})
+        )
+
+    def test_pool_labels_collapse_the_volatile_parts_of_a_name(self):
+        cases = {
+            f'batch-{JOB_IDS[0]}:0': 'batch-*',
+            f'batch-{JOB_IDS[1]}': 'batch-*',
+            f'batch-{JOB_IDS[2].upper()}:12': 'batch-*',
+            'demo-3': 'demo-3',
+            'box': 'box',
+            'ip-10-0-12-34': 'ip-10-0-12-34',
+            'worker-0a1b2c3d4e': 'worker-*',
+            'i-0f21e8465a561ec9e': 'i-*',
+            'node00123': 'node*',
+            'run-20260930-123456:3': 'run-*',
+            'deadbeefcafe': 'deadbeefcafe',
+            'defaced-box:1': 'defaced-box',
+        }
+        for name, label in cases.items():
+            self.assertEqual(pool_label(name, 'AMD EPYC 9R14'), label, name)
+        self.assertEqual(pool_label(None, 'AMD EPYC 9R14'), 'AMD EPYC 9R14')
+        self.assertEqual(pool_label(None, None), 'Unknown')
+
+    def test_short_names_keep_the_start_of_a_long_id(self):
+        self.assertEqual(short_name(f'batch-{JOB_IDS[0]}:0'), 'batch-a0741747…:0')
+        self.assertEqual(short_name('i-0f21e8465a561ec9e'), 'i-0f21e846…')
+        self.assertEqual(short_name('demo-3'), 'demo-3')
+
+    def test_pool_keys_separate_owners_and_cpus_and_reject_other_input(self):
+        key = Pool('lab-worker', 'batch-*', 'AMD EPYC 9R14').key
+        self.assertRegex(key, r'^[0-9a-f]{12}$')
+        self.assertNotEqual(key, Pool('home-worker', 'batch-*', 'AMD EPYC 9R14').key)
+        self.assertNotEqual(key, Pool('lab-worker', 'batch-*', 'AMD EPYC 9R45').key)
+        self.assertEqual(parse_pool_key(key), key)
+        for value in (None, '', 'batch-*', key.upper(), key + '0', "' OR 1=1"):
+            self.assertIsNone(parse_pool_key(value), value)
+
     def test_housekeeping_reads_the_exit_flags_as_whole_options(self):
         self.assertTrue(exits_when_idle('--threads 4 --single_workload'))
         self.assertTrue(exits_when_idle('--fleet --threads 4'))
@@ -402,7 +503,7 @@ class FleetPageTests(TestCase):
         other = create_test(self.reader)
         add_result(other, self.online, (0, 1, 1, 1, 0))
         page = load_machines_page(timezone.now(), OfflineWindow.WEEK)
-        rows = {item.machine_id: item for item in page.rows}
+        rows = {item.machine_id: item for item in host_rows(page)}
         self.assertEqual(rows[self.online.id].lifetime_games, 2 * sum(PENTA) + 6)
         self.assertEqual(rows[self.old.id].lifetime_games, 0)
 
@@ -411,7 +512,7 @@ class FleetPageTests(TestCase):
         page = load_machines_page(timezone.now(), OfflineWindow.WEEK, offline_limit=3)
 
         self.assertEqual(
-            [item.machine_id for item in page.rows],
+            [item.machine_id for item in host_rows(page)],
             [self.online.id, *(machine.id for machine in newest[:3])],
         )
         self.assertTrue(page.truncated)
@@ -562,7 +663,7 @@ class HostGroupingTests(TestCase):
 
     def test_a_host_is_one_row_with_its_registrations_summed(self):
         page = load_machines_page(timezone.now(), OfflineWindow.NONE)
-        host = next(item for item in page.rows if item.name == 'box')
+        host = next(item for item in host_rows(page) if item.name == 'box')
 
         self.assertEqual(len(page.rows), 2)
         self.assertEqual((host.machine_id, host.threads, host.sessions), (self.current.id, 8, 4))
@@ -584,6 +685,37 @@ class HostGroupingTests(TestCase):
             [(item.name, item.online, item.sessions) for item in page.rows], [('other-box', True, 1), ('box', False, 4)]
         )
         self.assertEqual((page.summary.online, page.summary.offline), (1, 1))
+
+    def test_page_rolls_offline_jobs_into_a_pool_and_expands_it(self):
+        for index, job in enumerate(JOB_IDS[:3]):
+            machine = make_machine(self.worker, f'batch-{job}:0', cpu='AMD EPYC 9R14', seen=timedelta(hours=index + 1))
+            add_result(self.first, machine, (0, 1, 1, 1, 0))
+            make_registration(self.worker, machine, 60 * (index + 1) + 5)
+        self.client.force_login(self.reader)
+
+        response = self.client.get('/machines/?show=24h')
+        page = response.context['page']
+        pool = next(item for item in page.rows if item.is_pool)
+        self.assertEqual([item.name for item in page.rows], ['other-box', 'box', 'batch-*'])
+        self.assertEqual((pool.hosts, pool.sessions, pool.lifetime_games), (3, 6, 18))
+        self.assertEqual((page.summary.offline, page.offline_listed, page.truncated), (3, 3, False))
+        self.assertContains(response, f'href="?show=24h&amp;pool={pool.key}"')
+        self.assertContains(response, '3 machines')
+        self.assertIsNone(page.expanded)
+
+        expanded = self.client.get(f'/machines/?show=24h&pool={pool.key}')
+        rows = expanded.context['page'].rows
+        self.assertEqual([item.label for item in rows[2:]], [f'batch-{job[:8]}…:0' for job in JOB_IDS[:3]])
+        self.assertEqual(expanded.context['page'].expanded, Pool('lab-worker', 'batch-*', 'AMD EPYC 9R14'))
+        self.assertContains(expanded, 'Group them again')
+        self.assertContains(expanded, f'title="batch-{JOB_IDS[0]}:0"')
+
+        ignored = self.client.get('/machines/?show=24h&pool=not-a-key').context['page']
+        self.assertEqual(len(ignored.rows), 3)
+        self.assertEqual(
+            query_count(self.client, f'/machines/?show=24h&pool={pool.key}'),
+            query_count(self.client, '/machines/?show=24h'),
+        )
 
     def test_tied_heartbeats_still_give_one_current_session(self):
         moment = timezone.now()
@@ -669,7 +801,7 @@ class HousekeepingTests(TestCase):
         response = self.client.post('/clientWorkerInfo/', payload).json()
         return Machine.objects.get(id=response['machine_id'])
 
-    def test_registering_removes_the_hosts_exited_idle_sessions(self):
+    def test_registering_removes_the_owners_exited_idle_sessions(self):
         registered = self.register()
         key = registered.host_key
         stale = [make_registration(self.worker, registered, minutes) for minutes in (16, 60, 3000)]
@@ -684,7 +816,8 @@ class HousekeepingTests(TestCase):
 
         self.assertEqual(newest.host_key, key)
         self.assertFalse(Machine.objects.filter(id__in=[machine.id for machine in stale]).exists())
-        kept = {registered.id, fresh.id, used.id, polling.id, elsewhere.id, foreign.id, newest.id}
+        self.assertFalse(Machine.objects.filter(id=elsewhere.id).exists())
+        kept = {registered.id, fresh.id, used.id, polling.id, foreign.id, newest.id}
         self.assertEqual(set(Machine.objects.values_list('id', flat=True)), kept)
 
     def test_an_idle_supervised_host_keeps_a_bounded_number_of_rows(self):
@@ -700,8 +833,25 @@ class HousekeepingTests(TestCase):
         for _ in range(8):
             make_registration(self.worker, registered, 60)
 
-        self.assertEqual(prune_exited_sessions(registered.host_key, timezone.now(), limit=3), 3)
+        self.assertEqual(prune_exited_sessions(self.worker.id, timezone.now(), window=3), 3)
         self.assertEqual(Machine.objects.count(), 6)
+
+    def test_ephemeral_hosts_that_never_return_are_cleared_by_any_registration(self):
+        used = []
+        for job in range(20):
+            name = f'batch-{uuid.UUID(int=job + 1)}:0'
+            for minute in range(20):
+                self.idle(16 + job * 30 + minute, name=name)
+            used.append(self.idle(16 + job * 30, name=name))
+            add_result(self.test, used[-1])
+        bystander = self.idle(600, owner=self.other, name='batch-elsewhere')
+        self.assertEqual(Machine.objects.count(), 421)
+
+        newest = self.register()
+
+        self.assertEqual(
+            set(Machine.objects.values_list('id', flat=True)), {newest.id, bystander.id, *(row.id for row in used)}
+        )
 
     def test_registration_queries_do_not_grow_with_the_backlog(self):
         registered = self.register()

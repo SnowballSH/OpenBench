@@ -9,6 +9,7 @@
 
 import datetime
 import random
+import uuid
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from typing import Any
@@ -17,9 +18,10 @@ from django.conf import settings
 from django.contrib.auth.models import User
 from django.core.management.base import BaseCommand, CommandError, CommandParser
 from django.db import transaction
-from django.db.models import Sum
+from django.db.models import Q, Sum
 from django.utils import timezone
 
+from OpenBench.fleet.hosts import host_key
 from OpenBench.models import (
     Book,
     Engine,
@@ -60,6 +62,14 @@ SUPERVISED_HOST = 2
 IDLE_SESSIONS_MINUTES_AGO = (4, 9, 14, 45, 300)
 
 SPLIT_SESSION_PAIRS = 400
+
+# Ephemeral cloud jobs: each is a different VM named after its job id, registers
+# once a minute while idle, plays at most one workload, and never returns
+BATCH_CPU = 'AMD EPYC 9R14'
+BATCH_THREADS = 8
+BATCH_PLAYING_HOSTS = 4
+BATCH_IDLE_HOSTS_HOURS_AGO = (2, 30, 50)
+BATCH_IDLE_SESSIONS = 3
 
 FINISHED_STATES = ('passed', 'failed', 'finished', 'stopped')
 
@@ -231,6 +241,7 @@ class Command(BaseCommand):
                 create_tune(tune, users[0], machines, rng)
             credit_profiles(users)
             settle_supervised_sessions(machines[SUPERVISED_HOST])
+            create_batch_hosts(machines[SUPERVISED_HOST])
             assign_online_machines(machines)
             age_offline_machines(machines)
 
@@ -337,6 +348,44 @@ def settle_supervised_sessions(host: Machine) -> None:
     for minutes_ago in IDLE_SESSIONS_MINUTES_AGO:
         idle = Machine.objects.create(user=host.user, info=host.info)
         Machine.objects.filter(id=idle.id).update(updated=now - datetime.timedelta(minutes=minutes_ago))
+
+
+def batch_info(template: dict[str, Any], index: int) -> dict[str, Any]:
+    identity = f'batch-{uuid.uuid5(uuid.NAMESPACE_DNS, f"demo-batch-{index}")}:0'
+    return {
+        **template,
+        'cpu_name': BATCH_CPU,
+        'isa_name': 'x86-64-avx512',
+        'concurrency': BATCH_THREADS,
+        'logical_cores': BATCH_THREADS,
+        'physical_cores': BATCH_THREADS // 2,
+        'machine_name': identity,
+        'mac_address': f'0A58A9{index + 1:06X}',
+        'cli_options': f'--threads {BATCH_THREADS} --nsockets 1 --identity {identity} --single_workload',
+    }
+
+
+def register_idle_sessions(owner: User, info: dict[str, Any], last_seen: datetime.datetime) -> None:
+    for minutes_before in range(1, BATCH_IDLE_SESSIONS + 1):
+        idle = Machine.objects.create(user=owner, info=info)
+        Machine.objects.filter(id=idle.id).update(updated=last_seen - datetime.timedelta(minutes=minutes_before))
+
+
+def create_batch_hosts(supervised: Machine) -> None:
+    now = timezone.now()
+    owner = supervised.user
+    recent = Q(updated__lt=now - datetime.timedelta(hours=1), updated__gt=now - datetime.timedelta(days=6))
+    played = Machine.objects.filter(
+        recent, host_key=supervised.host_key, id__in=Result.objects.values('machine_id')
+    ).order_by('-updated', '-id')
+
+    for index, session in enumerate(played[:BATCH_PLAYING_HOSTS]):
+        info = batch_info(supervised.info, index)
+        Machine.objects.filter(id=session.id).update(info=info, host_key=host_key(owner.username, info))
+        register_idle_sessions(owner, info, session.updated)
+
+    for index, hours_ago in enumerate(BATCH_IDLE_HOSTS_HOURS_AGO, start=BATCH_PLAYING_HOSTS):
+        register_idle_sessions(owner, batch_info(supervised.info, index), now - datetime.timedelta(hours=hours_ago))
 
 
 def assign_online_machines(machines: list[Machine]) -> None:

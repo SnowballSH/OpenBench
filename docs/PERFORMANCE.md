@@ -97,8 +97,15 @@ current-session probes without touching the table. With it, at that size:
 `/machines/` 9 ms online, 180 ms for 24 hours and 300 ms for 7 days (all 400
 hosts, dominated by summing every Result of the listed hosts for lifetime
 games); `/machines/<id>/` 45 ms for the largest host; the index status line
-and the server payload's `fleet` 1.7 ms each; the registration-time prune's
-candidate query 13 ms on the largest host.
+and the server payload's `fleet` 1.7 ms each.
+
+`machine_user_updated` is `(user, updated)`. The registration-time prune
+reads the owner's newest 500 stale registrations through it
+(`SEARCH USING INDEX machine_user_updated (user_id=? AND updated<?)`, plus a
+covering `SEARCH` of the Result index per row): 2.0 ms for an owner holding
+45,000 of 50,000 registrations, and 13.5 ms including the delete of 328 rows.
+It also covers the `/users/` last-heartbeat aggregate, which was a table scan
+(131 ms → 14 ms).
 
 The cost is one `sha256` at registration and a 32-character column. The
 migration keys existing rows in batches of 500.

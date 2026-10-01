@@ -24,7 +24,7 @@ OPENBENCH_DEBUG=1 python manage.py runserver
 
 `seed_demo` fills an empty development database with accounts, Machines (one
 of them a supervised host with a registration per workload and idle ones in
-between) and Workloads of every mode (SPRT, fixed games, SPSA tunes, datagen) in every
+between, and a few ephemeral `batch-<uuid>` cloud jobs) and Workloads of every mode (SPRT, fixed games, SPSA tunes, datagen) in every
 state, so pages can be seen with realistic data. It refuses
 to run without `OPENBENCH_DEBUG`, and prints the demo login it created.
 
@@ -189,20 +189,27 @@ with Results are history and are never removed (`Result.machine` is
 **At registration**, `clientWorkerInfo` deletes, in the same transaction as
 the new row, registrations that are all of:
 
-- of the same host as the one registering (same owner and machine; see
-  [INSIGHTS.md](INSIGHTS.md#hosts)),
+- of the same owner as the one registering (not the same machine: an
+  ephemeral cloud job is a new host every time and never registers again, so
+  only another of its owner's hosts can clean up after it),
 - without any Result,
 - made by a Client that exits when it has no work (`--single-workload` or
   `--fleet` in the `cli_options` it registered with),
 - last heard from more than 15 minutes ago,
 
-at most 50 per registration. Such a registration made one workload request and
-its Client has exited: it cannot come back. The 15 minutes cover a Client that
-registered and is still retrying its first request through a network outage.
-An idle supervised host therefore keeps about 15 rows, and an existing backlog
-on a host drains 50 rows per start. Reusing the newest idle row instead of
-inserting was rejected: it would change the id and secret handed to a Client
-that may still be starting, and would never shrink a backlog.
+looking only at the owner's 500 most recently seen registrations older than
+15 minutes. Such a registration made one workload request and its Client has
+exited: it cannot come back, whichever machine it ran on. The 15 minutes cover
+a Client that registered and is still retrying its first request through a
+network outage. The 500-row window makes the cost constant: one query down the
+`machine_user_updated` index (2 ms for an owner with 45,000 registrations) and
+one delete. In steady state every never-used row sits inside the window, so an
+owner keeps roughly one row per idle host per minute for 15 minutes, plus the
+registrations that played. A backlog deeper than the window (never-used rows
+buried under more than 500 newer ones) is left for `prune_machines`. Reusing
+the newest idle row instead of inserting was rejected: it would change the id
+and secret handed to a Client that may still be starting, and would never
+shrink a backlog.
 
 Registrations of a Client that keeps polling are deliberately left alone at
 registration. `clientGetWorkload` does not refresh `Machine.updated` when it
@@ -220,7 +227,8 @@ python manage.py prune_machines --apply       # delete
 python manage.py prune_machines --apply --days 30
 ```
 
-- *exited*: as above, for every host; this is what clears a backlog.
+- *exited*: as above, for every owner and without the window; this is what
+  clears a backlog.
 - *abandoned*: never-used registrations of polling Clients last heard from
   more than `--days` days ago (default 7, minimum 1). Mind the caveat above:
   a polling Client idle for that long loses its registration and registers

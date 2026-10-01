@@ -626,6 +626,8 @@ numbers. The full schema, including every `eta.kind` and `reason`, is in
                 {
                     "machine_id": 4,
                     "machine_name": "demo-4",
+                    "machine_label": "demo-4",
+                    "pool": "demo-4",
                     "owner": "home-worker",
                     "cpu_name": "Apple M4",
                     "registrations": [{ "machine_id": 4, "games": 1994, "pairs": 997 }],

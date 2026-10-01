@@ -4,17 +4,17 @@ from datetime import datetime, timedelta
 from itertools import batched
 
 from django.db import transaction
-from django.db.models import Q, QuerySet
+from django.db.models import Exists, OuterRef, Q, QuerySet
 from django.db.models.deletion import ProtectedError
 from django.db.models.fields.json import KT
 
 from OpenBench.fleet.sessions import never_used
-from OpenBench.models import Machine
+from OpenBench.models import Machine, Result
 
 EXIT_WHEN_IDLE_FLAGS = frozenset({'--single_workload', '--fleet'})
 EXITED_AFTER = timedelta(minutes=15)
 ABANDONED_AFTER = timedelta(days=7)
-REGISTRATION_PRUNE_LIMIT = 50
+REGISTRATION_PRUNE_WINDOW = 500
 DELETE_BATCH = 500
 
 
@@ -61,8 +61,17 @@ def delete_registrations(ids: Iterable[int]) -> int:
         return 0
 
 
-def prune_exited_sessions(host_key: str, now: datetime, limit: int = REGISTRATION_PRUNE_LIMIT) -> int:
-    stale = exited_sessions(Machine.objects.filter(host_key=host_key), now, limit)
+def stale_exited_sessions(owner_id: int, now: datetime, window: int) -> list[int]:
+    # Walks the owner's newest stale registrations down the (user, updated) index and stops at the window
+    stale = Machine.objects.filter(user_id=owner_id, updated__lt=now - EXITED_AFTER).order_by('-updated')
+    rows = stale.annotate(used=Exists(Result.objects.filter(machine=OuterRef('pk')))).values_list(
+        'id', 'used', KT('info__cli_options')
+    )
+    return [machine_id for machine_id, used, cli_options in rows[:window] if not used and exits_when_idle(cli_options)]
+
+
+def prune_exited_sessions(owner_id: int, now: datetime, window: int = REGISTRATION_PRUNE_WINDOW) -> int:
+    stale = stale_exited_sessions(owner_id, now, window)
     return delete_registrations(stale) if stale else 0
 
 

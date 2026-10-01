@@ -2,6 +2,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
 from OpenBench.fleet.hosts import HostKey
+from OpenBench.fleet.pools import pool_label, short_name
 from OpenBench.insights.domain import Outcomes
 from OpenBench.insights.grouping import sum_by_key
 from OpenBench.insights.strength import EloInterval, elo_interval
@@ -39,6 +40,8 @@ class Registration:
 class MachineContribution:
     machine_id: int
     machine_name: str | None
+    machine_label: str | None
+    pool: str
     owner: str
     cpu_name: str
     registrations: list[Registration]
@@ -100,6 +103,8 @@ def machine_contribution(newest_first: Sequence[ResultRow], stats: Contribution)
     return MachineContribution(
         machine_id=newest.machine_id,
         machine_name=newest.machine_name,
+        machine_label=short_name(newest.machine_name) if newest.machine_name else None,
+        pool=pool_label(newest.machine_name, newest.cpu_name or UNKNOWN_CPU),
         owner=newest.owner,
         cpu_name=newest.cpu_name or UNKNOWN_CPU,
         registrations=[Registration(row.machine_id, row.outcomes.games, row.outcomes.pairs) for row in newest_first],

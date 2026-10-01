@@ -157,7 +157,10 @@ class Machine(Model):
         super().save(*args, **kwargs)
 
     class Meta:
-        indexes = [Index(fields=['host_key', 'updated'], name='machine_host_updated')]
+        indexes = [
+            Index(fields=['host_key', 'updated'], name='machine_host_updated'),
+            Index(fields=['user', 'updated'], name='machine_user_updated'),
+        ]
 
 class Result(Model):
 

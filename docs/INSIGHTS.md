@@ -214,6 +214,8 @@ registration it made (see [Hosts](#hosts)) is pooled into one `machines` row,
 so its games add up and its Elo comes from the pooled counters rather than from
 any one registration. `machine_id` is the host's newest registration that
 played this Workload, which `/machines/<id>/` resolves to the host;
+`machine_label` is the name with long ids shortened and `pool` its pool label
+(see [Pools](#pools)), which the table shows instead of a bare UUID;
 `registrations` keeps the per-registration games and pairs, newest first. A
 CPU's `machines` counts hosts.
 
@@ -320,6 +322,7 @@ queries: status 401 or 404 with `{ "error": "..." }`.
     "contributions": {
       "machines": [
         { "machine_id": 9, "machine_name": "demo-3",   // null when the Client sent none
+          "machine_label": "demo-3", "pool": "demo-3",   // "batch-a0741747…:0", "batch-*"
           "owner": "lab-worker", "cpu_name": "Intel(R) Core(TM) i9-13900K",
           "registrations": [ { "machine_id": 9, "games": 1340, "pairs": 670 },
                              { "machine_id": 8, "games": 1344, "pairs": 672 } ],
@@ -587,6 +590,31 @@ rows that predate it, by migration `0019`. Storing it is what makes the
 grouping affordable; see [PERFORMANCE.md](PERFORMANCE.md#indexes). Registration
 is otherwise unchanged: every start still gets a new Machine id and secret.
 
+Ephemeral cloud jobs (a new VM per job, named `batch-<uuid>:<slot>`) are each
+a host of their own: their MACs differ, and without a MAC their names do. Two
+slots of one VM share its MAC and are one host.
+
+### Pools
+
+Dozens of one-off hosts would bury the list, so `fleet/pools.py` adds a
+display grouping above hosts. `pool_label(machine_name, cpu_name)` collapses
+the volatile parts of a name: a UUID, a hex run of 8 or more characters that
+contains a digit, a run of 4 or more digits, and a trailing `:n` slot each
+become `*`, and adjacent `*` merge.
+
+| `machine_name` | Pool label | Short name |
+|---|---|---|
+| `batch-a0741747-7d81-49a2-b96e-4b14d4c304c3:0` | `batch-*` | `batch-a0741747…:0` |
+| `i-0f21e8465a561ec9e` | `i-*` | `i-0f21e846…` |
+| `node00123` | `node*` | `node00123` |
+| `demo-3`, `ip-10-0-12-34` | unchanged | unchanged |
+| none | the CPU name | |
+
+A pool is (owner, label, CPU name). It is purely presentational: nothing is
+stored, no count of machines uses it, and hosts stay the unit everywhere else.
+`short_name` keeps the first 8 characters of a UUID or of a hex run of 16 or
+more, for labels.
+
 `sessions.current_sessions(queryset)` keeps, of each host, the registration
 with the newest heartbeat (ties go to the highest id). Everything that counts
 machines goes through it.
@@ -602,6 +630,14 @@ machines goes through it.
   every host in the window, so they never depend on the cut. Threads and MNPS
   (`Σ concurrency · mnps`) count online hosts only, each by its current
   session; `Games, last 24h` is `games_last_24h` above.
+- **Offline hosts roll up by pool.** Online hosts are always listed one per
+  row. Offline hosts that share a pool become one row with the pool label, the
+  number of machines, and their sessions and games summed, first seen the
+  earliest and last seen the latest; a pool of one host stays an ordinary row.
+  The pool's name links to `?pool=<key>` (a 12-hex digest of the pool), which
+  lists that pool's hosts individually. The 200-row cut counts rows, so a pool
+  uses one. The roll-up happens in Python over the hosts the page already
+  loaded: the query count is the same with or without `pool`.
 - **A row** takes its name, hardware, threads, MNPS, workload and last
   heartbeat from the host's current session, read out of `info` in SQL so no
   blob is deserialized. **Sessions** is the number of registrations that

@@ -1,12 +1,13 @@
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, replace
 from datetime import datetime
-from typing import TypedDict
+from typing import ClassVar, TypedDict
 
 from django.db.models import Count, F, Min, Sum
 from django.db.models.fields.json import KT
 
 from OpenBench.fleet.hosts import HostKey
+from OpenBench.fleet.pools import Pool, PoolKey, pool_label, short_name
 from OpenBench.fleet.sessions import current_sessions, threads_of
 from OpenBench.fleet.status import (
     UNKNOWN,
@@ -63,6 +64,8 @@ class HostRow:
     sessions: int
     lifetime_games: int
 
+    is_pool: ClassVar[bool] = False
+
     @property
     def online(self) -> bool:
         return self.presence == Presence.ONLINE
@@ -70,6 +73,38 @@ class HostRow:
     @property
     def total_mnps(self) -> float:
         return self.threads * self.mnps
+
+    @property
+    def label(self) -> str | None:
+        return short_name(self.name) if self.name else None
+
+    @property
+    def pool(self) -> Pool:
+        return Pool(self.owner, pool_label(self.name, self.cpu_name), self.cpu_name)
+
+    @property
+    def hosts(self) -> int:
+        return 1
+
+
+@dataclass(frozen=True, slots=True)
+class PoolRow:
+    key: PoolKey
+    name: str
+    owner: str
+    cpu_name: str
+    hosts: int
+    sessions: int
+    lifetime_games: int
+    first_seen: datetime
+    last_seen: datetime
+    last_seen_ago: str
+
+    is_pool: ClassVar[bool] = True
+    online: ClassVar[bool] = False
+
+
+type ListedRow = HostRow | PoolRow
 
 
 @dataclass(frozen=True, slots=True)
@@ -100,17 +135,18 @@ class FleetSummary:
 class MachinesPage:
     window: OfflineWindow
     windows: tuple[OfflineWindow, ...]
-    rows: list[HostRow]
+    rows: list[ListedRow]
     summary: FleetSummary
     cpus: list[CpuGroup]
+    expanded: Pool | None
 
     @property
     def truncated(self) -> bool:
-        return len(self.rows) < self.summary.hosts
+        return self.summary.online + self.offline_listed < self.summary.hosts
 
     @property
     def offline_listed(self) -> int:
-        return sum(not row.online for row in self.rows)
+        return sum(row.hosts for row in self.rows if not row.online)
 
 
 def host_row(session: CurrentSession, totals: HostTotals | None, now: datetime) -> HostRow:
@@ -136,20 +172,56 @@ def host_row(session: CurrentSession, totals: HostTotals | None, now: datetime) 
     )
 
 
-def display_key(row: HostRow) -> tuple[int, str, float, int]:
-    if row.online:
-        return (0, row.cpu_name.lower(), 0.0, row.machine_id)
-    return (1, '', -row.last_seen.timestamp(), row.machine_id)
+def pool_row(pool: Pool, hosts: Sequence[HostRow], now: datetime) -> PoolRow:
+    last_seen = max(host.last_seen for host in hosts)
+    return PoolRow(
+        key=pool.key,
+        name=pool.label,
+        owner=pool.owner,
+        cpu_name=pool.cpu_name,
+        hosts=len(hosts),
+        sessions=sum(host.sessions for host in hosts),
+        lifetime_games=sum(host.lifetime_games for host in hosts),
+        first_seen=min(host.first_seen for host in hosts),
+        last_seen=last_seen,
+        last_seen_ago=relative_age(now - last_seen),
+    )
 
 
-def display_order(rows: Iterable[HostRow]) -> list[HostRow]:
-    return sorted(rows, key=display_key)
+def roll_up(offline: Iterable[HostRow], expanded: PoolKey | None, now: datetime) -> list[ListedRow]:
+    pools: dict[Pool, list[HostRow]] = {}
+    for host in offline:
+        pools.setdefault(host.pool, []).append(host)
+
+    rows: list[ListedRow] = []
+    for pool, hosts in pools.items():
+        if len(hosts) == 1 or pool.key == expanded:
+            rows.extend(hosts)
+        else:
+            rows.append(pool_row(pool, hosts, now))
+    return rows
 
 
-def listed(rows: Iterable[HostRow], offline_limit: int) -> list[HostRow]:
-    ordered = display_order(rows)
-    online = sum(row.online for row in ordered)
-    return ordered[: online + offline_limit]
+def online_order(row: HostRow) -> tuple[str, int]:
+    return (row.cpu_name.lower(), row.machine_id)
+
+
+def offline_order(row: ListedRow) -> tuple[float, str, int]:
+    return (-row.last_seen.timestamp(), row.name or '', row.hosts)
+
+
+def listed(rows: Sequence[HostRow], offline_limit: int, expanded: PoolKey | None, now: datetime) -> list[ListedRow]:
+    online = sorted((row for row in rows if row.online), key=online_order)
+    offline = sorted(roll_up((row for row in rows if not row.online), expanded, now), key=offline_order)
+    return [*online, *offline[:offline_limit]]
+
+
+def with_workload(row: ListedRow, workloads: dict[int, Test]) -> ListedRow:
+    return replace(row, workload=workloads.get(row.workload_id)) if isinstance(row, HostRow) else row
+
+
+def expanded_pool(rows: Iterable[HostRow], expanded: PoolKey | None) -> Pool | None:
+    return next((row.pool for row in rows if not row.online and row.pool.key == expanded), None)
 
 
 def cpu_groups(rows: Iterable[HostRow]) -> list[CpuGroup]:
@@ -225,21 +297,24 @@ def load_host_totals(since: datetime) -> dict[str, HostTotals]:
     }
 
 
-def load_machines_page(now: datetime, window: OfflineWindow, offline_limit: int | None = None) -> MachinesPage:
+def load_machines_page(
+    now: datetime, window: OfflineWindow, offline_limit: int | None = None, expanded: PoolKey | None = None
+) -> MachinesPage:
     limit = OFFLINE_LISTED if offline_limit is None else offline_limit
     since = now - window.span
     sessions = load_current_sessions(since)
     totals = load_host_totals(since)
 
     hosts = [host_row(session, totals.get(session['host_key']), now) for session in sessions]
-    shown = listed(hosts, limit)
-    workloads = load_workloads(row.workload_id for row in shown)
+    shown = listed(hosts, limit, expanded, now)
+    workloads = load_workloads(row.workload_id for row in shown if isinstance(row, HostRow))
     cpus = cpu_groups(hosts)
 
     return MachinesPage(
         window=window,
         windows=tuple(OfflineWindow),
-        rows=[replace(row, workload=workloads.get(row.workload_id)) for row in shown],
+        rows=[with_workload(row, workloads) for row in shown],
         summary=summarize_fleet(cpus, load_games_since(now - GAMES_WINDOW)),
         cpus=cpus,
+        expanded=expanded_pool(hosts, expanded),
     )

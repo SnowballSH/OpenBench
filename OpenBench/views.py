@@ -39,6 +39,7 @@ from OpenBench.insights.api import workload_payload
 from OpenBench.fleet.housekeeping import prune_exited_sessions
 from OpenBench.fleet.machine_detail import load_host_detail
 from OpenBench.fleet.machines import load_machines_page
+from OpenBench.fleet.pools import parse_pool_key
 from OpenBench.fleet.status import OfflineWindow
 from OpenBench.fleet.users import load_user_rows
 
@@ -507,7 +508,8 @@ def events_errors(request, page=1):
 def machines(request, pk=None):
 
     if pk is None:
-        page = load_machines_page(timezone.now(), OfflineWindow.parse(request.GET.get('show')))
+        page = load_machines_page(
+            timezone.now(), OfflineWindow.parse(request.GET.get('show')), expanded=parse_pool_key(request.GET.get('pool')))
         return render(request, 'machines.html', { 'page' : page })
 
     if not (detail := load_host_detail(int(pk), timezone.now())):
@@ -857,10 +859,10 @@ def client_worker_info(request):
     # Tag engines that the Machine can build and/or run with binaries
     machine.info['supported'] = supported_engines(machine.info)
 
-    # Finish up, and drop this host's registrations that exited without being used
+    # Finish up, and drop this user's registrations that exited without being used
     with transaction.atomic():
         machine.save()
-        prune_exited_sessions(machine.host_key, timezone.now())
+        prune_exited_sessions(user.id, timezone.now())
 
     # Pass back the Machine Id, and Secret Token for this session
     return JsonResponse({ 'machine_id' : machine.id, 'secret' : machine.secret })
