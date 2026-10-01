@@ -214,12 +214,12 @@ COMMIT_CHAIN = (
     DemoCommit(
         'Extend the singular move search at high depth',
         8.0,
-        (DemoStage(STC, 'passed'), DemoStage(LTC, 'passed', hash_mb=LTC_HASH_MB)),
+        (DemoStage(STC, 'passed'), DemoStage(STC, 'passed'), DemoStage(LTC, 'passed', hash_mb=LTC_HASH_MB)),
         accepted=True,
     ),
     DemoCommit(
         'Pawn static-eval correction history (corrhist-pawn), indexed by pawn structure and side',
-        5.0,
+        8.0,
         (DemoStage(STC, 'passed'), DemoStage(LTC, 'active', pairs=1400, hash_mb=LTC_HASH_MB)),
     ),
     DemoCommit('Widen aspiration windows after a fail high', 1.5, (DemoStage(STC, 'active', pairs=900),)),
@@ -232,6 +232,12 @@ CHAIN_SPAN_DAYS = 5.0
 CHAIN_SLOT_USED = 0.6
 
 COMMIT_TAG = 'avl'
+
+PROGRESS_CHECK_ELO = 14.0
+
+PROGRESS_CHECK_GAMES = 3000
+
+PROGRESS_CHECK_DAYS_AGO = 1.0
 
 COMMIT_TAG_LENGTH = 12
 
@@ -341,8 +347,33 @@ def chain_workloads(
     return workloads
 
 
+def progress_checks(commits: Sequence[DemoCommit], root: str = CHAIN_ROOT) -> list[DemoWorkload]:
+
+    # What the lab agent does not run but the progress page compares its chain against: a fixed-games
+    # run of the newest accepted commit against the chain root, spanning every step between them
+    newest = [commit for commit in commits if commit.accepted][-1]
+    return [
+        DemoWorkload(
+            name='progress-check',
+            mode='GAMES',
+            elo=PROGRESS_CHECK_ELO,
+            pairs=PROGRESS_CHECK_GAMES // 2,
+            state='finished',
+            max_games=PROGRESS_CHECK_GAMES,
+            tc=LTC,
+            days_ago=PROGRESS_CHECK_DAYS_AGO,
+            duration_hours=6.0,
+            base_name=commit_sha(root),
+            dev_sha=commit_sha(newest.subject),
+            base_sha=commit_sha(root),
+            info=f'Progress since the chain root, up to: {newest.subject}',
+            hash_mb=LTC_HASH_MB,
+        )
+    ]
+
+
 def seeded_workloads() -> list[DemoWorkload]:
-    return [*WORKLOADS, *PAST_SPRTS, *chain_workloads(COMMIT_CHAIN)]
+    return [*WORKLOADS, *PAST_SPRTS, *chain_workloads(COMMIT_CHAIN), *progress_checks(COMMIT_CHAIN)]
 
 
 def create_users() -> list[User]:

@@ -88,11 +88,11 @@
                         </thead>
                         <tbody>
                             {% for line in page.lineage.lines %}
-                                <tr class="{% if line.on_trunk %}lineage-trunk{% else %}lineage-candidate lineage-depth-{{line.depth}}{% endif %}">
+                                <tr class="{% if line.on_trunk %}lineage-trunk{% else %}lineage-candidate lineage-depth-{{line.depth}}{% endif %}"{% if line.row_url %} data-row-href="{{line.row_url}}"{% endif %}>
                                     <td class="numeric">{% if line.on_trunk %}{{line.position}}{% else %}<span class="muted">candidate</span>{% endif %}</td>
                                     <td class="lineage-step"><span class="lineage-commits mono">{% if line.base.url %}<a href="{{line.base.url}}">{{line.base.label}}</a>{% else %}{{line.base.label}}{% endif %} → {% if line.dev.url %}<a href="{{line.dev.url}}">{{line.dev.label}}</a>{% else %}{{line.dev.label}}{% endif %}{% if line.compare_url %} <a class="lineage-diff" href="{{line.compare_url}}">diff<span class="visually-hidden"> {{line.base.label}} to {{line.dev.label}}</span></a>{% endif %}</span>{% if line.subject %}<span class="lineage-subject">{{line.subject}}</span>{% endif %}<span class="lineage-detail muted">{{line.tested_on|date:"M j, Y"}} · {{line.author}}</span></td>
                                     {% for cell in line.cells %}
-                                        <td class="lineage-cell">{% if cell %}<span class="mono{% if cell.provisional %} lineage-provisional{% endif %}">{{cell.elo}}</span>{% if cell.provisional %} <span class="muted">so far</span>{% endif %} <span class="badge{% if cell.tone %} badge-{{cell.tone}}{% endif %}">{{cell.verdict}}</span><span class="lineage-detail muted">{{cell.detail}} ·{% for run in cell.runs %} <a href="{{run.url}}"><span class="visually-hidden">Workload </span>{{run.label}}</a>{% endfor %}</span>{% else %}<span class="muted">not measured</span>{% endif %}</td>
+                                        <td class="lineage-cell">{% if cell %}<span class="mono{% if cell.provisional %} lineage-provisional{% endif %}">{{cell.elo}}</span>{% if cell.provisional %} <span class="muted">so far</span>{% endif %} <span class="badge{% if cell.tone %} badge-{{cell.tone}}{% endif %}">{{cell.verdict}}</span><span class="lineage-detail muted">{{cell.detail}} ·{% for run in cell.runs %} <a{% if run.primary %} class="row-link"{% endif %} href="{{run.url}}"><span class="visually-hidden">Workload </span>{{run.label}}</a>{% endfor %}</span>{% else %}<span class="muted">not measured</span>{% endif %}</td>
                                     {% endfor %}
                                 </tr>
                             {% endfor %}
@@ -120,10 +120,10 @@
                             </thead>
                             <tbody>
                                 {% for check in page.lineage.checks %}
-                                    <tr>
+                                    <tr{% if check.row_url %} data-row-href="{{check.row_url}}"{% endif %}>
                                         <td><span class="mono">{% if check.base.url %}<a href="{{check.base.url}}">{{check.base.label}}</a>{% else %}{{check.base.label}}{% endif %} → {% if check.dev.url %}<a href="{{check.dev.url}}">{{check.dev.label}}</a>{% else %}{{check.dev.label}}{% endif %}</span><span class="lineage-detail muted">{{check.span}}</span></td>
                                         <td>{{check.label}}</td>
-                                        <td class="lineage-cell">{% with cell=check.direct %}{% if cell %}<span class="mono{% if cell.provisional %} lineage-provisional{% endif %}">{{cell.elo}}</span>{% if cell.provisional %} <span class="muted">so far</span>{% endif %} <span class="badge{% if cell.tone %} badge-{{cell.tone}}{% endif %}">{{cell.verdict}}</span><span class="lineage-detail muted">{{cell.detail}} ·{% for run in cell.runs %} <a href="{{run.url}}"><span class="visually-hidden">Workload </span>{{run.label}}</a>{% endfor %}</span>{% else %}<span class="muted">not measured</span>{% endif %}{% endwith %}</td>
+                                        <td class="lineage-cell">{% with cell=check.direct %}{% if cell %}<span class="mono{% if cell.provisional %} lineage-provisional{% endif %}">{{cell.elo}}</span>{% if cell.provisional %} <span class="muted">so far</span>{% endif %} <span class="badge{% if cell.tone %} badge-{{cell.tone}}{% endif %}">{{cell.verdict}}</span><span class="lineage-detail muted">{{cell.detail}} ·{% for run in cell.runs %} <a{% if run.primary %} class="row-link"{% endif %} href="{{run.url}}"><span class="visually-hidden">Workload </span>{{run.label}}</a>{% endfor %}</span>{% else %}<span class="muted">not measured</span>{% endif %}{% endwith %}</td>
                                         <td class="lineage-cell"><span class="mono">{{check.chained}}</span><span class="lineage-detail muted">{{check.coverage}}</span></td>
                                         <td class="mono">{{check.difference}}</td>
                                     </tr>
@@ -147,9 +147,9 @@
                                 </thead>
                                 <tbody>
                                     {% for line in page.lineage.detached %}
-                                        <tr>
+                                        <tr{% if line.row_url %} data-row-href="{{line.row_url}}"{% endif %}>
                                             <td class="lineage-step"><span class="lineage-commits mono">{% if line.base.url %}<a href="{{line.base.url}}">{{line.base.label}}</a>{% else %}{{line.base.label}}{% endif %} → {% if line.dev.url %}<a href="{{line.dev.url}}">{{line.dev.label}}</a>{% else %}{{line.dev.label}}{% endif %}{% if line.compare_url %} <a class="lineage-diff" href="{{line.compare_url}}">diff<span class="visually-hidden"> {{line.base.label}} to {{line.dev.label}}</span></a>{% endif %}</span>{% if line.subject %}<span class="lineage-subject">{{line.subject}}</span>{% endif %}<span class="lineage-detail muted">{{line.tested_on|date:"M j, Y"}} · {{line.author}}</span></td>
-                                            <td class="lineage-cell">{% for cell in line.cells %}<span class="lineage-measurement"><span class="muted">{{cell.label}}</span> {% if cell %}<span class="mono{% if cell.provisional %} lineage-provisional{% endif %}">{{cell.elo}}</span>{% if cell.provisional %} <span class="muted">so far</span>{% endif %} <span class="badge{% if cell.tone %} badge-{{cell.tone}}{% endif %}">{{cell.verdict}}</span><span class="lineage-detail muted">{{cell.detail}} ·{% for run in cell.runs %} <a href="{{run.url}}"><span class="visually-hidden">Workload </span>{{run.label}}</a>{% endfor %}</span>{% else %}<span class="muted">not measured</span>{% endif %}</span>{% endfor %}</td>
+                                            <td class="lineage-cell">{% for cell in line.cells %}<span class="lineage-measurement"><span class="muted">{{cell.label}}</span> {% if cell %}<span class="mono{% if cell.provisional %} lineage-provisional{% endif %}">{{cell.elo}}</span>{% if cell.provisional %} <span class="muted">so far</span>{% endif %} <span class="badge{% if cell.tone %} badge-{{cell.tone}}{% endif %}">{{cell.verdict}}</span><span class="lineage-detail muted">{{cell.detail}} ·{% for run in cell.runs %} <a{% if run.primary %} class="row-link"{% endif %} href="{{run.url}}"><span class="visually-hidden">Workload </span>{{run.label}}</a>{% endfor %}</span>{% else %}<span class="muted">not measured</span>{% endif %}</span>{% endfor %}</td>
                                         </tr>
                                     {% endfor %}
                                 </tbody>

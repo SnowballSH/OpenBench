@@ -4,6 +4,7 @@ from datetime import date
 from urllib.parse import quote, urlencode
 
 from OpenBench.insights.strength import EloInterval
+from OpenBench.listing_rows import short_name
 from OpenBench.progress.analysis import utc_day
 from OpenBench.progress.domain import (
     Author,
@@ -16,6 +17,7 @@ from OpenBench.progress.domain import (
     LineageReport,
     Measurement,
     ProgressReport,
+    Run,
     RunStatus,
     Step,
     Summary,
@@ -26,7 +28,6 @@ from OpenBench.progress.domain import (
 from OpenBench.progress.lineage import half_width
 
 STEPS_LISTED = 100
-SHORT_SHA = 8
 HEADLINE_CLASSES = (TimeClass.STC, TimeClass.LTC)
 VERDICT_TONES: dict[RunStatus, str | None] = {
     RunStatus.PASSED: 'pass',
@@ -60,6 +61,7 @@ class WindowOption:
 class RunLink:
     url: str
     label: str
+    primary: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,6 +93,7 @@ class StepLine:
     tested_on: date
     author: str
     cells: list[Cell | None]
+    row_url: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -103,6 +106,7 @@ class CheckLine:
     chained: str
     coverage: str
     difference: str
+    row_url: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -255,7 +259,7 @@ def repo_url(repo: str) -> str | None:
 
 
 def commit_link(commit: Commit, repo: str, with_network: bool = False) -> CommitLink:
-    label = commit.sha[:SHORT_SHA]
+    label = short_name(commit.sha)
     if with_network and commit.network:
         label = f'{label} · {commit.network}'
     root = repo_url(repo)
@@ -269,7 +273,16 @@ def compare_url(step: Step) -> str | None:
     return f'{root}/compare/{quote(step.base.sha, safe="")}...{quote(step.dev.sha, safe="")}'
 
 
-def measurement_cell(measurement: Measurement) -> Cell:
+def run_url(run: Run) -> str:
+    return f'/test/{run.id}/'
+
+
+def sole_run(measurements: Iterable[Measurement]) -> Run | None:
+    runs = [run for measurement in measurements for run in measurement.runs]
+    return runs[0] if len(runs) == 1 else None
+
+
+def measurement_cell(measurement: Measurement, primary: Run | None = None) -> Cell:
     runs = measurement.runs
     controls = sorted({run.time_control for run in runs})
     return Cell(
@@ -279,16 +292,20 @@ def measurement_cell(measurement: Measurement) -> Cell:
         provisional=measurement.provisional,
         verdict=measurement.verdict.value,
         tone=VERDICT_TONES[measurement.verdict],
-        runs=[RunLink(f'/test/{run.id}/', f'#{run.id}') for run in runs],
+        runs=[RunLink(run_url(run), f'#{run.id}', run is primary) for run in runs],
     )
 
 
-def step_cells(step: Step, classes: Iterable[TimeClass]) -> list[Cell | None]:
-    return [measurement_cell(found) if (found := step.measurement(time_class)) else None for time_class in classes]
+def step_cells(step: Step, classes: Iterable[TimeClass], primary: Run | None) -> list[Cell | None]:
+    return [
+        measurement_cell(found, primary) if (found := step.measurement(time_class)) else None for time_class in classes
+    ]
 
 
 def step_line(step: Step, classes: Iterable[TimeClass], position: str = '', depth: int = 0) -> StepLine:
     with_network = step.base.network != step.dev.network
+    shown = [found for time_class in classes if (found := step.measurement(time_class))]
+    primary = sole_run(shown) if len(shown) == len(step.measurements) else None
     return StepLine(
         on_trunk=bool(position),
         position=position,
@@ -299,7 +316,8 @@ def step_line(step: Step, classes: Iterable[TimeClass], position: str = '', dept
         subject=step.subject,
         tested_on=utc_day(step.measured_at),
         author=step.author,
-        cells=step_cells(step, classes),
+        cells=step_cells(step, classes, primary),
+        row_url=run_url(primary) if primary else None,
     )
 
 
@@ -325,15 +343,17 @@ def difference_text(check: DirectCheck) -> str:
 
 
 def check_line(check: DirectCheck) -> CheckLine:
+    primary = sole_run([check.direct])
     return CheckLine(
         label=check.time_class.label,
         base=commit_link(check.base, check.repo),
         dev=commit_link(check.dev, check.repo),
         span=f'steps {check.first_index}–{check.last_index}',
-        direct=measurement_cell(check.direct),
+        direct=measurement_cell(check.direct, primary),
         chained=elo_text(check.chained),
         coverage=f'{count(check.measured)} of {plural(check.steps, "step")} measured',
         difference=difference_text(check),
+        row_url=run_url(primary) if primary else None,
     )
 
 

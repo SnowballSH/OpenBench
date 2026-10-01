@@ -5,6 +5,7 @@ from dataclasses import dataclass, replace
 from datetime import datetime
 
 from OpenBench.insights.strength import EloInterval, elo_interval, score_moments
+from OpenBench.listing_rows import split_info
 from OpenBench.progress.domain import (
     CANDIDATES_SENT,
     DETACHED_SENT,
@@ -87,13 +88,9 @@ def last_activity(row: RunRow) -> datetime:
     return row.finished_at or row.created_at
 
 
-def subject_line(info: str) -> str:
-    return next((line.strip() for line in info.splitlines() if line.strip()), '')
-
-
 def step_of(rows: Sequence[RunRow]) -> Step:
     first = min(rows, key=lambda row: row.id)
-    subjects = (subject_line(row.subject) for row in sorted(rows, key=lambda row: row.id))
+    subjects = (split_info(row.subject)[0] for row in sorted(rows, key=lambda row: row.id))
     by_class: defaultdict[TimeClass, list[RunRow]] = defaultdict(list)
     for row in rows:
         by_class[row.time_class].append(row)

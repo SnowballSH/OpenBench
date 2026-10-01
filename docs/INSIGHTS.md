@@ -1024,7 +1024,16 @@ island, which is never executed, and it has no inline event handler or `style`
 attribute. `OpenBench/tests/test_csp.py` scans the template and the rendered
 `/progress/` pages.
 
-`seed_demo` seeds a pinned chain for this page (`LINEAGE_RUNS`): six trunk
-steps with STC and LTC runs, a repeated STC, a step without an LTC, failed and
-not-taken candidates, an abandoned two-step branch, two runs of a later commit
-against older ones, a sanity run and a running candidate off the head.
+A lineage, candidate, direct-check or detached row that stands for exactly one
+workload is a navigable row (`data-row-href` and its one `.row-link`, see
+[UI.md](UI.md)); a row pooled from several workloads has no single
+destination, so each run keeps its own link. Step subjects and short commit
+names come from `OpenBench/listing_rows.py` (`split_info`, `short_name`), the
+same as the listings.
+
+The lineage demo is `seed_demo`'s one pinned chain, `COMMIT_CHAIN`: three trunk
+steps with STC and LTC stages, a repeated STC to pool, a rejected sibling, a
+running LTC confirmation on the newest step and a running candidate off it.
+`progress_checks` adds the one run the lab agent does not make, a fixed-games
+LTC run of the newest accepted commit against the chain root, which the page
+shows as a direct check. The unpinned seeded tests are the detached trees.

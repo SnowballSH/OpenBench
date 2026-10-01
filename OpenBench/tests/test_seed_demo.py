@@ -18,8 +18,12 @@ from OpenBench.management.commands.seed_demo import (
     DemoStage,
     chain_workloads,
     commit_sha,
+    progress_checks,
 )
 from OpenBench.models import Engine, Machine, Profile, Result, Test, WorkloadSnapshot
+from OpenBench.progress.domain import TimeClass, Window
+from OpenBench.progress.report import progress_report
+from OpenBench.tests.fixtures import present
 
 
 class SeedDemoTests(TestCase):
@@ -32,7 +36,7 @@ class SeedDemoTests(TestCase):
     def test_fills_an_empty_database_consistently(self):
         call_command('seed_demo', stdout=io.StringIO())
 
-        chained = sum(len(commit.stages) for commit in COMMIT_CHAIN)
+        chained = sum(len(commit.stages) for commit in COMMIT_CHAIN) + len(progress_checks(COMMIT_CHAIN))
         self.assertEqual(Test.objects.count(), len(WORKLOADS) + len(PAST_SPRTS) + chained + len(TUNES))
         self.assertTrue(Machine.objects.exists())
 
@@ -244,3 +248,29 @@ class ChainWorkloadTests(SimpleTestCase):
         self.assertEqual(ages, sorted(ages, reverse=True))
         self.assertGreater(min(ages), 0)
         self.assertLess(max(ages), 6)
+
+
+class SeededLineageTests(TestCase):
+    @override_settings(DEBUG=True)
+    def test_the_commit_chain_gives_the_progress_page_a_lineage(self):
+        call_command('seed_demo', stdout=io.StringIO())
+
+        lineage = present(progress_report(Window.ALL, 'Avalanche').lineage)
+        accepted = [commit.subject for commit in COMMIT_CHAIN if commit.accepted]
+        self.assertEqual([row.step.subject for row in lineage.steps], [*accepted, COMMIT_CHAIN[3].subject])
+        self.assertEqual(lineage.origin.sha, commit_sha(CHAIN_ROOT))
+        self.assertEqual(lineage.classes, [TimeClass.STC, TimeClass.LTC])
+        self.assertEqual([len(row.candidates) for row in lineage.steps], [1, 1, 0])
+
+        repeated = present(lineage.steps[1].step.measurement(TimeClass.STC))
+        self.assertEqual(len(repeated.runs), 2)
+        running = present(lineage.steps[2].step.measurement(TimeClass.LTC))
+        self.assertTrue(running.provisional)
+        stc, ltc = lineage.series
+        self.assertEqual((stc.measured, stc.provisional), (3, 0))
+        self.assertEqual((ltc.measured, ltc.provisional), (2, 1))
+
+        (check,) = lineage.direct
+        self.assertEqual((check.time_class, check.first_index, check.last_index), (TimeClass.LTC, 1, 2))
+        self.assertEqual((check.measured, check.steps), (2, 2))
+        self.assertTrue(lineage.detached)
