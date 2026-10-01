@@ -16,7 +16,7 @@ Code lives in `OpenBench/insights/`:
 | `eta.py` | Remaining games per Workload mode, converted into time. |
 | `series.py` | One chart point per snapshot. |
 | `listing.py` | Time taken and time left for a listing row, from a few picked snapshots; see [Listings](#listings). |
-| `grouping.py`, `contributions.py` | Per-machine and per-CPU contribution; `grouping.sum_by_key` also backs `fetch_result_summaries`. |
+| `grouping.py`, `contributions.py` | Per-host and per-CPU contribution; `grouping.sum_by_key` also backs `fetch_result_summaries`. |
 | `speed.py` | Nodes per second from node and millisecond counters, shared by the result summaries and the machine page. |
 | `sources.py` | Reads a Workload's Test, snapshots and Results and turns them into domain values. |
 | `workload.py`, `server.py` | Assemble the two payloads; `server.py` runs its own aggregate queries over Machines, Tests, snapshots and Profiles. |
@@ -208,8 +208,14 @@ LOS for the same data.
 
 ### Contributions
 
-From the Workload's `Result` rows, grouped by Machine and by `cpu_name`
-(missing names become `Unknown`):
+From the Workload's `Result` rows, grouped by host and by `cpu_name`
+(missing names become `Unknown`). A host is one physical machine: every
+registration it made (see [Hosts](#hosts)) is pooled into one `machines` row,
+so its games add up and its Elo comes from the pooled counters rather than from
+any one registration. `machine_id` is the host's newest registration that
+played this Workload, which `/machines/<id>/` resolves to the host;
+`registrations` keeps the per-registration games and pairs, newest first. A
+CPU's `machines` counts hosts.
 
 - `games`, `pairs` summed; `share = games / all games of the Workload`;
 - `pairs_per_hour = 3600 · pairs / timing.elapsed_seconds`: the average rate
@@ -223,9 +229,12 @@ From the Workload's `Result` rows, grouped by Machine and by `cpu_name`
 
 ### Server
 
-- `fleet`: Machines updated within the last 2 minutes, their summed
-  `concurrency` as threads, and `Σ concurrency · mnps`, the same rule as
-  `utils.getMachineStatus` on the index page.
+- `fleet`: hosts with a heartbeat within the last 2 minutes, the `concurrency`
+  of each host's newest registration summed as threads, and
+  `Σ concurrency · mnps`, the same rule as `utils.getMachineStatus` on the
+  index page. A Client that restarts leaves its previous registration looking
+  online for up to 2 minutes; counting registrations would count that machine
+  twice.
 - `workloads`: unfinished, non-deleted Workloads, split by `approved`, the same
   filters as `utils.get_pending_tests` and `get_active_tests`. `server.py`
   queries the models itself rather than importing `OpenBench.utils`, which
@@ -310,8 +319,10 @@ queries: status 401 or 404 with `{ "error": "..." }`.
     },
     "contributions": {
       "machines": [
-        { "machine_id": 3, "machine_name": "demo-3",   // null when the Client sent none
+        { "machine_id": 9, "machine_name": "demo-3",   // null when the Client sent none
           "owner": "lab-worker", "cpu_name": "Intel(R) Core(TM) i9-13900K",
+          "registrations": [ { "machine_id": 9, "games": 1340, "pairs": 670 },
+                             { "machine_id": 8, "games": 1344, "pairs": 672 } ],
           "stats": { "games": 2684, "pairs": 1342, "share": 0.258,
                      "pairs_per_hour": 22.9, "elo": Elo } }
       ],
@@ -524,35 +535,101 @@ hidden optimum plays slightly stronger, so the parameters drift towards it.
 ## Fleet pages
 
 `OpenBench/fleet/` backs `/machines/`, `/machines/<id>/` and `/users/`.
-`status.py` holds the pure rules, `machines.py`, `machine_detail.py` and
-`users.py` each pair pure summaries with one loader.
+`status.py` and `hosts.py` hold the pure rules, `sessions.py` the shared
+queryset filters, `machines.py`, `machine_detail.py` and `users.py` each pair
+pure summaries with one loader, and `housekeeping.py` removes registrations
+that were never used.
+
+### Hosts
+
+The Client registers a new `Machine` row every time it starts, and a
+supervisor running it with `--single-workload` starts it once per workload, or
+once a minute while there is no work. A `Machine` row is therefore a
+*registration* (the pages call it a session), and the pages group
+registrations into *hosts*, one per physical machine.
+
+`OpenBench.fleet.hosts.host_key(owner, info)` is the grouping rule. It is a
+pure function of the owner's username and the registration `system_info`
+(any mapping; no ORM), and returns a 32-hex digest:
+
+| The Client reported | Key is the digest of |
+|---|---|
+| a usable `mac_address` | owner, MAC, `cpu_name`, `os_name`, `logical_cores`, `physical_cores` |
+| no usable `mac_address` | owner, `machine_name`, `cpu_name`, `os_name`, `logical_cores`, `physical_cores` |
+
+- **Owners never merge**: the username is part of both forms.
+- A MAC is usable when it is a hex string of a non-zero 48-bit value with the
+  multicast bit clear. `uuid.getnode()`, which the Client calls, invents a
+  random node *with that bit set* when it finds no interface, and a new one on
+  every start; such a value falls back to the second form.
+- The hardware fields are part of the MAC form because addresses repeat:
+  every Docker host hands its first container `02:42:AC:11:00:02`, and cloned
+  VM images keep their address. `concurrency`, `machine_name` and the Client
+  version are deliberately left out of it, so `-T`, `--identity` and upgrades
+  do not split a host.
+- The digest hides the MAC from pages and payloads; it is not exposed in JSON.
+
+Limits, none of which lose data (the registrations and Results are intact, and
+each registration is listed on the host page):
+
+- Two machines of one owner with identical hardware merge when they share a
+  MAC (identical containers or cloned VMs) or, without a MAC, share a
+  `machine_name` or both have none. Giving each an `--identity` separates the
+  second case only.
+- One machine splits when its key inputs change: a VM or container that draws
+  a new random (but well-formed) MAC on every boot, a replaced network card, a
+  dual boot into another OS, or SMT toggled in firmware.
+- Two Clients running at once on one host are one host. Its threads and MNPS
+  are those of the registration with the newest heartbeat, not their sum.
+
+The key is stored in `Machine.host_key`, filled by `Machine.save()` and, for
+rows that predate it, by migration `0019`. Storing it is what makes the
+grouping affordable; see [PERFORMANCE.md](PERFORMANCE.md#indexes). Registration
+is otherwise unchanged: every start still gets a new Machine id and secret.
+
+`sessions.current_sessions(queryset)` keeps, of each host, the registration
+with the newest heartbeat (ties go to the highest id). Everything that counts
+machines goes through it.
+
+### Pages
 
 - **Online** is the same rule as the server payload's `fleet`: a heartbeat
   within the last 2 minutes (`ACTIVE_MACHINE`). `/machines/?show=24h` and
-  `?show=7d` also list Machines last seen within that window, marked offline.
-  Supervisors register a Machine per workload, so a window can hold
-  thousands: the table lists every online Machine plus the 200 most recently
-  seen offline ones (`OFFLINE_LISTED`), and says so when it is cut. The tiles
-  and the CPU table are SQL aggregates over every Machine in the window, so
-  they never depend on the cut. Threads and MNPS (`Σ concurrency · mnps`)
-  count online Machines only; `Games, last 24h` is `games_last_24h` above.
-- **Lifetime games** is the sum of a Machine's `Result.games`, computed by a
-  correlated subquery in the Machine query.
-- **Workload** is `Machine.workload`: the current one while online, the last
-  one once offline.
-- **Machine detail** lists the newest 50 Results of the Machine by
-  `Result.updated`. Elo is that Machine's own interval from its Result counters
-  (pentanomial unless the Workload is trinomial, none for SPSA); NPS is
-  `1000 · dev_nodes / dev_time`.
+  `?show=7d` also list hosts last seen within that window, marked offline. A
+  host is online when any of its registrations is. The table lists every
+  online host plus the 200 most recently seen offline ones (`OFFLINE_LISTED`),
+  and says so when it is cut. The tiles and the CPU table are computed over
+  every host in the window, so they never depend on the cut. Threads and MNPS
+  (`Σ concurrency · mnps`) count online hosts only, each by its current
+  session; `Games, last 24h` is `games_last_24h` above.
+- **A row** takes its name, hardware, threads, MNPS, workload and last
+  heartbeat from the host's current session, read out of `info` in SQL so no
+  blob is deserialized. **Sessions** is the number of registrations that
+  exist for the host, **First seen** the oldest last-heartbeat among them
+  (a `Machine` has no creation time), and **Games** the sum of `Result.games`
+  over all of them. Never-used registrations are removed by housekeeping
+  ([DEPLOYMENT.md](DEPLOYMENT.md#machine-registrations)), so Sessions
+  describes the rows that exist, not every start the Client ever made.
+- **Workload** is the current session's `Machine.workload`: the current one
+  while online, the last one once offline. A supervised host that is polling
+  for work is online and idle.
+- **Machine detail** (`/machines/<id>/`) takes any registration id and shows
+  its host; that registration's row is highlighted (`aria-current`) in the
+  Sessions table, which lists the newest 25 and always includes the selected
+  one. Hardware and software come from the current session. Workloads lists
+  the newest 50 by `Result.updated`, one row per Workload with the counters
+  of every registration pooled: Elo is the interval of the pooled counters
+  (pentanomial unless the Workload is trinomial, none for SPSA), NPS is
+  `1000 · Σ dev_nodes / Σ dev_time`, and Sessions counts the registrations
+  that played it.
 - **Users** lists Profiles with games, tests, approver rights or an online
-  Machine. Last activity is the later of the newest heartbeat of the user's
-  Machines and the newest Workload they authored; logins are deliberately left
-  out, so the page does not reveal when someone last signed in. Machine
-  figures come from one query grouped by owner and authored Workloads from one
-  query grouped by author, merged in Python rather than correlated per row.
+  host. Machines and Threads count online hosts by their current session.
+  Last activity is the later of the newest heartbeat of the user's
+  registrations and the newest Workload they authored; logins are deliberately
+  left out, so the page does not reveal when someone last signed in.
 
 Each page runs a fixed number of queries whatever the row count
-(`OpenBench/tests/test_fleet.py` asserts it).
+(`OpenBench/tests/test_fleet.py` and `test_query_counts.py` assert it).
 
 ## Engine progress
 

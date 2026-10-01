@@ -53,6 +53,14 @@ CPUS = [
     ('Intel(R) Xeon(R) Gold 6338 CPU @ 2.00GHz', 'x86-64-avx512', 'Linux', 32, 240),
 ]
 
+# This host runs the Client under a supervisor with --single-workload, so every
+# workload it plays, and every start that finds no work, is a Machine row of its own
+SUPERVISED_HOST = 2
+
+IDLE_SESSIONS_MINUTES_AGO = (4, 9, 14, 45, 300)
+
+SPLIT_SESSION_PAIRS = 400
+
 FINISHED_STATES = ('passed', 'failed', 'finished', 'stopped')
 
 LLR_BOUND = 2.94
@@ -222,11 +230,13 @@ class Command(BaseCommand):
             for tune in TUNES:
                 create_tune(tune, users[0], machines, rng)
             credit_profiles(users)
+            settle_supervised_sessions(machines[SUPERVISED_HOST])
             assign_online_machines(machines)
             age_offline_machines(machines)
 
         self.stdout.write(
-            f'Seeded {len(WORKLOADS) + len(PAST_SPRTS) + len(TUNES)} workloads on {len(machines)} machines. '
+            f'Seeded {len(WORKLOADS) + len(PAST_SPRTS) + len(TUNES)} workloads on {len(machines)} machines '
+            f'({Machine.objects.count()} registrations). '
             f'Log in as admin / {DEMO_PASSWORD}'
         )
 
@@ -292,12 +302,41 @@ def create_machines(users: Sequence[User]) -> list[Machine]:
             'noisy': False,
             'sockets': 1,
             'machine_name': f'demo-{index + 1}',
+            'mac_address': f'00163E{index + 1:06X}',
+            'cli_options': cli_options(index, threads),
             'client_ver': openbench_config()['client_version'],
             'supported': ['Avalanche'],
         }
         mnps = round(1.2 + 0.4 * index, 2)
         machines.append(Machine.objects.create(user=owner, info=info, mnps=mnps, dev_mnps=mnps, base_mnps=mnps))
     return machines
+
+
+def cli_options(index: int, threads: int) -> str:
+    options = f'--threads {threads} --nsockets 1 --identity demo-{index + 1}'
+    return f'{options} --single_workload' if index == SUPERVISED_HOST else options
+
+
+def register_session(host: Machine) -> Machine:
+    return Machine.objects.create(
+        user=host.user, info=host.info, mnps=host.mnps, dev_mnps=host.dev_mnps, base_mnps=host.base_mnps
+    )
+
+
+def session_shares(share: Sequence[int]) -> list[list[int]]:
+    if sum(share) < SPLIT_SESSION_PAIRS:
+        return [list(share)]
+    first = [count // 2 for count in share]
+    return [first, [count - half for count, half in zip(share, first, strict=True)]]
+
+
+def settle_supervised_sessions(host: Machine) -> None:
+    now = timezone.now()
+    for result in Result.objects.filter(machine__host_key=host.host_key).exclude(machine=host):
+        Machine.objects.filter(id=result.machine_id).update(updated=min(result.updated, now), workload=result.test_id)
+    for minutes_ago in IDLE_SESSIONS_MINUTES_AGO:
+        idle = Machine.objects.create(user=host.user, info=host.info)
+        Machine.objects.filter(id=idle.id).update(updated=now - datetime.timedelta(minutes=minutes_ago))
 
 
 def assign_online_machines(machines: list[Machine]) -> None:
@@ -575,8 +614,15 @@ def record_outcomes(
         if datetime.timedelta(hours=hours_ago) < now - times.started
     ]
     for machine, share in zip(playing, split_pairs(penta, len(playing), rng), strict=True):
-        if sum(share):
+        if not sum(share):
+            continue
+        if machine is not machines[SUPERVISED_HOST]:
             create_result(test, machine, share, rng)
+            continue
+        first, *later = session_shares(share)
+        create_result(test, register_session(machine), first, rng)
+        for session_share in later:
+            create_result(test, register_session(machine), session_share, random.Random(test.id))
 
     wins, losses, draws = trinomial(penta)
     llr = PentanomialSPRT(penta, *bounds) if bounds and outcomes else 0.0

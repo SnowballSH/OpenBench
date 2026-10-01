@@ -45,7 +45,7 @@
         </nav>
 
         {% if page.truncated %}
-            <p class="muted">Listing every online machine and the {{page.offline_listed}} most recently seen of {{page.summary.offline|insertCommas}} offline machines. Tiles and the CPU table count all {{page.summary.machines|insertCommas}}.</p>
+            <p class="muted">Listing every online machine and the {{page.offline_listed}} most recently seen of {{page.summary.offline|insertCommas}} offline machines. Tiles and the CPU table count all {{page.summary.hosts|insertCommas}}.</p>
         {% endif %}
 
         {% if page.rows %}
@@ -54,7 +54,7 @@
                 <table class="hoverable fleet-table" data-sortable>
                     <thead>
                         <tr class="table-header">
-                            <th><button type="button" class="sort-button" data-sort="number">Machine</button></th>
+                            <th><button type="button" class="sort-button">Machine</button></th>
                             <th><button type="button" class="sort-button">Owner</button></th>
                             <th><button type="button" class="sort-button">CPU</button></th>
                             <th><button type="button" class="sort-button">ISA</button></th>
@@ -63,16 +63,15 @@
                             <th class="numeric"><button type="button" class="sort-button" data-sort="number">MNPS</button></th>
                             <th><button type="button" class="sort-button">Workload</button></th>
                             <th><button type="button" class="sort-button" data-sort="number">Last seen</button></th>
+                            <th><button type="button" class="sort-button" data-sort="number">First seen</button></th>
+                            <th class="numeric"><button type="button" class="sort-button" data-sort="number">Sessions</button></th>
                             <th class="numeric"><button type="button" class="sort-button" data-sort="number">Games</button></th>
                         </tr>
                     </thead>
                     <tbody>
                         {% for row in page.rows %}
                             <tr{% if not row.online %} class="fleet-offline"{% endif %}>
-                                <td data-sort-value="{{row.id}}">
-                                    <a href="/machines/{{row.id}}/">{{row.name|default:"Machine"}}</a>
-                                    <span class="muted mono">#{{row.id}}</span>
-                                </td>
+                                <td><a href="/machines/{{row.machine_id}}/">{{row.name|default:"Unnamed"}}</a></td>
                                 <td><a href="/user/{{row.owner|urlencode:''}}/">{{row.owner}}</a></td>
                                 <td class="fleet-cpu" title="{{row.cpu_name}}">{{row.cpu_name}}</td>
                                 <td class="mono">{{row.isa_name|default:"—"}}</td>
@@ -94,6 +93,8 @@
                                     {% endif %}
                                     <time class="muted" datetime="{{row.last_seen|date:'c'}}" title="{{row.last_seen|date:'c'}}">{{row.last_seen_ago}}</time>
                                 </td>
+                                <td class="timestamp muted" data-sort-value="{{row.first_seen|date:'U'}}">{{row.first_seen|date:'U'}}</td>
+                                <td class="numeric" data-sort-value="{{row.sessions}}">{{row.sessions|insertCommas}}</td>
                                 <td class="numeric" data-sort-value="{{row.lifetime_games}}">{{row.lifetime_games|insertCommas}}</td>
                             </tr>
                         {% endfor %}
@@ -123,7 +124,7 @@
                                 <tr>
                                     <td class="fleet-cpu" title="{{group.cpu_name}}">{{group.cpu_name}}</td>
                                     <td class="numeric">{{group.online}}</td>
-                                    <td class="numeric">{{group.machines}}</td>
+                                    <td class="numeric">{{group.hosts}}</td>
                                     <td class="numeric">{{group.threads}}</td>
                                     <td class="numeric" data-sort-value="{{group.mnps|stringformat:'f'}}">{{group.mnps|floatformat:2}}</td>
                                     <td class="numeric" data-sort-value="{{group.lifetime_games}}">{{group.lifetime_games|insertCommas}}</td>

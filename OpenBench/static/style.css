@@ -1903,6 +1903,19 @@ td.contribution-name {
     color: var(--text-muted);
 }
 
+.fleet-selected > td {
+    background-color: var(--accent-soft);
+}
+
+.fleet-selected > td:first-child {
+    box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.fleet-options {
+    max-width: 24rem;
+    overflow-wrap: anywhere;
+}
+
 .fleet-tile-link {
     overflow: hidden;
     font-size: var(--text-lg);

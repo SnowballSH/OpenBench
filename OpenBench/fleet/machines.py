@@ -1,21 +1,13 @@
-from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass
+from collections.abc import Iterable, Sequence
+from dataclasses import dataclass, replace
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, TypedDict
+from typing import TypedDict
 
-from django.db.models import (
-    Count,
-    F,
-    FloatField,
-    IntegerField,
-    OuterRef,
-    Q,
-    Subquery,
-    Sum,
-)
-from django.db.models.fields.json import KT, KeyTextTransform
-from django.db.models.functions import Cast, Coalesce
+from django.db.models import Count, F, Min, Sum
+from django.db.models.fields.json import KT
 
+from OpenBench.fleet.hosts import HostKey
+from OpenBench.fleet.sessions import current_sessions, threads_of
 from OpenBench.fleet.status import (
     UNKNOWN,
     OfflineWindow,
@@ -23,26 +15,38 @@ from OpenBench.fleet.status import (
     presence,
     relative_age,
 )
-from OpenBench.insights.server import ACTIVE_MACHINE, GAMES_WINDOW, load_games_since
-from OpenBench.machine_info import int_of, known_text, text_of
+from OpenBench.insights.server import GAMES_WINDOW, load_games_since
+from OpenBench.machine_info import known_text
 from OpenBench.models import Machine, Result, Test
-
-if TYPE_CHECKING:
-    from django_stubs_ext import WithAnnotations
 
 OFFLINE_LISTED = 200
 
 
-class LifetimeGames(TypedDict):
-    lifetime_games: int
-
-
-type ListedMachine = WithAnnotations[Machine, LifetimeGames]
+class CurrentSession(TypedDict):
+    id: int
+    host_key: str
+    owner: str
+    mnps: float
+    updated: datetime
+    workload: int
+    name: str | None
+    cpu: str | None
+    isa: str | None
+    os: str | None
+    threads: int | None
 
 
 @dataclass(frozen=True, slots=True)
-class MachineRow:
-    id: int
+class HostTotals:
+    sessions: int
+    first_seen: datetime
+    lifetime_games: int
+
+
+@dataclass(frozen=True, slots=True)
+class HostRow:
+    key: HostKey
+    machine_id: int
     name: str | None
     owner: str
     cpu_name: str
@@ -50,10 +54,13 @@ class MachineRow:
     os_name: str | None
     threads: int
     mnps: float
+    first_seen: datetime
     last_seen: datetime
     last_seen_ago: str
     presence: Presence
+    workload_id: int
     workload: Test | None
+    sessions: int
     lifetime_games: int
 
     @property
@@ -69,7 +76,7 @@ class MachineRow:
 class CpuGroup:
     cpu_name: str
     online: int
-    machines: int
+    hosts: int
     threads: int
     mnps: float
     lifetime_games: int
@@ -85,7 +92,7 @@ class FleetSummary:
     games_last_24h: int
 
     @property
-    def machines(self) -> int:
+    def hosts(self) -> int:
         return self.online + self.offline
 
 
@@ -93,82 +100,82 @@ class FleetSummary:
 class MachinesPage:
     window: OfflineWindow
     windows: tuple[OfflineWindow, ...]
-    rows: list[MachineRow]
+    rows: list[HostRow]
     summary: FleetSummary
     cpus: list[CpuGroup]
 
     @property
     def truncated(self) -> bool:
-        return len(self.rows) < self.summary.machines
+        return len(self.rows) < self.summary.hosts
 
     @property
     def offline_listed(self) -> int:
         return sum(not row.online for row in self.rows)
 
 
-def threads_of(prefix: str = '') -> Cast:
-    return Cast(KT(f'{prefix}info__concurrency'), IntegerField())
-
-
-def online_since(now: datetime, prefix: str = '') -> Q:
-    return Q(**{f'{prefix}updated__gte': now - ACTIVE_MACHINE})
-
-
-def machine_row(machine: Machine, lifetime_games: int, workloads: Mapping[int, Test], now: datetime) -> MachineRow:
-    info = machine.info or {}
-    return MachineRow(
-        id=machine.id,
-        name=text_of(info, 'machine_name'),
-        owner=machine.user.username,
-        cpu_name=text_of(info, 'cpu_name') or UNKNOWN,
-        isa_name=text_of(info, 'isa_name'),
-        os_name=text_of(info, 'os_name'),
-        threads=int_of(info, 'concurrency'),
-        mnps=machine.mnps,
-        last_seen=machine.updated,
-        last_seen_ago=relative_age(now - machine.updated),
-        presence=presence(machine.updated, now),
-        workload=workloads.get(machine.workload),
-        lifetime_games=lifetime_games,
+def host_row(session: CurrentSession, totals: HostTotals | None, now: datetime) -> HostRow:
+    totals = totals or HostTotals(1, session['updated'], 0)
+    return HostRow(
+        key=HostKey(session['host_key']),
+        machine_id=session['id'],
+        name=known_text(session['name']),
+        owner=session['owner'],
+        cpu_name=known_text(session['cpu']) or UNKNOWN,
+        isa_name=known_text(session['isa']),
+        os_name=known_text(session['os']),
+        threads=session['threads'] or 0,
+        mnps=session['mnps'],
+        first_seen=totals.first_seen,
+        last_seen=session['updated'],
+        last_seen_ago=relative_age(now - session['updated']),
+        presence=presence(session['updated'], now),
+        workload_id=session['workload'],
+        workload=None,
+        sessions=totals.sessions,
+        lifetime_games=totals.lifetime_games,
     )
 
 
-def display_key(row: MachineRow) -> tuple[int, str, float, int]:
+def display_key(row: HostRow) -> tuple[int, str, float, int]:
     if row.online:
-        return (0, row.cpu_name.lower(), 0.0, row.id)
-    return (1, '', -row.last_seen.timestamp(), row.id)
+        return (0, row.cpu_name.lower(), 0.0, row.machine_id)
+    return (1, '', -row.last_seen.timestamp(), row.machine_id)
 
 
-def display_order(rows: Iterable[MachineRow]) -> list[MachineRow]:
+def display_order(rows: Iterable[HostRow]) -> list[HostRow]:
     return sorted(rows, key=display_key)
 
 
-def merge_cpu_groups(
-    machine_rows: Iterable[Mapping[str, Any]], games_rows: Iterable[Mapping[str, Any]]
-) -> list[CpuGroup]:
+def listed(rows: Iterable[HostRow], offline_limit: int) -> list[HostRow]:
+    ordered = display_order(rows)
+    online = sum(row.online for row in ordered)
+    return ordered[: online + offline_limit]
+
+
+def cpu_groups(rows: Iterable[HostRow]) -> list[CpuGroup]:
     totals: dict[str, list[float]] = {}
 
-    for row in machine_rows:
-        total = totals.setdefault(known_text(row['cpu']) or UNKNOWN, [0, 0, 0, 0.0, 0])
-        for index, key in enumerate(('online', 'machines', 'threads', 'mnps')):
-            total[index] += row[key] or 0
-
-    for row in games_rows:
-        if cpu_total := totals.get(known_text(row['cpu']) or UNKNOWN):
-            cpu_total[4] += row['games'] or 0
+    for row in rows:
+        total = totals.setdefault(row.cpu_name, [0, 0, 0, 0.0, 0])
+        total[1] += 1
+        total[4] += row.lifetime_games
+        if row.online:
+            total[0] += 1
+            total[2] += row.threads
+            total[3] += row.total_mnps
 
     groups = [
-        CpuGroup(cpu, int(online), int(machines), int(threads), float(mnps), int(games))
-        for cpu, (online, machines, threads, mnps, games) in totals.items()
+        CpuGroup(cpu, int(online), int(hosts), int(threads), float(mnps), int(games))
+        for cpu, (online, hosts, threads, mnps, games) in totals.items()
     ]
-    return sorted(groups, key=lambda group: (-group.mnps, -group.machines, group.cpu_name.lower()))
+    return sorted(groups, key=lambda group: (-group.mnps, -group.hosts, group.cpu_name.lower()))
 
 
 def summarize_fleet(groups: Sequence[CpuGroup], games_last_24h: int) -> FleetSummary:
     online = sum(group.online for group in groups)
     return FleetSummary(
         online=online,
-        offline=sum(group.machines for group in groups) - online,
+        offline=sum(group.hosts for group in groups) - online,
         threads=sum(group.threads for group in groups),
         mnps=sum(group.mnps for group in groups),
         cpu_models=sum(1 for group in groups if group.online),
@@ -176,58 +183,63 @@ def summarize_fleet(groups: Sequence[CpuGroup], games_last_24h: int) -> FleetSum
     )
 
 
-def lifetime_games_of_machine() -> Coalesce:
-    per_machine = (
-        Result.objects.filter(machine=OuterRef('pk')).values('machine').annotate(total=Sum('games')).values('total')
-    )
-    return Coalesce(Subquery(per_machine), 0)
-
-
 def load_workloads(ids: Iterable[int]) -> dict[int, Test]:
     return Test.objects.select_related('dev').in_bulk([pk for pk in set(ids) if pk])
 
 
-def load_listed_machines(now: datetime, window: OfflineWindow, offline_limit: int) -> list[ListedMachine]:
-    listed = Machine.objects.select_related('user').annotate(lifetime_games=lifetime_games_of_machine())
-    online = list(listed.filter(online_since(now)))
-    if window == OfflineWindow.NONE:
-        return online
-
-    offline = listed.filter(updated__gte=now - window.span).exclude(online_since(now))
-    return online + list(offline.order_by('-updated', '-id')[:offline_limit])
-
-
-def load_cpu_groups(now: datetime, window: OfflineWindow) -> list[CpuGroup]:
-    online = online_since(now)
-    machines = (
-        Machine.objects.filter(updated__gte=now - window.span)
-        .values(cpu=KT('info__cpu_name'))
-        .annotate(
-            online=Count('id', filter=online),
-            machines=Count('id'),
-            threads=Sum(threads_of(), filter=online),
-            mnps=Sum(Cast(KT('info__concurrency'), FloatField()) * F('mnps'), filter=online),
-        )
+def load_current_sessions(since: datetime) -> list[CurrentSession]:
+    rows = current_sessions(Machine.objects.filter(updated__gte=since)).values(
+        'id',
+        'host_key',
+        'mnps',
+        'updated',
+        'workload',
+        owner=F('user__username'),
+        name=KT('info__machine_name'),
+        cpu=KT('info__cpu_name'),
+        isa=KT('info__isa_name'),
+        os=KT('info__os_name'),
+        threads=threads_of(),
     )
-    games = (
-        Result.objects.filter(machine__updated__gte=now - window.span)
-        .values(cpu=KeyTextTransform('cpu_name', 'machine__info'))
+    return [CurrentSession(**row) for row in rows]
+
+
+def load_host_totals(since: datetime) -> dict[str, HostTotals]:
+    seen = Machine.objects.filter(updated__gte=since).values('host_key')
+    sessions = (
+        Machine.objects.filter(host_key__in=seen)
+        .order_by()
+        .values('host_key')
+        .annotate(sessions=Count('id'), first_seen=Min('updated'))
+    )
+    games = dict(
+        Result.objects.filter(machine__host_key__in=seen)
+        .order_by()
+        .values('machine__host_key')
         .annotate(games=Sum('games'))
+        .values_list('machine__host_key', 'games')
     )
-    return merge_cpu_groups(machines, games)
+    return {
+        row['host_key']: HostTotals(row['sessions'], row['first_seen'], games.get(row['host_key'], 0))
+        for row in sessions
+    }
 
 
 def load_machines_page(now: datetime, window: OfflineWindow, offline_limit: int | None = None) -> MachinesPage:
     limit = OFFLINE_LISTED if offline_limit is None else offline_limit
-    machines = load_listed_machines(now, window, limit)
-    workloads = load_workloads(machine.workload for machine in machines)
-    rows = display_order(machine_row(machine, machine.lifetime_games, workloads, now) for machine in machines)
-    cpus = load_cpu_groups(now, window)
+    since = now - window.span
+    sessions = load_current_sessions(since)
+    totals = load_host_totals(since)
+
+    hosts = [host_row(session, totals.get(session['host_key']), now) for session in sessions]
+    shown = listed(hosts, limit)
+    workloads = load_workloads(row.workload_id for row in shown)
+    cpus = cpu_groups(hosts)
 
     return MachinesPage(
         window=window,
         windows=tuple(OfflineWindow),
-        rows=rows,
+        rows=[replace(row, workload=workloads.get(row.workload_id)) for row in shown],
         summary=summarize_fleet(cpus, load_games_since(now - GAMES_WINDOW)),
         cpus=cpus,
     )
