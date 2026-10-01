@@ -336,6 +336,261 @@
         container.replaceChildren(card);
     }
 
+    const PENTA_OUTCOMES = [
+        { label: 'LL', detail: 'lost both', tone: 'loss' },
+        { label: 'LD', detail: 'loss and draw', tone: 'loss-soft' },
+        { label: 'DD / WL', detail: 'level pair', tone: 'level' },
+        { label: 'WD', detail: 'win and draw', tone: 'win-soft' },
+        { label: 'WW', detail: 'won both', tone: 'win' },
+    ];
+    const TRI_OUTCOMES = [
+        { label: 'Losses', detail: '', tone: 'loss' },
+        { label: 'Draws', detail: '', tone: 'level' },
+        { label: 'Wins', detail: '', tone: 'win' },
+    ];
+    const OUTLOOK_CAVEAT = 'Forecast, not a promise. Averages the SPRT’s chance to pass over every Elo the games so far '
+        + 'allow (flat prior), so it stays as cautious as the LOS. Real patches cluster near zero, which a flat prior ignores.';
+
+    function format_ratio_percent(fraction, digits = 1) {
+        return is_number(fraction) ? `${format_signed(100 * fraction, digits)}%` : DASH;
+    }
+
+    function format_probability(probability) {
+        if (!is_number(probability)) return DASH;
+        if (probability > 0.99) return '> 99%';
+        if (probability < 0.01) return '< 1%';
+        return format_percent(probability, 0);
+    }
+
+    function badge(text, variant) {
+        return element('span', `badge badge-${variant}`, text);
+    }
+
+    function outlook_tiles(outlook) {
+        if (!outlook) return [];
+        const games = outlook.remaining_games;
+        const chance = format_probability(outlook.pass_probability);
+        const range = `${format_percent(outlook.interval, 0)} range ${format_compact(games.lower)} to ${format_compact(games.upper)}`;
+        return [
+            stat_tile({
+                label: 'Chance to pass (forecast)', title: OUTLOOK_CAVEAT, value: chance, meta: 'flat prior · not a promise',
+                gauge: meter(outlook.pass_probability, 'fill', `Forecast chance to pass ${chance}`),
+            }),
+            stat_tile({
+                label: 'Games to decide (forecast)', title: OUTLOOK_CAVEAT,
+                value: `≈ ${format_compact(games.median)}`, meta: range,
+            }),
+        ];
+    }
+
+    function variance_tile(variance) {
+        return stat_tile({
+            label: 'Pair variance', value: format_ratio_percent(variance.ratio - 1, 0),
+            meta: `vs independent games · a pair is worth ${format_fixed(variance.pair_efficiency)}`,
+            title: 'Observed per-pair score variance against the variance two independent games would have. Below zero, playing each opening with both colours is cancelling opening bias; the worth is how many independent pairs one pair replaces.',
+        });
+    }
+
+    function decisive_tile(outcomes) {
+        const swept = is_number(outcomes.decisive_pair_rate) ? ` · LL+WW pairs ${format_percent(outcomes.decisive_pair_rate)}` : '';
+        return stat_tile({
+            label: 'Decisive games', value: format_percent(outcomes.decisive_game_rate),
+            meta: `1 in ${format_fixed(outcomes.games_per_decisive, 1)} games${swept}`,
+        });
+    }
+
+    function spread_text(spread) {
+        if (!spread) return 'one host, noise unknown';
+        return `${spread.beyond_noise ? 'beyond' : 'within'} noise across ${spread.hosts} hosts`;
+    }
+
+    function spread_title(spread) {
+        return spread
+            ? `95% interval of the per-host mean: ${format_ratio_percent(spread.lower)} to ${format_ratio_percent(spread.upper)}.`
+            : 'Needs two hosts to judge the noise.';
+    }
+
+    function speed_tile(speed) {
+        const { speed: overall, spread } = speed.overall;
+        return stat_tile({
+            label: 'Dev search speed', value: format_ratio_percent(overall.difference),
+            meta: `${format_compact(overall.dev_nps)} vs ${format_compact(overall.base_nps)} nps · ${spread_text(spread)}`,
+            title: `Nodes per second of dev relative to base, from the games workers have reported in full. ${spread_title(spread)}`,
+        });
+    }
+
+    function result_tiles(results) {
+        const tiles = outlook_tiles(results.outlook);
+        if (results.outcomes.pair_variance) tiles.push(variance_tile(results.outcomes.pair_variance));
+        if (is_number(results.outcomes.games_per_decisive)) tiles.push(decisive_tile(results.outcomes));
+        if (results.speed) tiles.push(speed_tile(results.speed));
+        return tiles;
+    }
+
+    function table_shell(caption, headers, numeric_from) {
+        const wrap = element('div', 'table-wrap contribution-table');
+        const table = element('table', 'stripes');
+        table.append(element('caption', 'contribution-caption', caption));
+        const head = element('tr', 'table-header');
+        headers.forEach((text, index) => head.append(element('th', index >= numeric_from ? 'numeric' : null, text)));
+        const thead = element('thead');
+        thead.append(head);
+        const body = element('tbody');
+        table.append(thead, body);
+        wrap.append(table);
+        return { wrap, body };
+    }
+
+    function outcome_cell(outcome) {
+        const cell = element('td', 'contribution-name outcome-name');
+        cell.append(element('span', null, outcome.label));
+        if (outcome.detail) cell.append(element('span', 'contribution-sub', outcome.detail));
+        return cell;
+    }
+
+    function outcome_share_cell(fraction, widest, tone) {
+        const cell = element('td', 'share-cell');
+        const bar = element('span', `share-bar outcome-bar outcome-bar-${tone}`);
+        bar.setAttribute('aria-hidden', 'true');
+        bar.style.setProperty('--share', widest > 0 ? (fraction / widest).toFixed(4) : '0');
+        cell.append(bar, element('span', 'share-value', format_percent(fraction)));
+        return cell;
+    }
+
+    function outcome_table(results, insights) {
+        const penta = insights.workload.use_penta && results.outcomes.pentanomial_fractions;
+        const fractions = penta ? results.outcomes.pentanomial_fractions : results.outcomes.trinomial_fractions;
+        if (!fractions) return null;
+
+        const counts = penta ? insights.progress.pentanomial : insights.progress.trinomial;
+        const { wrap, body } = table_shell(
+            penta ? 'Pair outcomes' : 'Game outcomes', ['Outcome', 'Share', penta ? 'Pairs' : 'Games'], 2);
+        const widest = Math.max(...fractions);
+        (penta ? PENTA_OUTCOMES : TRI_OUTCOMES).forEach((outcome, index) => {
+            const tr = element('tr');
+            tr.append(outcome_cell(outcome), outcome_share_cell(fractions[index], widest, outcome.tone),
+                numeric_cell(format_count(counts[index])));
+            body.append(tr);
+        });
+        return wrap;
+    }
+
+    function host_label(host) {
+        const cell = element('td', 'contribution-name');
+        const link = element('a', null, host.machine_name || `${host.owner}’s machine`);
+        link.href = `/machines/${encodeURIComponent(host.machine_id)}/`;
+        const rows = host.machines > 1 ? ` · ${host.machines} registrations` : '';
+        cell.append(link, element('span', 'contribution-sub', `${host.owner} · ${host.cpu_name}${rows}`));
+        return cell;
+    }
+
+    function cpu_group_label(cpu) {
+        const cell = element('td', 'contribution-name');
+        const hosts = `${format_count(cpu.hosts)} ${cpu.hosts === 1 ? 'host' : 'hosts'}`;
+        cell.append(element('span', null, cpu.cpu_name), element('span', 'contribution-sub', hosts));
+        return cell;
+    }
+
+    function flagged_cell(text, flagged, flag_text) {
+        const cell = numeric_cell(text);
+        if (flagged) cell.append(' ', badge(flag_text, 'warn'));
+        return cell;
+    }
+
+    function deviation_cell(deviation) {
+        if (!deviation) return numeric_cell(DASH);
+        const cell = flagged_cell(`${format_signed(deviation.z_score)} σ`, deviation.flagged, 'deviates');
+        cell.title = `Adjusted p = ${format_fixed(deviation.adjusted_p_value, 3)}`;
+        return cell;
+    }
+
+    function fault_cell(count, rate_value, flagged) {
+        const text = count ? `${format_count(count)} (${format_percent(rate_value, 2)})` : '0';
+        return flagged_cell(text, flagged, 'high');
+    }
+
+    function speed_cell(stats, spread) {
+        const cell = numeric_cell(format_ratio_percent(stats.speed.difference));
+        if (spread) cell.title = `${spread_text(spread)}. ${spread_title(spread)}`;
+        return cell;
+    }
+
+    function group_cells(stats, spread) {
+        return [
+            numeric_cell(format_count(stats.games)), numeric_cell(format_interval(stats.elo)),
+            deviation_cell(stats.deviation), fault_cell(stats.crashes, stats.crash_rate, stats.crash_flagged),
+            fault_cell(stats.timelosses, stats.timeloss_rate, stats.timeloss_flagged), speed_cell(stats, spread),
+        ];
+    }
+
+    function group_table(caption, first_header, rows) {
+        const { wrap, body } = table_shell(caption,
+            [first_header, 'Games', 'Elo', 'Against the rest', 'Crashes', 'Time losses', 'Dev speed'], 1);
+        rows.forEach(({ label, stats, spread }) => {
+            const tr = element('tr');
+            tr.append(label, ...group_cells(stats, spread));
+            body.append(tr);
+        });
+        return wrap;
+    }
+
+    function cpu_table(results) {
+        const spreads = new Map((results.speed ? results.speed.cpus : []).map(cpu => [cpu.cpu_name, cpu.reading.spread]));
+        return group_table('By CPU', 'CPU', results.consistency.cpus.map(cpu => (
+            { label: cpu_group_label(cpu), stats: cpu.stats, spread: spreads.get(cpu.cpu_name) })));
+    }
+
+    function flagged_host_table(hosts) {
+        return group_table('Hosts that stand out', 'Host', hosts.map(host => ({ label: host_label(host), stats: host.stats })));
+    }
+
+    function heterogeneity_note(consistency) {
+        const test = consistency.heterogeneity;
+        if (!test) return `CPUs are compared once two have ${format_count(consistency.min_samples)} results each`;
+        const p = `χ² p = ${format_fixed(test.p_value, 3)}`;
+        return test.flagged ? `CPUs disagree more than chance explains (${p})` : `CPUs agree within chance (${p})`;
+    }
+
+    function host_note(hosts) {
+        const total = `${format_count(hosts.total)} ${hosts.total === 1 ? 'host' : 'hosts'}`;
+        return hosts.flagged.length ? `${format_count(hosts.flagged.length)} of ${total} flagged` : `${total}, none stands out`;
+    }
+
+    function results_tables(results, insights) {
+        const grid = element('div', 'results-grid');
+        const outcomes = outcome_table(results, insights);
+        if (outcomes) grid.append(outcomes);
+        if (results.consistency.cpus.length) grid.append(cpu_table(results));
+        if (results.consistency.hosts.flagged.length) {
+            const hosts = flagged_host_table(results.consistency.hosts.flagged);
+            hosts.classList.add('results-wide');
+            grid.append(hosts);
+        }
+        return grid;
+    }
+
+    function render_results(container, insights) {
+        const { results } = insights;
+        if (!results) return container.replaceChildren();
+
+        const { consistency } = results;
+        const group = element('div', 'insights-group insights-results');
+        const header = element('div', 'card-header');
+        header.append(element('h3', 'insights-group-title', 'Results'));
+        if (consistency.cpus.length)
+            header.append(element('span', 'muted insights-note', `${heterogeneity_note(consistency)} · ${host_note(consistency.hosts)}`));
+        group.append(header, element('p', `insights-verdict insights-verdict-${results.verdict.tone}`, results.verdict.text));
+
+        const tiles = result_tiles(results);
+        if (tiles.length) {
+            const grid = element('div', 'stat-tiles');
+            grid.append(...tiles);
+            group.append(grid);
+        }
+        group.append(results_tables(results, insights));
+        container.replaceChildren(group);
+    }
+
     function css_palette() {
         const style = getComputedStyle(document.documentElement);
         const read = name => style.getPropertyValue(name).trim();
@@ -707,6 +962,7 @@
             this.error = section.querySelector('[data-insights-error]');
             this.tiles = section.querySelector('[data-insights-tiles]');
             this.charts = section.querySelector('[data-insights-charts]');
+            this.results = section.querySelector('[data-insights-results]');
             this.contributions = section.querySelector('[data-insights-contributions]');
             this.panels = null;
             this.latest = null;
@@ -769,6 +1025,7 @@
 
         render() {
             render_tiles(this.tiles, this.latest);
+            render_results(this.results, this.latest);
             this.render_history();
             render_contributions(this.contributions, this.latest);
 

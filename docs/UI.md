@@ -93,7 +93,11 @@ without relying on fill alone.
   `.chart-empty` fallback; `.insights-empty` is a full-width dashed notice.
   `.contribution-table` is a full-width `.table-wrap` with a caption, and
   `.share-bar` a small horizontal bar set by `--share`. `.insights-error` is
-  the inline failure banner.
+  the inline failure banner. `.insights-verdict` (`-positive`, `-negative`)
+  is the one-paragraph verdict with a toned left edge; `.results-grid` lays
+  the outcome table beside the By CPU table, `.results-wide` spans it; and
+  `.outcome-bar-{loss,loss-soft,level,win-soft,win}` recolour a `.share-bar`
+  along the loss-to-win scale, always beside its text label.
 - **Server strip**: `.server-stats` is the compact tile grid at the top of the
   index. `.row-progress` (`-games` fill or `-llr` marker, `--fraction`) is the
   thin bar under an active row's stat block, rendered by the `workload_progress`
