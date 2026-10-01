@@ -192,6 +192,9 @@ def prettyDevName(test):
 def workload_label(test):
     return OpenBench.listing_rows.workload_label(test, prettyDevName(test))
 
+def result_label(test):
+    return OpenBench.listing_rows.result_label(test, testResultColour(test))
+
 def testIdToPrettyName(test_id):
     return prettyName(OpenBench.models.Test.objects.get(id=test_id).dev.name)
 
@@ -357,6 +360,7 @@ register.filter('listing_timing', OpenBench.page_queries.listing_row_timing)
 register.filter('row_reason', OpenBench.diagnosis.listing.row_reason)
 register.filter('listing_moment', OpenBench.listing_rows.listing_moment)
 register.filter('workload_label', workload_label)
+register.filter('result_label', result_label)
 register.filter('short_name', OpenBench.workload_names.short_name)
 
 

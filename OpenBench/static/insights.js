@@ -10,6 +10,8 @@
     const MAX_BACKOFF_MS = 8 * REFRESH_MS;
     const MAX_CLIENT_ERRORS = 3;
     const POLLED_STATUSES = new Set(['pending', 'active']);
+    const WORKLOAD_EVENT = 'openbench:workload-change';
+    const LISTING_EVENT = 'openbench:listing-change';
     const ETA_REASONS = {
         too_few_games: 'needs 200 games first',
         outside_bounds: 'LLR is outside the bounds',
@@ -722,7 +724,12 @@
         start() {
             this.refresh();
             document.addEventListener('visibilitychange', () => this.on_visibility());
+            document.addEventListener(WORKLOAD_EVENT, event => this.on_live_change(event.detail.status));
             watch_theme(() => this.render_charts(true));
+        }
+
+        on_live_change(status) {
+            if (this.latest && this.latest.workload.status !== status) this.refresh();
         }
 
         get polled() {
@@ -866,12 +873,22 @@
         }
     }
 
+    function keep_server_stats(section) {
+        let refreshed_at = Date.now();
+        init_server_stats(section);
+        document.addEventListener(LISTING_EVENT, () => {
+            if (Date.now() - refreshed_at < REFRESH_MS) return;
+            refreshed_at = Date.now();
+            init_server_stats(section);
+        });
+    }
+
     document.addEventListener('DOMContentLoaded', () => {
         const workload = document.querySelector('[data-workload-insights]');
         if (workload) new WorkloadInsights(workload).start();
 
         const server = document.querySelector('[data-server-insights]');
-        if (server) init_server_stats(server);
+        if (server) keep_server_stats(server);
     });
 
 })();

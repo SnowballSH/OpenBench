@@ -1,8 +1,10 @@
 import dataclasses
 import re
 from typing import Any, ClassVar
+from unittest import mock
 
 from django.test import TestCase
+from django.utils import timezone
 
 from OpenBench.models import LogEvent, Machine, Network, SPSAParameter, SPSARun, Test
 from OpenBench.page_queries import listing_tests
@@ -63,6 +65,12 @@ WORKLOAD_QUERIES = {
 
 COMPARE_QUERIES = 7
 
+LIVE_POLLS = {
+    '/api/live/workloads/?author=': (13, 4),
+    '/api/live/workloads/?author=user1': (13, 4),
+    '/api/live/workload/{}/?': (10, 4),
+}
+
 
 class QueryBudgetTests(TestCase):
     # The same budgets hold for every size, so no page costs a query per row
@@ -91,6 +99,16 @@ class QueryBudgetTests(TestCase):
     def test_machine_page(self) -> None:
         for machine in (self.data.machines[0], self.data.machines[-1]):
             self.assert_page_queries(f'/machines/{machine.id}/', MACHINE_QUERIES)
+
+    def test_live_polls(self) -> None:
+        running = next(test for test in self.data.tests if test.approved and not test.finished)
+        with mock.patch.object(timezone, 'now', return_value=timezone.now()):
+            for url, (changed, unchanged) in LIVE_POLLS.items():
+                url = url.format(running.id)
+                with self.subTest(url=url), self.assertNumQueries(changed):
+                    token = self.client.get(url).json()['token']
+                with self.subTest(url=url, token=token), self.assertNumQueries(unchanged):
+                    self.assertFalse(self.client.get(f'{url}&token={token}').json()['changed'])
 
     def test_compare_page(self) -> None:
         other = next(test for test in self.data.tests if test.test_mode == 'SPRT' and test != self.data.workload)

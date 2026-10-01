@@ -8,10 +8,13 @@ from django.test import TestCase
 from OpenBench.config import OPENBENCH_CONFIG
 from OpenBench.models import LogEvent, Machine, Network, Profile, SPSARun
 from OpenBench.tests.fixtures import (
+    LTC_PRESET,
+    STC_PRESET,
     create_engine_config,
     create_test,
     create_user,
     ensure_book,
+    set_test_presets,
     system_info,
 )
 
@@ -145,7 +148,7 @@ def audit(html: str) -> AccessibilityAudit:
 
 class RenderedPageAccessibilityTests(TestCase):
     def setUp(self) -> None:
-        create_engine_config()
+        set_test_presets(create_engine_config(), {}, STC=STC_PRESET, LTC=LTC_PRESET)
         self.book = ensure_book()
         user = create_user('admin', approver=True)
         user.is_superuser = user.is_staff = True
@@ -168,6 +171,7 @@ class RenderedPageAccessibilityTests(TestCase):
             a_ratio=0.1,
         )
         self.datagen = create_test(user, test_mode='DATAGEN')
+        self.passed = create_test(user, finished=True, passed=True)
         self.machine = Machine.objects.create(user=user, info={**system_info(), 'supported': ['Avalanche']})
         Network.objects.create(sha256='ABCDEF01', name='r1', engine='Avalanche', author='admin', default=True)
         Network.objects.create(sha256='ABCDEF02', name='r2', engine='Avalanche', author='admin', was_default=True)
@@ -186,7 +190,9 @@ class RenderedPageAccessibilityTests(TestCase):
             f'/tune/{self.tune.id}/',
             f'/datagen/{self.datagen.id}/',
             '/test/new/',
+            f'/test/{self.passed.id}/',
             f'/test/new/?clone={self.test.id}',
+            f'/test/new/?clone={self.passed.id}&preset=LTC',
             '/tune/new/',
             '/datagen/new/',
             '/machines/',

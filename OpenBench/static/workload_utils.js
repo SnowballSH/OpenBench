@@ -266,6 +266,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const workload_id = container.dataset.workloadId;
 
     fetch_summary(workload_id);
+    document.addEventListener('openbench:workload-change', () => fetch_summary(workload_id));
 
     container.querySelectorAll('[data-workload-action]').forEach(control => {
         const action = WORKLOAD_ACTIONS[control.dataset.workloadAction];

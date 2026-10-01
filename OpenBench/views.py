@@ -307,23 +307,17 @@ def profile_config(request):
 
 def index(request, page=1):
 
-    front = OpenBench.page_queries.FrontPage(
-        OpenBench.utils.get_pending_tests(), OpenBench.utils.get_active_tests(), OpenBench.utils.getMachineStatus)
-
+    front     = OpenBench.page_queries.front_page()
     completed = OpenBench.utils.get_completed_tests()
     data      = OpenBench.page_queries.workload_list_data(completed, int(page), 'index', front)
     return render(request, 'index.html', { **data, 'server_insights' : True })
 
 def user(request, username, page=1):
 
-    front = OpenBench.page_queries.FrontPage(
-        OpenBench.utils.get_pending_tests().filter(author=username),
-        OpenBench.utils.get_active_tests().filter(author=username),
-        lambda: OpenBench.utils.getMachineStatus(username))
-
+    front     = OpenBench.page_queries.front_page(username)
     completed = OpenBench.utils.get_completed_tests().filter(author=username)
     data      = OpenBench.page_queries.workload_list_data(completed, int(page), 'user/%s' % (username), front)
-    return render(request, 'index.html', data)
+    return render(request, 'index.html', { **data, 'live_author' : username })
 
 def greens(request, page=1):
 
