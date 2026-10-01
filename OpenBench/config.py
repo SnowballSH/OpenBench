@@ -25,10 +25,9 @@ from OpenSite.settings import PROJECT_PATH
 
 OPENBENCH_STATIC_VERSION = 'v37'
 
-OPENBENCH_CONFIG = None  # Initialized by OpenBench/apps.py
+OPENBENCH_CONFIG = None # Initialized by OpenBench/apps.py
 
-PRESET_TYPES = ['test_presets', 'tune_presets', 'datagen_presets']
-
+PRESET_TYPES = [ 'test_presets', 'tune_presets', 'datagen_presets' ]
 
 def create_openbench_config():
 
@@ -38,7 +37,6 @@ def create_openbench_config():
 
     return config_dict
 
-
 def verify_engine_presets(presets):
 
     # Schema for an EngineConfig.presets JSONField. Returns an error message,
@@ -46,9 +44,9 @@ def verify_engine_presets(presets):
     # and each preset may only contain the keys its type knows how to apply.
 
     verifiers = {
-        'test_presets': verify_engine_test_preset,
-        'tune_presets': verify_engine_tune_preset,
-        'datagen_presets': verify_engine_datagen_preset,
+        'test_presets'    : verify_engine_test_preset,
+        'tune_presets'    : verify_engine_tune_preset,
+        'datagen_presets' : verify_engine_datagen_preset,
     }
 
     if type(presets) != dict:
@@ -58,15 +56,16 @@ def verify_engine_presets(presets):
         return 'Presets must contain exactly: %s' % (', '.join(PRESET_TYPES))
 
     for preset_type, group in presets.items():
+
         if type(group) != dict or 'default' not in group.keys():
             return '%s must be a json object, containing a "default"' % (preset_type)
 
         for name, preset in group.items():
+
             if type(preset) != dict:
                 return '%s "%s" must be a json object' % (preset_type, name)
 
-            try:
-                verifiers[preset_type](preset)
+            try: verifiers[preset_type](preset)
             except Exception as error:
                 return '%s "%s" %s' % (preset_type, name, error)
 
@@ -75,55 +74,60 @@ def verify_engine_presets(presets):
 
 def verify_general_config(conf):
 
-    assert type(conf.get('client_version')) == int
-    assert type(conf.get('client_repo_url')) == str
-    assert type(conf.get('client_repo_ref')) == str
+    assert type(conf.get('client_version'  )) == int
+    assert type(conf.get('client_repo_url' )) == str
+    assert type(conf.get('client_repo_ref' )) == str
 
     assert type(conf.get('fastchess_min_version')) == str
     assert type(conf.get('fastchess_repo_url')) == str
     assert type(conf.get('fastchess_repo_ref')) == str
 
-    assert type(conf.get('use_cross_approval')) == bool
-    assert type(conf.get('require_login_to_view')) == bool
+    assert type(conf.get('use_cross_approval'         )) == bool
+    assert type(conf.get('require_login_to_view'      )) == bool
     assert type(conf.get('require_manual_registration')) == bool
-    assert type(conf.get('balance_engine_throughputs')) == bool
+    assert type(conf.get('balance_engine_throughputs' )) == bool
 
     # Serving of Networks and PGNs may be handed off to an nginx reverse proxy.
     # The root must match an "internal" nginx location, aliased to Media/. ie:
     #     location /x-accel-media/ { internal; alias /path/to/OpenBench/Media/; }
 
-    assert type(conf.get('use_x_accel_redirect')) == bool
+    assert type(conf.get('use_x_accel_redirect' )) == bool
     assert type(conf.get('x_accel_redirect_root')) == str
     assert conf['x_accel_redirect_root'].startswith('/')
-
 
 def verify_engine_test_preset(test_preset):
 
     valid_keys = [
+
         'both_branch',
         'both_bench',
         'both_network',
         'both_options',
         'both_time_control',
+
         'dev_branch',
         'dev_bench',
         'dev_network',
         'dev_options',
         'dev_time_control',
+
         'base_branch',
         'base_bench',
         'base_network',
         'base_options',
         'base_time_control',
+
         'test_bounds',
         'test_confidence',
         'test_max_games',
+
         'book_name',
         'upload_pgns',
         'priority',
         'throughput',
         'workload_size',
         'syzygy_wdl',
+
         'syzygy_adj',
         'win_adj',
         'draw_adj',
@@ -133,20 +137,22 @@ def verify_engine_test_preset(test_preset):
         if key not in valid_keys:
             raise Exception('Contains invalid key: %s' % (key))
 
-
 def verify_engine_tune_preset(tune_preset):
 
     valid_keys = [
+
         'both_branch',
         'both_bench',
         'both_network',
         'both_options',
         'both_time_control',
+
         'dev_branch',
         'dev_bench',
         'dev_network',
         'dev_options',
         'dev_time_control',
+
         'spsa_reporting_type',
         'spsa_distribution_type',
         'spsa_alpha',
@@ -154,11 +160,13 @@ def verify_engine_tune_preset(tune_preset):
         'spsa_A_ratio',
         'spsa_iterations',
         'spsa_pairs_per',
+
         'book_name',
         'upload_pgns',
         'priority',
         'throughput',
         'syzygy_wdl',
+
         'syzygy_adj',
         'win_adj',
         'draw_adj',
@@ -168,34 +176,39 @@ def verify_engine_tune_preset(tune_preset):
         if key not in valid_keys:
             raise Exception('Contains invalid key: %s' % (key))
 
-
 def verify_engine_datagen_preset(datagen_preset):
 
     valid_keys = [
+
         'both_branch',
         'both_bench',
         'both_network',
         'both_options',
         'both_time_control',
+
         'dev_branch',
         'dev_bench',
         'dev_network',
         'dev_options',
         'dev_time_control',
+
         'base_branch',
         'base_bench',
         'base_network',
         'base_options',
         'base_time_control',
+
         'book_name',
         'upload_pgns',
         'priority',
         'throughput',
         'workload_size',
         'syzygy_wdl',
+
         'syzygy_adj',
         'win_adj',
         'draw_adj',
+
         'datagen_custom_genfens',
         'datagen_play_reverses',
         'datagen_max_games',

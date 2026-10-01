@@ -53,27 +53,25 @@ import OpenBench.insights.recorder
 
 
 class TimeControl(object):
-    FIXED_NODES = 'FIXED-NODES'  # N= or nodes=
-    FIXED_DEPTH = 'FIXED-DEPTH'  # D= or depth=
-    FIXED_TIME = 'FIXED-TIME'  # MT= or movetime=
-    CYCLIC = 'CYCLIC'  # X/Y or X/Y+Z
-    FISCHER = 'FISCHER'  # Y or Y+Z
+
+    FIXED_NODES = 'FIXED-NODES' # N= or nodes=
+    FIXED_DEPTH = 'FIXED-DEPTH' # D= or depth=
+    FIXED_TIME  = 'FIXED-TIME'  # MT= or movetime=
+    CYCLIC      = 'CYCLIC'      # X/Y or X/Y+Z
+    FISCHER     = 'FISCHER'     # Y or Y+Z
 
     @staticmethod
     def parse(time_str: str) -> str:
 
         # Display Nodes as N=, Depth as D=, MoveTime as MT=
         conversion = {
-            'N': 'N',
-            'NODES': 'N',
-            'D': 'D',
-            'DEPTH': 'D',
-            'MT': 'MT',
-            'MOVETIME': 'MT',
+            'N'  :  'N', 'NODES'    :  'N',
+            'D'  :  'D', 'DEPTH'    :  'D',
+            'MT' : 'MT', 'MOVETIME' : 'MT',
         }
 
         time_str = time_str.strip()
-        seconds = r'(?:\d+(?:\.\d*)?|\.\d+)'
+        seconds  = r'(?:\d+(?:\.\d*)?|\.\d+)'
 
         # Searching for "nodes=", "depth=", and "movetime=" time controls
         pattern = r'(?P<mode>NODES|DEPTH|MOVETIME|MT|N|D)=(?P<value>\d+)'
@@ -131,22 +129,17 @@ class TimeControl(object):
         # Fischer or Sudden Death otherwise
         return float(time_str.split('+')[0])
 
-
 def workload_uses_time_based_tc(workload):
 
-    dev_type = TimeControl.control_type(workload.dev_time_control)
+    dev_type  = TimeControl.control_type(workload.dev_time_control)
     base_type = TimeControl.control_type(workload.base_time_control)
 
-    return (
-        workload.upload_pgns == 'VERBOSE'
-        or (dev_type != TimeControl.FIXED_NODES and dev_type != TimeControl.FIXED_DEPTH)
-        or (base_type != TimeControl.FIXED_NODES and base_type != TimeControl.FIXED_DEPTH)
-    )
-
+    return  workload.upload_pgns == 'VERBOSE' \
+       or (dev_type  != TimeControl.FIXED_NODES and dev_type  != TimeControl.FIXED_DEPTH) \
+       or (base_type != TimeControl.FIXED_NODES and base_type != TimeControl.FIXED_DEPTH)
 
 def path_join(*args):
-    return '/'.join([f.lstrip('/').rstrip('/') for f in args]).rstrip('/')
-
+    return "/".join([f.lstrip("/").rstrip("/") for f in args]).rstrip('/')
 
 def media_download_response(fpath, filename, max_age=None):
 
@@ -162,7 +155,7 @@ def media_download_response(fpath, filename, max_age=None):
 
     else:
         # nginx serves the body, and sets the Content-Length for us
-        root = OPENBENCH_CONFIG['x_accel_redirect_root'].rstrip('/')
+        root     = OPENBENCH_CONFIG['x_accel_redirect_root'].rstrip('/')
         relative = os.path.relpath(fpath, MEDIA_ROOT).replace(os.sep, '/')
         response = HttpResponse(content_type='application/octet-stream')
         response['X-Accel-Redirect'] = urllib.parse.quote('%s/%s' % (root, relative))
@@ -177,28 +170,23 @@ def media_download_response(fpath, filename, max_age=None):
     response['Content-Disposition'] = 'attachment; filename=%s' % (filename)
     return response
 
-
 def read_git_credentials(engine):
     fname = 'credentials.%s' % (engine.replace(' ', '').lower())
     fpath = os.path.join(PROJECT_PATH, 'Config', fname)
     if os.path.exists(fpath):
         with open(fpath) as fin:
-            return {'Authorization': 'token %s' % fin.readlines()[0].rstrip()}
-
+            return { 'Authorization' : 'token %s' % fin.readlines()[0].rstrip() }
 
 def extract_option(options, option):
 
     match = re.search(r'(?<={0}=")[^"]*'.format(option), options)
-    if match:
-        return match.group()
+    if match: return match.group()
 
     match = re.search(r'(?<={0}=\')[^\']*'.format(option), options)
-    if match:
-        return match.group()
+    if match: return match.group()
 
     match = re.search(r'(?<={0}=)[^ ]*'.format(option), options)
-    if match:
-        return match.group()
+    if match: return match.group()
 
 
 def get_pending_tests():
@@ -207,25 +195,22 @@ def get_pending_tests():
     t = t.exclude(deleted=True)
     return t.order_by('-creation')
 
-
 def get_active_tests():
     t = Test.objects.select_related('dev', 'base').filter(approved=True)
     t = t.exclude(finished=True)
     t = t.exclude(deleted=True)
     return t.order_by('-priority', '-currentllr')
 
-
 def get_completed_tests():
     t = Test.objects.select_related('dev', 'base').filter(finished=True)
     t = t.exclude(deleted=True)
     return t.order_by('-updated')
 
-
 def group_active_tests_by_priority(active):
     grouped = []
     for test in active:
         if len(grouped) == 0 or grouped[-1]['priority'] != test.priority:
-            grouped.append({'priority': test.priority, 'tests': []})
+            grouped.append({ 'priority' : test.priority, 'tests' : [] })
         grouped[-1]['tests'].append(test)
     return grouped
 
@@ -233,7 +218,6 @@ def group_active_tests_by_priority(active):
 def getRecentMachines(minutes=2):
     target = timezone.now() - datetime.timedelta(minutes=minutes)
     return Machine.objects.filter(updated__gte=target)
-
 
 def getMachineStatus(username=None):
 
@@ -247,27 +231,24 @@ def getMachineStatus(username=None):
 
     # Summed in the database, so no Machine's info blob is ever deserialized
     threads = Cast(KT('info__concurrency'), IntegerField())
-    totals = machines.aggregate(
-        count=Count('id'),
-        threads=Sum(threads),
-        mnps=Sum(threads * F('mnps'), output_field=FloatField()),
+    totals  = machines.aggregate(
+        count   = Count('id'),
+        threads = Sum(threads),
+        mnps    = Sum(threads * F('mnps'), output_field=FloatField()),
     )
 
-    return (
-        ': {0} Machines / '.format(totals['count'])
-        + '{0} Threads / '.format(totals['threads'] or 0)
-        + '{0} MNPS '.format(0 if totals['mnps'] is None else round(totals['mnps'], 2))
-    )
-
+    return ": {0} Machines / ".format(totals['count']) + \
+           "{0} Threads / ".format(totals['threads'] or 0) + \
+           "{0} MNPS ".format(0 if totals['mnps'] is None else round(totals['mnps'], 2))
 
 def getPaging(content, page, url, pagelen=25):
 
     total = content.count()
     count = 1 + math.ceil(total / pagelen)
-    page = max(1, min(page, count - 1))
+    page  = max(1, min(page, count - 1))
 
     start = pagelen * (page - 1)
-    end = min(total, pagelen * page)
+    end   = min(total, pagelen * page)
 
     part1 = list(range(1, min(4, count)))
     part2 = list(range(page - 2, page + 1))
@@ -282,15 +263,12 @@ def getPaging(content, page, url, pagelen=25):
     final = []
     for f in range(len(pages) - 1):
         final.append(pages[f])
-        if pages[f] != pages[f + 1] - 1:
+        if pages[f] != pages[f+1] - 1:
             final.append('...')
 
     context = {
-        'url': url,
-        'page': page,
-        'pages': final,
-        'prev': max(1, page - 1),
-        'next': max(1, min(page + 1, count - 1)),
+        "url" : url, "page" : page, "pages" : final,
+        "prev" : max(1, page - 1), "next" : max(1, min(page + 1, count - 1)),
     }
 
     return start, end, context
@@ -298,22 +276,20 @@ def getPaging(content, page, url, pagelen=25):
 
 # Purely Helper functions for Networks views
 
-
 def network_disambiguate(engine, identifier):
 
     candidates = Network.objects.filter(engine=engine)
 
     # A SHA is unique per engine, while a name may collide with another Network's SHA
-    if network := candidates.filter(sha256=identifier).first():
+    if (network := candidates.filter(sha256=identifier).first()):
         return network
 
     # Identifier actually refers to the Network name
-    if network := candidates.filter(name=identifier).first():
+    if (network := candidates.filter(name=identifier).first()):
         return network
 
     # No Network exists with engine this Name or Sha
     return None
-
 
 def network_upload(request, engine, name):
 
@@ -321,10 +297,10 @@ def network_upload(request, engine, name):
         return OpenBench.views.redirect(request, '/networks/', error='No network file was uploaded as netfile')
 
     # Extract and process the Network file to produce a SHA
-    digest = hashlib.sha256()
+    digest  = hashlib.sha256()
     for chunk in netfile.chunks():
         digest.update(chunk)
-    sha256 = digest.hexdigest()[:8].upper()
+    sha256  = digest.hexdigest()[:8].upper()
 
     # Rejecct Networks with strange characters
     if not re.match(r'^[a-zA-Z0-9_.-]+$', name):
@@ -332,15 +308,11 @@ def network_upload(request, engine, name):
 
     # Don't allow duplicate uploads for the same engine
     if Network.objects.filter(engine=engine, sha256=sha256):
-        return OpenBench.views.redirect(
-            request, '/networks/', error='Network with that hash already exists for that engine'
-        )
+        return OpenBench.views.redirect(request, '/networks/', error='Network with that hash already exists for that engine')
 
     # Don't allow duplicate uploads for the same engine
     if Network.objects.filter(engine=engine, name=name):
-        return OpenBench.views.redirect(
-            request, '/networks/', error='Network with that name already exists for that engine'
-        )
+        return OpenBench.views.redirect(request, '/networks/', error='Network with that name already exists for that engine')
 
     # Filter out anyone who has used an unknown engine
     if not EngineConfig.objects.filter(name=engine).exists():
@@ -351,23 +323,22 @@ def network_upload(request, engine, name):
         FileSystemStorage().save('%s' % (sha256), netfile)
 
     # Create the Network object mapping to the saved local file
-    Network.objects.create(sha256=sha256, name=name, engine=engine, author=request.user.username)
+    Network.objects.create(
+        sha256=sha256, name=name,
+        engine=engine, author=request.user.username)
 
     # Redirect to Engine specific view, to add clarity
     return OpenBench.views.redirect(request, '/networks/%s/' % (engine), status='Uploaded %s for %s' % (name, engine))
-
 
 def network_default(request, engine, network):
 
     # Update default to False for all Networks, except this one
     Network.objects.filter(engine=engine, default=True).update(default=False, was_default=True)
-    network.default = network.was_default = True
-    network.save()
+    network.default = network.was_default = True; network.save()
 
     # Report this, and refer to the Engine specific view
     status = 'Set %s as default for %s' % (network.name, network.engine)
     return OpenBench.views.redirect(request, '/networks/%s/' % (network.engine), status=status)
-
 
 def network_delete(request, engine, network):
 
@@ -378,7 +349,6 @@ def network_delete(request, engine, network):
     else:
         return OpenBench.views.redirect(request, '/networks/%s/' % (engine), error=message)
 
-
 def network_download(request, engine, network, identifier=None):
 
     # Only a SHA-addressed URL always names the same bytes; a name can be reused
@@ -386,14 +356,13 @@ def network_download(request, engine, network, identifier=None):
     max_age = int(datetime.timedelta(days=7).total_seconds()) if identifier == network.sha256 else None
     return media_download_response(netfile, network.sha256, max_age)
 
-
 def network_edit(request, engine, network):
 
     if request.method in ('GET', 'HEAD'):
-        return OpenBench.views.render(request, 'network.html', {'network': network})
+        return OpenBench.views.render(request, 'network.html', { 'network' : network })
 
-    new_name = request.POST['name']
-    new_default = request.POST['default'] == 'TRUE'
+    new_name        = request.POST['name']
+    new_default     = request.POST['default'] == 'TRUE'
     new_was_default = request.POST['was_default'] == 'TRUE'
 
     # Reject new names that are already in use for this particular engine
@@ -407,6 +376,7 @@ def network_edit(request, engine, network):
 
     # Ensure all changes are made, or no changes are made
     with transaction.atomic():
+
         # Swap any references in tests, which use dev_netname and base_netname
         if new_name != network.name:
             Test.objects.filter(dev_engine=network.engine, dev_netname=network.name).update(dev_netname=new_name)
@@ -417,8 +387,8 @@ def network_edit(request, engine, network):
             Network.objects.filter(engine=engine, default=True).update(default=False, was_default=True)
 
         # Update the actual Network. Ensure was_default is set if default is
-        network.name = new_name
-        network.default = new_default
+        network.name        = new_name
+        network.default     = new_default
         network.was_default = new_default or new_was_default
         network.save()
 
@@ -426,7 +396,6 @@ def network_edit(request, engine, network):
 
 
 # Purely Helper functions for Books views
-
 
 def book_verify(request):
 
@@ -442,7 +411,6 @@ def book_verify(request):
 
     return None
 
-
 def book_create(request, name):
 
     # Rejecct Books with strange characters, or names too long for the column
@@ -454,30 +422,28 @@ def book_create(request, name):
         error = 'A Book already exists with the name %s' % (name)
         return OpenBench.views.redirect(request, '/manage/books/', error=error)
 
-    if error := book_verify(request):
+    if (error := book_verify(request)):
         return OpenBench.views.redirect(request, '/manage/books/', error=error)
 
     # The only place a Book's name is ever set
     Book.objects.create(
-        name=name, source=request.POST['source'], sha=request.POST['sha'], enabled=request.POST['enabled'] == 'TRUE'
-    )
+        name=name, source=request.POST['source'],
+        sha=request.POST['sha'], enabled=request.POST['enabled'] == 'TRUE')
 
     return OpenBench.views.redirect(request, '/manage/books/', status='Created Book %s' % (name))
 
-
 def book_edit(request, book):
 
-    if error := book_verify(request):
+    if (error := book_verify(request)):
         return OpenBench.views.redirect(request, '/manage/books/%s/' % (book.name), error=error)
 
     # The name is never changed, since Workloads refer to Books by name
-    book.source = request.POST['source']
-    book.sha = request.POST['sha']
+    book.source  = request.POST['source']
+    book.sha     = request.POST['sha']
     book.enabled = request.POST['enabled'] == 'TRUE'
     book.save()
 
     return OpenBench.views.redirect(request, '/manage/books/', status='Updated Book %s' % (book.name))
-
 
 def book_delete(request, book):
 
@@ -493,26 +459,22 @@ def book_delete(request, book):
 
 # Purely Helper functions for Engines views
 
-
 def engine_verify(request, name):
 
     # Sources are Github repos, which is where the Client clones the Engine from
     if not request.POST['source'].startswith('https://github.com/'):
         return 'Sources must start with https://github.com/'
 
-    try:
-        assert int(request.POST['nps']) > 0
-    except:
-        return 'NPS must be a positive integer'
+    try: assert int(request.POST['nps']) > 0
+    except: return 'NPS must be a positive integer'
 
     # Presets are only offered when editing. A new Engine starts off blank
     if 'presets' in request.POST:
-        try:
-            presets = json.loads(request.POST['presets'])
-        except:
-            return 'Presets must be valid json'
 
-        if error := verify_engine_presets(presets):
+        try: presets = json.loads(request.POST['presets'])
+        except: return 'Presets must be valid json'
+
+        if (error := verify_engine_presets(presets)):
             return error
 
     # Private Engines are cloned using a token kept in Config/credentials.<name>
@@ -521,25 +483,23 @@ def engine_verify(request, name):
 
     return None
 
-
 def engine_fields(request):
 
     # Presets are only offered when editing. A new Engine starts off blank
-    blank = {x: {'default': {}} for x in PRESET_TYPES}
+    blank   = { x : { 'default' : {} } for x in PRESET_TYPES }
     presets = json.loads(request.POST['presets']) if 'presets' in request.POST else blank
 
     return {
-        'private': request.POST['private'] == 'TRUE',
-        'enabled': request.POST['enabled'] == 'TRUE',
-        'nps': int(request.POST['nps']),
-        'source': request.POST['source'],
-        'build_path': request.POST['build_path'],
-        'build_compilers': request.POST['build_compilers'],
-        'build_cpuflags': request.POST['build_cpuflags'],
-        'build_systems': request.POST['build_systems'],
-        'presets': presets,
+        'private'         : request.POST['private'] == 'TRUE',
+        'enabled'         : request.POST['enabled'] == 'TRUE',
+        'nps'             : int(request.POST['nps']),
+        'source'          : request.POST['source'],
+        'build_path'      : request.POST['build_path'],
+        'build_compilers' : request.POST['build_compilers'],
+        'build_cpuflags'  : request.POST['build_cpuflags'],
+        'build_systems'   : request.POST['build_systems'],
+        'presets'         : presets,
     }
-
 
 def engine_create(request, name):
 
@@ -552,7 +512,7 @@ def engine_create(request, name):
         error = 'An Engine already exists with the name %s' % (name)
         return OpenBench.views.redirect(request, '/manage/engines/', error=error)
 
-    if error := engine_verify(request, name):
+    if (error := engine_verify(request, name)):
         return OpenBench.views.redirect(request, '/manage/engines/', error=error)
 
     # The only place an Engine's name is ever set
@@ -560,10 +520,9 @@ def engine_create(request, name):
 
     return OpenBench.views.redirect(request, '/manage/engines/', status='Created Engine %s' % (name))
 
-
 def engine_edit(request, config):
 
-    if error := engine_verify(request, config.name):
+    if (error := engine_verify(request, config.name)):
         return OpenBench.views.redirect(request, '/manage/engines/%s/' % (config.name), error=error)
 
     # The name is never changed, since Workloads refer to Engines by name
@@ -572,7 +531,6 @@ def engine_edit(request, config):
     config.save()
 
     return OpenBench.views.redirect(request, '/manage/engines/', status='Updated Engine %s' % (config.name))
-
 
 def engine_delete(request, config):
 
@@ -588,35 +546,21 @@ def engine_delete(request, config):
 
 # Every Test column that update_test() may change, so the rest are never rewritten
 UPDATE_TEST_FIELDS = [
-    'losses',
-    'draws',
-    'wins',
-    'LL',
-    'LD',
-    'DD',
-    'DW',
-    'WW',
-    'games',
-    'error',
-    'currentllr',
-    'passed',
-    'failed',
-    'finished',
-    'updated',
+    'losses', 'draws', 'wins', 'LL', 'LD', 'DD', 'DW', 'WW', 'games',
+    'error', 'currentllr', 'passed', 'failed', 'finished', 'updated',
 ]
-
 
 def update_test(request, machine):
 
     # Extract error information
-    crashes = int(request.POST['crashes'])
+    crashes    = int(request.POST['crashes'   ])
     timelosses = int(request.POST['timelosses'])
-    illegals = int(request.POST['illegals'])
+    illegals   = int(request.POST['illegals'  ])
 
     # Extract Database information
     machine_id = int(request.POST['machine_id'])
-    result_id = int(request.POST['result_id'])
-    test_id = int(request.POST['test_id'])
+    result_id  = int(request.POST['result_id' ])
+    test_id    = int(request.POST['test_id'   ])
 
     # Trinomial Implementation
     losses, draws, wins = map(int, request.POST['trinomial'].split())
@@ -627,16 +571,17 @@ def update_test(request, machine):
 
     # Workers may only report non-negative counts, into a Result of their own
     if min(crashes, timelosses, illegals, losses, draws, wins, LL, LD, DD, DW, WW) < 0:
-        return {'stop': True}
+        return { 'stop' : True }
 
     if not Result.objects.filter(id=result_id, test_id=test_id, machine=machine).exists():
-        return {'stop': True}
+        return { 'stop' : True }
 
     # SPSA Delta update vector; might not have this
     raw_spsa_delta = request.POST.get('spsa_delta', '')
-    spsa_delta = json.loads(raw_spsa_delta) if raw_spsa_delta else []
+    spsa_delta     = json.loads(raw_spsa_delta) if raw_spsa_delta else []
 
     with transaction.atomic():
+
         # MASSIVE risk for concurrent access to the Test. select_for_update() will lock the row,
         # which correctly ensures no other entity can modify it. HOWEVER, spsa_run and the various
         # spsa_run.parameters are NOT locked via this query. This is okay because no other location
@@ -649,22 +594,23 @@ def update_test(request, machine):
         test = Test.objects.select_for_update().get(id=test_id)
 
         if test.finished or test.deleted:
-            return {'stop': True}
+            return { 'stop' : True }
 
-        test.losses += losses  # Trinomial
-        test.draws += draws
-        test.wins += wins
-        test.LL += LL  # Pentanomial
-        test.LD += LD
-        test.DD += DD
-        test.DW += DW
-        test.WW += WW
-        test.games += games  # Overall
+        test.losses += losses # Trinomial
+        test.draws  += draws
+        test.wins   += wins
+        test.LL     += LL     # Pentanomial
+        test.LD     += LD
+        test.DD     += DD
+        test.DW     += DW
+        test.WW     += WW
+        test.games  += games  # Overall
 
         # Consider only Crashes or Illegal moves as real errors
         test.error = bool(test.error or crashes or illegals)
 
         if test.test_mode == 'SPRT':
+
             # Compute a new LLR for the updated results ( Penta )
             if test.use_penta:
                 results = (test.LL, test.LD, test.DD, test.DW, test.WW)
@@ -676,17 +622,19 @@ def update_test(request, machine):
                 test.currentllr = TrinomialSPRT(results, test.elolower, test.eloupper)
 
             # Check for H0 or H1 being accepted
-            test.passed = test.currentllr > test.upperllr
-            test.failed = test.currentllr < test.lowerllr
+            test.passed   = test.currentllr > test.upperllr
+            test.failed   = test.currentllr < test.lowerllr
             test.finished = test.passed or test.failed
 
         elif test.test_mode == 'GAMES':
+
             # Finish test once we've played the proper amount of games
-            test.passed = test.games >= test.max_games and test.wins >= test.losses
-            test.failed = test.games >= test.max_games and test.wins < test.losses
+            test.passed   = test.games >= test.max_games and test.wins >= test.losses
+            test.failed   = test.games >= test.max_games and test.wins <  test.losses
             test.finished = test.passed or test.failed
 
         elif test.test_mode == 'SPSA':
+
             # Apply updates to every Parameter, ensuring clipping
             parameters = list(test.spsa_run.parameters.order_by('index'))
             for delta, param in zip(spsa_delta, parameters):
@@ -698,6 +646,7 @@ def update_test(request, machine):
             test.finished = test.games >= 2 * test.spsa_run.pairs_per * test.spsa_run.iterations
 
         elif test.test_mode == 'DATAGEN':
+
             # Finished, and always passing, for a completed DATAGEN Workload
             test.passed = test.finished = test.games >= test.max_games
 
@@ -705,26 +654,31 @@ def update_test(request, machine):
 
         # Update Result object; No risk from concurrent access
         Result.objects.filter(id=result_id).update(
-            games=F('games') + games,
-            losses=F('losses') + losses,
-            draws=F('draws') + draws,
-            wins=F('wins') + wins,
-            LL=F('LL') + LL,
-            LD=F('LD') + LD,
-            DD=F('DD') + DD,
-            DW=F('DW') + DW,
-            WW=F('WW') + WW,
-            crashes=F('crashes') + crashes,
-            timeloss=F('timeloss') + timelosses,
-            updated=timezone.now(),
+            games    = F('games'   ) + games,
+            losses   = F('losses'  ) + losses,
+            draws    = F('draws'   ) + draws,
+            wins     = F('wins'    ) + wins,
+            LL       = F('LL'      ) + LL,
+            LD       = F('LD'      ) + LD,
+            DD       = F('DD'      ) + DD,
+            DW       = F('DW'      ) + DW,
+            WW       = F('WW'      ) + WW,
+            crashes  = F('crashes' ) + crashes,
+            timeloss = F('timeloss') + timelosses,
+            updated  = timezone.now()
         )
 
         # Update Profile object; Some risk from concurrent access
-        Profile.objects.filter(user_id=machine.user_id).update(games=F('games') + games, updated=timezone.now())
+        Profile.objects.filter(user_id=machine.user_id).update(
+            games=F('games') + games,
+            updated=timezone.now()
+        )
 
         # Update Machine object; No meaningful risk from concurrent access
-        Machine.objects.filter(id=machine_id).update(updated=timezone.now())
+        Machine.objects.filter(id=machine_id).update(
+            updated=timezone.now()
+        )
 
         OpenBench.insights.recorder.record_snapshot_safely(test, games)
 
-    return [{}, {'stop': True}][test.finished]
+    return [{}, { 'stop' : True }][test.finished]
