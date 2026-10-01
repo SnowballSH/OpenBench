@@ -319,8 +319,8 @@ raw summary.
    it. Under it the **summary** (`.workload-summary`): the diagnosis banner
    when there is one, the verdict of
    [INSIGHTS.md](INSIGHTS.md#verdict) in one line, a meter (the LLR between
-   its bounds, or games over the target) with the time left and rate of the
-   index row, and the stat block, which stays the one place for the exact
+   its bounds, or games over the target, captioned "LLR" or "Games") with the
+   time left and rate of the index row, and the stat block, which stays the one place for the exact
    counters and the text that Copy Stat Block copies. All of it is rendered by
    the server; `insights.js` and `live.js` then keep it current.
 2. **What should I do next?** One Actions card (`#actions`) beside the
@@ -349,10 +349,27 @@ raw summary.
 A section that cannot show anything for this workload is not rendered, and
 has no nav entry: Results for a tune, Games without PGN uploads, Parameters
 for anything but a tune, Errors with no error. Results, Progress and Workers
-need games: before the first one they are rendered `hidden`, with their nav
-entries, and `insights.js` reveals section and entry together
-(`show_section`) when the data arrives, as it does for Games when the first
-report comes in.
+need games, by one rule on the server and in the script (`games > 0`):
+before the first one they are rendered `hidden`, with their nav entries, and
+`insights.js` reveals section and entry together (`show_section`) when the
+data arrives, as it does for Games when the first report comes in.
+
+The summary never trails the stat block by more than a moment. `live.js`
+rewrites the stat block every 15 seconds and raises
+`openbench:workload-change` whenever games or status moved; `insights.js`
+refreshes on every such event, coalesced: at once when its last refresh is
+more than 10 seconds old and none is in flight, otherwise one trailing
+refresh when that gap has passed, so the latest change is never dropped and
+a burst costs one request. A running workload without games states why there
+is no time left yet ("needs 200 games first") from the first render; the
+server takes the reason from `estimate_eta` without a query.
+
+The state badge is `result_label`'s text for an SPRT. A fixed-games run, a
+datagen or a tune decides nothing, so a finished one reads "Completed" in the
+neutral style, whatever passed or failed flag its score left. `live.js` draws
+the badge from the `workload-states` data island (`state_table` in
+`page.py`: status to label and variant, a null label meaning the payload's
+own outcome text), so the mapping exists once.
 
 ### One place per number
 
@@ -380,15 +397,16 @@ Scripts find their targets by attribute, inside
 `data-summary-{meter,timing}`, `data-section` and `data-section-link`,
 `data-live-{workload,status,games,badge,outcome,indicator,notify,notify-note}`,
 `data-workload-action`, `data-workload-announcer`, `data-games-insights`,
+`#workload-states`,
 `#long-statblock`, `#summary-container`, `#results-container`.
 `OpenBench/tests/test_workload_page.py` pins them, the section order per
 state, and that every state-changing control sits in `#actions`.
 
 ### Cost
 
-The header, verdict and meter read the `Test` row only. The time left and
-rate reuse the index row's annotations (`listing_tests`), one query, skipped
-until a game has been played ([PERFORMANCE.md](PERFORMANCE.md)).
+The header, verdict, meter and state table read the `Test` row only. The time
+left and rate reuse the index row's annotations (`listing_tests`), one query,
+skipped until a game has been played ([PERFORMANCE.md](PERFORMANCE.md)).
 
 ## Live updates
 
@@ -429,8 +447,9 @@ and `createElement`.
   badge beside the title (`data-live-badge`) and the diagnosis banner follow
   the payload. Each change raises
   `openbench:workload-change` on `document`; `workload_utils.js` reloads the
-  results summary on it, and `insights.js` refreshes at once when the status
-  moved. The index raises `openbench:listing-change`, on which `insights.js`
+  results summary on it, and `insights.js` refreshes on it, coalesced to one
+  request per 10 seconds, so a busy workload asks for its insights about as
+  often as for its live payload (see [Workload page](#workload-page)). The index raises `openbench:listing-change`, on which `insights.js`
   refreshes the server strip at most once a minute.
 - **When the workload finishes**, the title gains a marker (`✓ Passed · …`,
   `✗ Failed · …`), the indicator offers **Reload** for the buttons that only

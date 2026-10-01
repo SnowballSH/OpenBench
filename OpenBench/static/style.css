@@ -1610,20 +1610,6 @@ a:hover > .icon-muted {
     min-width: 0;
 }
 
-.insights-header {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: var(--space-1) var(--space-4);
-}
-
-.insights-title {
-    color: var(--text);
-    font-size: var(--text-lg);
-    font-weight: 600;
-}
-
 .insights-status,
 .insights-note,
 .chart-subtitle {
@@ -1639,15 +1625,6 @@ a:hover > .icon-muted {
     background-color: color-mix(in srgb, var(--fail) 12%, transparent);
     color: var(--fail-text);
     font-size: var(--text-sm);
-}
-
-.insights-tiles {
-    display: grid;
-    gap: var(--space-4);
-}
-
-.insights-tiles:empty {
-    display: none;
 }
 
 .insights-group {
@@ -1774,11 +1751,6 @@ a:hover > .icon-muted {
     display: none;
 }
 
-.insights-contributions .card-header {
-    flex-wrap: wrap;
-    padding: 0;
-}
-
 .contribution-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(min(100%, 36rem), 1fr));
@@ -1834,12 +1806,6 @@ td.contribution-name {
     width: calc(var(--share, 0) * 100%);
     border-radius: inherit;
     background-color: var(--series-1);
-}
-
-.insights-results .card-header {
-    flex-wrap: wrap;
-    margin-bottom: 0;
-    padding: 0;
 }
 
 .insights-verdict {
@@ -2189,8 +2155,20 @@ td.games-opening {
 }
 
 .summary-meter {
+    display: flex;
     flex: 1 1 12rem;
-    padding-block: 3px;
+    align-items: center;
+    gap: var(--space-3);
+}
+
+.summary-meter-caption {
+    color: var(--text-muted);
+    font-size: var(--text-xs);
+    font-weight: 500;
+}
+
+.summary-meter > .insight-meter {
+    flex: 1;
 }
 
 .summary-meter > .insight-meter,

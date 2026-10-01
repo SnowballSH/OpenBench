@@ -2,6 +2,7 @@
     'use strict';
 
     const REFRESH_MS = 60_000;
+    const LIVE_REFRESH_GAP_MS = 10_000;
     const FETCH_TIMEOUT_MS = 20_000;
     const DASH = '—';
     const MINUS = '−';
@@ -210,9 +211,13 @@
         return meter(progress.fraction, 'fill', label);
     }
 
+    function captioned(caption, meter_node) {
+        return meter_node ? [element('span', 'summary-meter-caption', caption), meter_node] : null;
+    }
+
     function summary_meter(insights) {
-        if (insights.workload.status !== 'active') return null;
-        return llr_meter(insights.progress) ?? games_meter(insights.progress);
+        if (insights.workload.status !== 'active') return [];
+        return captioned('LLR', llr_meter(insights.progress)) ?? captioned('Games', games_meter(insights.progress)) ?? [];
     }
 
     function time_left_part(eta) {
@@ -245,8 +250,7 @@
 
     function render_summary(view, insights) {
         const active = insights.workload.status === 'active';
-        const meter_node = summary_meter(insights);
-        view.meter.replaceChildren(...(meter_node ? [meter_node] : []));
+        view.meter.replaceChildren(...summary_meter(insights));
         if (!active) {
             if (view.timing.querySelector('.row-timing-left, .row-timing-unavailable')) view.timing.replaceChildren();
             return;
@@ -1017,12 +1021,15 @@
             this.stale = false;
             this.failures = 0;
             this.client_failures = 0;
+            this.refreshing = false;
+            this.refreshed_at = 0;
+            this.trailing = null;
         }
 
         start() {
             this.refresh();
             document.addEventListener('visibilitychange', () => this.on_visibility());
-            document.addEventListener(WORKLOAD_EVENT, event => this.on_live_change(event.detail.status));
+            document.addEventListener(WORKLOAD_EVENT, () => this.on_live_change());
             watch_theme(() => this.render_charts(true));
             this.watch_games();
         }
@@ -1036,8 +1043,15 @@
             }).observe(section, { attributes: true, attributeFilter: ['hidden'] });
         }
 
-        on_live_change(status) {
-            if (this.latest && this.latest.workload.status !== status) this.refresh();
+        on_live_change() {
+            if (this.trailing) return;
+            const wait = this.refreshed_at + LIVE_REFRESH_GAP_MS - Date.now();
+            if (!this.refreshing && wait <= 0) return void this.refresh();
+            this.trailing = setTimeout(() => {
+                this.trailing = null;
+                if (this.refreshing) this.on_live_change();
+                else this.refresh();
+            }, Math.max(wait, 1_000));
         }
 
         get polled() {
@@ -1053,6 +1067,7 @@
         }
 
         async refresh() {
+            this.refreshing = true;
             this.evidence.setAttribute('aria-busy', 'true');
             try {
                 const data = await fetch_json(this.url);
@@ -1065,6 +1080,8 @@
                 this.client_failures = err instanceof FetchError && err.client ? this.client_failures + 1 : 0;
                 this.show_error(err);
             } finally {
+                this.refreshing = false;
+                this.refreshed_at = Date.now();
                 this.evidence.removeAttribute('aria-busy');
                 this.schedule();
             }
@@ -1089,7 +1106,7 @@
             const played = this.latest.progress.games > 0;
             show_section('results', played && Boolean(this.latest.results));
             show_section('progress', played && Boolean(this.latest.timing));
-            show_section('workers', this.latest.contributions.machines.length > 0);
+            show_section('workers', played);
             render_summary(this.summary, this.latest);
             render_verdict(this.summary, this.latest);
             render_tiles(this.tiles, this.latest);

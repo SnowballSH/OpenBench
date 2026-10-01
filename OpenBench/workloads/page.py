@@ -5,7 +5,8 @@ from typing import Literal, cast
 from django.utils import timezone
 
 from OpenBench.insights.domain import WorkloadFacts, WorkloadMode, WorkloadStatus
-from OpenBench.insights.listing import RowTiming
+from OpenBench.insights.eta import estimate_eta
+from OpenBench.insights.listing import RowTiming, eta_parts
 from OpenBench.insights.results.analysis import outlook_of
 from OpenBench.insights.results.verdict import Verdict, give_verdict
 from OpenBench.insights.sources import workload_facts
@@ -28,7 +29,7 @@ STATE_VARIANTS: dict[WorkloadStatus, BadgeVariant] = {
     WorkloadStatus.DELETED: 'neutral',
 }
 
-# The states the stat block's colour says nothing about; live.js names them the same way
+# The states the stat block's colour says nothing about; any other is named by result_label
 STATE_LABELS: dict[WorkloadStatus, str] = {
     WorkloadStatus.COMPLETED: 'Completed',
     WorkloadStatus.STOPPED: 'Stopped',
@@ -38,8 +39,15 @@ STATE_LABELS: dict[WorkloadStatus, str] = {
 
 @dataclass(frozen=True, slots=True)
 class StateBadge:
-    label: str
+    label: str | None
     variant: BadgeVariant
+
+
+# Only an SPRT decides anything: a fixed run that reached its target carries the passed or failed flag of its score
+UNDECIDED_STATES: dict[WorkloadStatus, StateBadge] = {
+    WorkloadStatus.PASSED: StateBadge('Completed', 'neutral'),
+    WorkloadStatus.FAILED: StateBadge('Completed', 'neutral'),
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,6 +65,7 @@ class PageHeader:
 @dataclass(frozen=True, slots=True)
 class SummaryMeter:
     kind: MeterKind
+    caption: str
     fraction: float
     label: str
 
@@ -96,15 +105,30 @@ class WorkloadPage:
     header: PageHeader
     summary: PageSummary
     sections: PageSections
+    states: dict[str, dict[str, str | None]]
 
 
-def state_badge(workload: Test, status: WorkloadStatus) -> StateBadge:
+def state_of(status: WorkloadStatus, facts: WorkloadFacts) -> StateBadge:
+    if facts.sprt is None and status in UNDECIDED_STATES:
+        return UNDECIDED_STATES[status]
+    return StateBadge(STATE_LABELS.get(status), STATE_VARIANTS[status])
+
+
+def state_table(facts: WorkloadFacts) -> dict[str, dict[str, str | None]]:
+
+    # What live.js draws when the status moves; a null label is the payload's own outcome text
+    states = ((status, state_of(status, facts)) for status in WorkloadStatus)
+    return {status.value: {'label': state.label, 'variant': state.variant} for status, state in states}
+
+
+def state_badge(workload: Test, facts: WorkloadFacts) -> StateBadge:
     # Imported here, as below: the listing modules load OpenBench.utils, whose views load this module
     from OpenBench.listing_rows import result_label
     from OpenBench.templatetags import mytags
 
+    state = state_of(facts.status, facts)
     colour = cast(str, mytags.testResultColour(workload))
-    return StateBadge(STATE_LABELS.get(status) or result_label(workload, colour), STATE_VARIANTS[status])
+    return StateBadge(state.label or result_label(workload, colour), state.variant)
 
 
 def versus(dev: str, base: str) -> str:
@@ -138,7 +162,7 @@ def page_header(workload: Test, facts: WorkloadFacts) -> PageHeader:
         time_class=time_class_label(workload),
         time_control=versus(workload.dev_time_control, workload.base_time_control),
         mode=mode_text(workload, facts),
-        state=state_badge(workload, facts.status),
+        state=state_badge(workload, facts),
     )
 
 
@@ -165,13 +189,24 @@ def summary_meter(facts: WorkloadFacts) -> SummaryMeter | None:
     if facts.sprt is not None and facts.sprt.upper_llr > facts.sprt.lower_llr:
         lower, upper = facts.sprt.lower_llr, facts.sprt.upper_llr
         fraction = (facts.llr - lower) / (upper - lower)
-        return SummaryMeter('position', clamped(fraction), f'LLR {facts.llr:.2f} between {lower:.2f} and {upper:.2f}')
+        label = f'LLR {facts.llr:.2f} between {lower:.2f} and {upper:.2f}'
+        return SummaryMeter('position', 'LLR', clamped(fraction), label)
 
     if facts.target_games:
         games = facts.outcomes.games
-        return SummaryMeter('fill', clamped(games / facts.target_games), f'{games:,} of {facts.target_games:,} games')
+        label = f'{games:,} of {facts.target_games:,} games'
+        return SummaryMeter('fill', 'Games', clamped(games / facts.target_games), label)
 
     return None
+
+
+def idle_timing(facts: WorkloadFacts, now: datetime) -> RowTiming | None:
+
+    # Before the first game there is no rate to read, only the reason there is no time left yet
+    if facts.status != WorkloadStatus.ACTIVE:
+        return None
+    kind, text = eta_parts(estimate_eta(facts, None, now))
+    return RowTiming(kind, text) if text else None
 
 
 def page_timing(workload: Test, facts: WorkloadFacts, now: datetime) -> RowTiming | None:
@@ -179,7 +214,7 @@ def page_timing(workload: Test, facts: WorkloadFacts, now: datetime) -> RowTimin
     from OpenBench.page_queries import listing_row_timing, listing_tests
 
     if facts.outcomes.games == 0:
-        return None
+        return idle_timing(facts, now)
 
     # One query: the snapshot marks the index annotates onto its rows, for the same time left and rate
     listed = listing_tests(Test.objects.filter(id=workload.id), now).first()
@@ -211,4 +246,5 @@ def workload_page(workload: Test, worker_errors: int, now: datetime | None = Non
             timing=page_timing(workload, facts, now or timezone.now()),
         ),
         sections=page_sections(workload, facts, worker_errors),
+        states=state_table(facts),
     )

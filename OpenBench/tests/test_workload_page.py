@@ -1,3 +1,4 @@
+import json
 import re
 from dataclasses import dataclass, field
 from html.parser import HTMLParser
@@ -5,6 +6,7 @@ from typing import Any
 
 from django.test import TestCase
 
+from OpenBench.insights.domain import WorkloadStatus
 from OpenBench.insights.results.verdict import VerdictKind
 from OpenBench.insights.sources import workload_facts
 from OpenBench.insights.workload import workload_insights
@@ -25,6 +27,7 @@ from OpenBench.workloads.page import (
     page_header,
     page_sections,
     page_verdict,
+    state_table,
     summary_meter,
     workload_page,
 )
@@ -223,6 +226,25 @@ class PageHeaderTests(WorkloadPageCase):
             with self.subTest(fields=fields):
                 self.assertEqual(self.header(create_test(self.author, **fields)).state, badge)
 
+    def test_a_fixed_run_completes_instead_of_passing_or_failing(self) -> None:
+        for mode in ('GAMES', 'DATAGEN'):
+            for flag in ('passed', 'failed'):
+                with self.subTest(mode=mode, flag=flag):
+                    fields: dict[str, Any] = {'test_mode': mode, 'max_games': 1000, 'finished': True, flag: True}
+                    test = create_test(self.author, **fields)
+                    self.assertEqual(self.header(test).state, StateBadge('Completed', 'neutral'))
+
+    def test_the_state_table_is_what_the_live_script_draws(self) -> None:
+        sprt = state_table(workload_facts(create_test(self.author)))
+        self.assertEqual(set(sprt), {status.value for status in WorkloadStatus})
+        self.assertEqual(sprt['passed'], {'label': None, 'variant': 'pass'})
+        self.assertEqual(sprt['stopped'], {'label': 'Stopped', 'variant': 'neutral'})
+
+        fixed = state_table(workload_facts(create_test(self.author, test_mode='GAMES', max_games=1000)))
+        self.assertEqual(fixed['passed'], {'label': 'Completed', 'variant': 'neutral'})
+        self.assertEqual(fixed['failed'], fixed['passed'])
+        self.assertEqual(fixed['active'], sprt['active'])
+
     def test_header_runs_no_queries(self) -> None:
         test = Test.objects.select_related('dev', 'base').get(id=create_test(self.author).id)
         with self.assertNumQueries(0):
@@ -232,17 +254,21 @@ class PageHeaderTests(WorkloadPageCase):
 class PageSummaryTests(WorkloadPageCase):
     def test_a_running_sprt_meter_is_the_llr_position(self) -> None:
         meter = present(summary_meter(workload_facts(create_test(self.author, currentllr=1.47))))
-        self.assertEqual((meter.kind, meter.label), ('position', 'LLR 1.47 between -2.94 and 2.94'))
+        self.assertEqual(
+            (meter.kind, meter.caption, meter.label), ('position', 'LLR', 'LLR 1.47 between -2.94 and 2.94')
+        )
         self.assertAlmostEqual(meter.fraction, 0.75)
 
     def test_a_running_fixed_run_meter_is_games_over_the_target(self) -> None:
         for mode in ('GAMES', 'DATAGEN'):
             test = create_test(self.author, test_mode=mode, max_games=4000, **{**PLAYED, 'games': 1000})
-            self.assertEqual(summary_meter(workload_facts(test)), SummaryMeter('fill', 0.25, '1,000 of 4,000 games'))
+            self.assertEqual(
+                summary_meter(workload_facts(test)), SummaryMeter('fill', 'Games', 0.25, '1,000 of 4,000 games')
+            )
 
     def test_a_running_tune_meter_is_games_over_its_iterations(self) -> None:
         test = self.tune(games=400, losses=100, draws=200, wins=100)
-        self.assertEqual(summary_meter(workload_facts(test)), SummaryMeter('fill', 0.25, '400 of 1,600 games'))
+        self.assertEqual(summary_meter(workload_facts(test)), SummaryMeter('fill', 'Games', 0.25, '400 of 1,600 games'))
 
     def test_the_meter_is_clamped(self) -> None:
         for llr, fraction in ((9.0, 1.0), (-9.0, 0.0)):
@@ -280,9 +306,17 @@ class PageSummaryTests(WorkloadPageCase):
             WorkloadSnapshot.objects.create(test=played, games=25 * index, llr=0.0)
 
         with self.assertNumQueries(0):
-            self.assertIsNone(workload_page(idle, 0).summary.timing)
+            timing = present(workload_page(idle, 0).summary.timing)
+        self.assertEqual((timing.kind, timing.text, timing.rate), ('unavailable', 'needs 200 games first', None))
         with self.assertNumQueries(1):
             workload_page(played, 0)
+
+    def test_nothing_is_timed_before_games_unless_the_workload_is_running(self) -> None:
+        idle: tuple[dict[str, Any], ...] = ({'approved': False}, {'finished': True})
+        for fields in idle:
+            test = create_test(self.author, **fields)
+            with self.subTest(fields=fields), self.assertNumQueries(0):
+                self.assertIsNone(workload_page(test, 0).summary.timing)
 
     def test_a_finished_workload_says_how_long_it_took(self) -> None:
         test = create_test(self.author, finished=True, passed=True, **PLAYED)
@@ -448,6 +482,20 @@ class RenderedWorkloadPageTests(WorkloadPageCase):
         apart = content.split('<div class="action-row action-danger">', 1)[1].split('</div>', 1)[0]
         self.assertEqual(re.findall(r'/(\w+)/"', apart), ['STOP', 'DELETE'])
         self.assertNotIn('Clone', apart)
+
+    def test_the_live_script_reads_its_states_from_the_page(self) -> None:
+        test = create_test(self.author, test_mode='GAMES', max_games=4000, **PLAYED)
+        island = self.html(test).split('<script id="workload-states" type="application/json">', 1)[1]
+        self.assertEqual(json.loads(island.split('</script>', 1)[0]), state_table(workload_facts(test)))
+
+    def test_the_meter_is_captioned(self) -> None:
+        content = self.html(create_test(self.author, **PLAYED))
+        self.assertIn('data-summary-meter><span class="summary-meter-caption">LLR</span><span', content)
+
+    def test_a_running_workload_without_games_says_why_there_is_no_time_left(self) -> None:
+        content = self.html(create_test(self.author))
+        self.assertIn('class="row-timing-unavailable"', content)
+        self.assertIn('needs 200 games first', content)
 
     def test_script_hooks_are_present(self) -> None:
         content = self.html(create_test(self.author, **PLAYED))

@@ -48,7 +48,7 @@
         <p class="insights-verdict{% if summary.verdict %} insights-verdict-{{summary.verdict.tone}}{% endif %}" data-insights-verdict{% if not summary.verdict %} hidden{% endif %}>{{summary.verdict.text}}</p>
         <div class="summary-forecast" data-insights-forecast></div>
         <div class="summary-progress">
-            <div class="summary-meter" data-summary-meter>{% if summary.meter %}<span class="insight-meter insight-meter-{{summary.meter.kind}}" role="meter" aria-valuemin="0" aria-valuemax="1" aria-valuenow="{{summary.meter.fraction|stringformat:'.3f'}}" aria-valuetext="{{summary.meter.label}}" title="{{summary.meter.label}}" data-fraction="{{summary.meter.fraction|stringformat:'.4f'}}"></span>{% endif %}</div>
+            <div class="summary-meter" data-summary-meter>{% if summary.meter %}<span class="summary-meter-caption">{{summary.meter.caption}}</span><span class="insight-meter insight-meter-{{summary.meter.kind}}" role="meter" aria-valuemin="0" aria-valuemax="1" aria-valuenow="{{summary.meter.fraction|stringformat:'.3f'}}" aria-valuetext="{{summary.meter.label}}" title="{{summary.meter.label}}" data-fraction="{{summary.meter.fraction|stringformat:'.4f'}}"></span>{% endif %}</div>
             <div class="summary-timing" data-summary-timing>{% if summary.timing %}{% include "OpenBench/Blocks/row_timing.html" with timing=summary.timing %}{% endif %}</div>
         </div>
         <p class="visually-hidden" data-live-outcome>Result: {% include "OpenBench/Blocks/result_text.html" with test=workload %}</p>
@@ -390,5 +390,7 @@
     {% endwith %}
 
     </div>
+
+    {{ page.states|json_script:"workload-states" }}
 
 {% endblock %}
