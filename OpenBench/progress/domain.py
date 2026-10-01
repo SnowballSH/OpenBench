@@ -106,7 +106,6 @@ class Commit:
 @dataclass(frozen=True, slots=True)
 class HostCounters:
     host: str
-    games: int
     counted_games: int
     dev_nodes: int
     dev_ms: int
@@ -131,7 +130,8 @@ class RunRow:
     finished_at: datetime | None
     games: int
     outcomes: Outcomes
-    threads: int = 1
+    dev_threads: int = 1
+    base_threads: int = 1
     started_at: datetime | None = None
     dev_bench: int = 0
     base_bench: int = 0
@@ -338,6 +338,7 @@ class CostBucket:
     games: int
     core_hours: float
     counted_games: int
+    estimated_core_hours: float | None
     games_share: float | None
     core_share: float | None
 
@@ -351,6 +352,7 @@ class ClassEconomics:
     median_games_to_pass: float | None
     median_games_to_fail: float | None
     games: int
+    finished_games: int
     core_hours: float
     chained_elo: EloInterval | None
     games_per_elo: float | None
@@ -366,6 +368,7 @@ class WeeklySteps:
 class Cadence:
     weekly: list[WeeklySteps]
     joined: int
+    span_days: int
     steps_per_week: float | None
     acceptance_samples: int
     median_acceptance_seconds: float | None
@@ -380,6 +383,7 @@ class Economics:
     failed: CostBucket
     other: CostBucket
     counter_coverage: float | None
+    core_hours_estimated: bool
     classes: list[ClassEconomics]
     speed: SpeedSeries
     cadence: Cadence

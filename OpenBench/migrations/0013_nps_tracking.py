@@ -4,40 +4,39 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ("OpenBench", "0012_alter_machine_updated"),
+        ('OpenBench', '0012_alter_machine_updated'),
     ]
 
     operations = [
         migrations.AddField(
-            model_name="result",
-            name="base_nodes",
+            model_name='result',
+            name='base_nodes',
             field=models.BigIntegerField(default=0),
         ),
         migrations.AddField(
-            model_name="result",
-            name="base_time",
+            model_name='result',
+            name='base_time',
             field=models.BigIntegerField(default=0),
         ),
         migrations.AddField(
-            model_name="result",
-            name="base_time_scaled",
+            model_name='result',
+            name='base_time_scaled',
             field=models.BigIntegerField(default=0),
         ),
         migrations.AddField(
-            model_name="result",
-            name="dev_nodes",
+            model_name='result',
+            name='dev_nodes',
             field=models.BigIntegerField(default=0),
         ),
         migrations.AddField(
-            model_name="result",
-            name="dev_time",
+            model_name='result',
+            name='dev_time',
             field=models.BigIntegerField(default=0),
         ),
         migrations.AddField(
-            model_name="result",
-            name="dev_time_scaled",
+            model_name='result',
+            name='dev_time_scaled',
             field=models.BigIntegerField(default=0),
         ),
     ]

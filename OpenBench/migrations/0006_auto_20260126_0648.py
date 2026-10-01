@@ -2,6 +2,7 @@
 
 from django.db import migrations
 
+
 def forwards(apps, schema_editor):
 
     Test = apps.get_model('OpenBench', 'Test')
@@ -9,7 +10,6 @@ def forwards(apps, schema_editor):
     SPSAParameter = apps.get_model('OpenBench', 'SPSAParameter')
 
     for test in Test.objects.filter(test_mode='SPSA'):
-
         if not test.spsa:
             continue
 
@@ -17,33 +17,33 @@ def forwards(apps, schema_editor):
             test.spsa_run
             continue
         except SPSARun.DoesNotExist:
-            pass # Need to create the SPSARun
+            pass  # Need to create the SPSARun
 
         spsa_run = SPSARun.objects.create(
-            tune                = test,
-            reporting_type      = test.spsa.get('reporting_type', 'BATCHED'),
-            distribution_type   = test.spsa.get('distribution_type', 'SINGLE'),
-            alpha               = test.spsa.get('Alpha'),
-            gamma               = test.spsa.get('Gamma'),
-            iterations          = test.spsa.get('iterations'),
-            pairs_per           = test.spsa.get('pairs_per'),
-            a_ratio             = test.spsa.get('A_ratio'),
+            tune=test,
+            reporting_type=test.spsa.get('reporting_type', 'BATCHED'),
+            distribution_type=test.spsa.get('distribution_type', 'SINGLE'),
+            alpha=test.spsa.get('Alpha'),
+            gamma=test.spsa.get('Gamma'),
+            iterations=test.spsa.get('iterations'),
+            pairs_per=test.spsa.get('pairs_per'),
+            a_ratio=test.spsa.get('A_ratio'),
         )
 
         for index, (name, param) in enumerate(test.spsa.get('parameters', {}).items()):
             SPSAParameter.objects.create(
-                spsa_run  = spsa_run,
-                name      = name,
-                index     = param.get('index', index), # Very old tests might lack the index value
-                value     = param.get('value'),
-                is_float  = param.get('float'),
-                start     = param.get('start'),
-                min_value = param.get('min'),
-                max_value = param.get('max'),
-                c_end     = param.get('c_end'),
-                r_end     = param.get('r_end'),
-                c_value   = param.get('c'),
-                a_value   = param.get('a'),
+                spsa_run=spsa_run,
+                name=name,
+                index=param.get('index', index),  # Very old tests might lack the index value
+                value=param.get('value'),
+                is_float=param.get('float'),
+                start=param.get('start'),
+                min_value=param.get('min'),
+                max_value=param.get('max'),
+                c_end=param.get('c_end'),
+                r_end=param.get('r_end'),
+                c_value=param.get('c'),
+                a_value=param.get('a'),
             )
 
 
@@ -51,8 +51,8 @@ def backwards(apps, schema_editor):
     SPSARun = apps.get_model('OpenBench', 'SPSARun')
     SPSARun.objects.all().delete()
 
-class Migration(migrations.Migration):
 
+class Migration(migrations.Migration):
     dependencies = [
         ('OpenBench', '0005_remove_spsaparameter_a_end_remove_spsarun_a_value'),
     ]

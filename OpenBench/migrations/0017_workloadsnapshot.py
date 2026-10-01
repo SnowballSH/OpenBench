@@ -6,7 +6,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ('OpenBench', '0016_engineconfig_serverstate'),
     ]
@@ -27,7 +26,15 @@ class Migration(migrations.Migration):
                 ('DW', models.IntegerField(default=0)),
                 ('WW', models.IntegerField(default=0)),
                 ('llr', models.FloatField(default=0.0)),
-                ('test', models.ForeignKey(db_index=False, on_delete=django.db.models.deletion.CASCADE, related_name='snapshots', to='OpenBench.test')),
+                (
+                    'test',
+                    models.ForeignKey(
+                        db_index=False,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name='snapshots',
+                        to='OpenBench.test',
+                    ),
+                ),
             ],
             options={
                 'indexes': [models.Index(fields=['test', 'created'], name='snapshot_test_created')],

@@ -6,7 +6,6 @@ import django.db.models.deletion
 
 
 class Migration(migrations.Migration):
-
     initial = True
 
     dependencies = [
@@ -47,7 +46,12 @@ class Migration(migrations.Migration):
                 ('secret', models.CharField(default='None', max_length=64)),
                 ('info', models.JSONField()),
                 ('workload', models.IntegerField(default=0)),
-                ('user', models.ForeignKey(on_delete=django.db.models.deletion.PROTECT, related_name='owner', to=settings.AUTH_USER_MODEL)),
+                (
+                    'user',
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.PROTECT, related_name='owner', to=settings.AUTH_USER_MODEL
+                    ),
+                ),
             ],
         ),
         migrations.CreateModel(
@@ -96,7 +100,12 @@ class Migration(migrations.Migration):
                 ('workload_size', models.IntegerField(default=32)),
                 ('priority', models.IntegerField(default=0)),
                 ('throughput', models.IntegerField(default=0)),
-                ('scale_method', models.CharField(choices=[('DEV', 'DEV'), ('BASE', 'BASE'), ('BOTH', 'BOTH')], default='BASE', max_length=16)),
+                (
+                    'scale_method',
+                    models.CharField(
+                        choices=[('DEV', 'DEV'), ('BASE', 'BASE'), ('BOTH', 'BOTH')], default='BASE', max_length=16
+                    ),
+                ),
                 ('scale_nps', models.IntegerField(default=0)),
                 ('syzygy_wdl', models.CharField(default='OPTIONAL', max_length=16)),
                 ('syzygy_adj', models.CharField(default='OPTIONAL', max_length=16)),
@@ -134,8 +143,18 @@ class Migration(migrations.Migration):
                 ('error', models.BooleanField(default=False)),
                 ('creation', models.DateTimeField(auto_now_add=True)),
                 ('updated', models.DateTimeField(auto_now=True)),
-                ('base', models.ForeignKey(on_delete=django.db.models.deletion.PROTECT, related_name='base', to='OpenBench.engine')),
-                ('dev', models.ForeignKey(on_delete=django.db.models.deletion.PROTECT, related_name='dev', to='OpenBench.engine')),
+                (
+                    'base',
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.PROTECT, related_name='base', to='OpenBench.engine'
+                    ),
+                ),
+                (
+                    'dev',
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.PROTECT, related_name='dev', to='OpenBench.engine'
+                    ),
+                ),
             ],
         ),
         migrations.CreateModel(
@@ -154,8 +173,18 @@ class Migration(migrations.Migration):
                 ('games', models.IntegerField(default=0)),
                 ('crashes', models.IntegerField(default=0)),
                 ('timeloss', models.IntegerField(default=0)),
-                ('machine', models.ForeignKey(on_delete=django.db.models.deletion.PROTECT, related_name='machine', to='OpenBench.machine')),
-                ('test', models.ForeignKey(on_delete=django.db.models.deletion.PROTECT, related_name='test', to='OpenBench.test')),
+                (
+                    'machine',
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.PROTECT, related_name='machine', to='OpenBench.machine'
+                    ),
+                ),
+                (
+                    'test',
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.PROTECT, related_name='test', to='OpenBench.test'
+                    ),
+                ),
             ],
         ),
         migrations.CreateModel(
@@ -169,7 +198,12 @@ class Migration(migrations.Migration):
                 ('enabled', models.BooleanField(default=False)),
                 ('approver', models.BooleanField(default=False)),
                 ('updated', models.DateTimeField(auto_now=True)),
-                ('user', models.ForeignKey(on_delete=django.db.models.deletion.PROTECT, related_name='user', to=settings.AUTH_USER_MODEL)),
+                (
+                    'user',
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.PROTECT, related_name='user', to=settings.AUTH_USER_MODEL
+                    ),
+                ),
             ],
         ),
     ]

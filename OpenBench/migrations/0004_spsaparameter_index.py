@@ -4,7 +4,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ('OpenBench', '0003_alter_spsaparameter_spsa_run'),
     ]

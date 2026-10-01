@@ -395,12 +395,12 @@ class ProgressDataTests(TestCase):
         self.history(test, (NOW - timedelta(hours=5), 10), (NOW - timedelta(hours=1), 250))
 
         usage = sources.load_usage('Avalanche')
-        mine, theirs = sorted(usage[test.id], key=lambda host: -host.games)
+        mine, theirs = sorted(usage[test.id], key=lambda host: -host.counted_games)
         self.assertEqual(
-            (mine.host, mine.games, mine.counted_games, mine.dev_nodes, mine.dev_ms, mine.base_nodes, mine.base_ms),
-            (self.machine.host_key, 200, 160, 1960, 2000, 2000, 2000),
+            (mine.host, mine.counted_games, mine.dev_nodes, mine.dev_ms, mine.base_nodes, mine.base_ms),
+            (self.machine.host_key, 160, 1960, 2000, 2000, 2000),
         )
-        self.assertEqual((theirs.games, theirs.counted_games), (50, 50))
+        self.assertEqual(theirs.counted_games, 50)
 
         report = self.report(engine='Avalanche')
         (row,) = present(report.lineage).steps
@@ -671,11 +671,21 @@ class ProgressViewTests(TestCase):
 
         economics = payload['economics']
         self.assertEqual(
-            set(economics), {'trunk', 'failed', 'other', 'counter_coverage', 'classes', 'speed', 'cadence'}
+            set(economics),
+            {'trunk', 'failed', 'other', 'counter_coverage', 'core_hours_estimated', 'classes', 'speed', 'cadence'},
         )
         self.assertEqual(
             set(economics['trunk']),
-            {'steps', 'runs', 'games', 'core_hours', 'counted_games', 'games_share', 'core_share'},
+            {
+                'steps',
+                'runs',
+                'games',
+                'core_hours',
+                'counted_games',
+                'estimated_core_hours',
+                'games_share',
+                'core_share',
+            },
         )
         self.assertEqual(
             set(economics['classes'][0]),
@@ -687,6 +697,7 @@ class ProgressViewTests(TestCase):
                 'median_games_to_pass',
                 'median_games_to_fail',
                 'games',
+                'finished_games',
                 'core_hours',
                 'chained_elo',
                 'games_per_elo',
@@ -699,6 +710,7 @@ class ProgressViewTests(TestCase):
             {
                 'weekly',
                 'joined',
+                'span_days',
                 'steps_per_week',
                 'acceptance_samples',
                 'median_acceptance_seconds',

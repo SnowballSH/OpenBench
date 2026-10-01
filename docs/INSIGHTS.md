@@ -999,9 +999,17 @@ measurement that the machine's own speed cancels out of.
 - **Interval.** With `n ≥ 2` hosts, the variance of the weighted mean is
   estimated from the host-to-host scatter,
   `n / (n − 1) · Σ w²(x − mean)² / (Σ w)²`, and the 95% half-width is its root
-  times the Student t quantile for `n − 1` degrees of freedom, applied in log
-  space. It is rough: hosts are few, and it assumes each host is an independent
-  draw. With one host there is no interval (`lower` and `upper` are `null`).
+  times the Student t quantile, applied in log space. The degrees of freedom
+  are the Kish effective sample size less one, `(Σ w)² / Σ w² − 1` (rounded
+  down to a hundredth, which only widens): with equal host times that is
+  `n − 1`, and when one always-on machine supplies most of the time next to a
+  few short batch jobs it falls towards zero, because the mean is then
+  essentially that one machine's ratio. With `n − 1` the interval covered the
+  truth only 75–90% of the time under unequal times; with the effective value
+  it is conservative (a seeded simulation in the tests checks coverage). There
+  is no interval (`lower` and `upper` are `null`) with one host, or when the
+  effective degrees of freedom are below 0.5 ("one host dominates"). It stays
+  rough: hosts are few, and it assumes each host is an independent draw.
 - **Classes.** The step's speed pools every chained class. The same ratio is
   also computed per class (`speed.classes`); when two classes that both have
   intervals differ by more than their margins in quadrature, `classes_differ`
@@ -1011,9 +1019,9 @@ measurement that the machine's own speed cancels out of.
   multiply): the cumulative ratio at step `k` is the engine's speed relative to
   the window's origin commit, shown as a percentage change. Log half-widths add
   in quadrature, like the Elo chain. A step without speed is a gap that adds
-  nothing (`measured` of `steps`). Once a step measured on a single host is in
+  nothing (`measured` of `steps`). Once a step without an interval is in
   the product, the cumulative interval is `null` from there on (`unbounded`
-  counts such steps): a band that left their uncertainty out would be too
+  counts steps without an interval): a band that left their uncertainty out would be too
   narrow.
 
 Running tests count: node counters are not selected by a stopping rule, so a
@@ -1050,52 +1058,77 @@ not:
   engines spent searching. It is not machine uptime: engine start-up, the
   book, adjudicated tails and idle workers are not in it, and it is unscaled
   (real milliseconds on whatever hardware played). `null` when no Result has
-  counters; `counted_games` says how many games it covers. An estimate from
-  games × time control was rejected: it needs a guess at moves per game and at
-  how much of the clock is used, and the counters are measured.
+  counters. Each side is charged its own `Threads` (`dev_time` × dev threads
+  plus `base_time` × base threads), so a test of one thread against four is
+  not charged four on both. `counted_games` is the games of the Results that
+  have counters. Whether a Result's counters cover all of its games cannot be
+  determined: the worker reports counters per batch alongside the results, and
+  a Result only stores running totals, so a Result with counters is taken as
+  fully covered. An estimate from games × time control was rejected as the
+  primary measure: it needs a guess at moves per game and at how much of the
+  clock is used, and the counters are measured.
 
 Window summaries (`economics`):
 
 - **Buckets** `trunk`, `failed`, `other`: the trunk steps; candidates with a
   `failed` verdict at any class; the remaining candidates (still running,
   stopped, or passed but not built on). Each has steps, runs, games, search
-  core-hours, and its share of the window's games and core-hours. "Spent on
-  failed changes" is the failed bucket's share of search time, with its share
-  of games beside it; without counters it falls back to games. A trunk step's
+  core-hours (`core_hours`, measured only), and its share of the window's
+  games. Missing counters are not zero hours: `estimated_core_hours` fills
+  them in per run. A run with counters on some of its games is scaled up by
+  `games / counted_games`; a run with none is charged its games times the
+  window's measured hours per counted game **at its class** (STC and LTC
+  differ about fivefold, so one overall rate would be wrong). When a class has
+  no measured run at all there is no rate, the bucket's estimate is `null`,
+  and `core_share` is `null` for every bucket. `core_share` is the bucket's
+  share of the estimated hours; `core_hours_estimated` says an estimate was
+  needed. "Spent on failed changes" is the failed bucket's `core_share` with
+  its share of games beside it, marked "estimated" with the counter coverage
+  when it is; without a usable estimate it falls back to the games share. A trunk step's
   failed repeats count with the trunk: the bucket is the change's fate, not
   the run's. `counter_coverage` is counted games over games.
 - **By class** (`classes`): decided SPRT runs `passed` and `failed`, the pass
   rate `passed / (passed + failed)`, the median games of a passed run and of a
   failed run, and all games and core-hours at the class (GAMES runs and
   undecided runs included in those two).
-- **Games per Elo**: all games at the class in the window (trunk and
-  candidates, so the failures are paid for) divided by the chained Elo of the
-  window's trunk at that class; `null` unless the chained value is positive.
+- **Games per Elo**: the games of **finished** runs at the class in the
+  window (`finished_games`: trunk and candidates, so the failures are paid
+  for) divided by the chained Elo of the window's trunk at that class; `null`
+  unless the chained value is positive. A running run is left out on both
+  sides: its estimate is provisional and not in the chain, so counting its
+  games would charge for Elo not yet credited.
   The chained value is biased upwards by selection (see Chained estimate), so
   the figure is optimistic; the tile says so, and says when the chained total
   is within its margin of zero.
 
 ### Cadence
 
-- A trunk step **joins** at the finish of its newest passed run; a step that
-  was built on without a pass joins at its newest finish. `weekly` counts joins
-  per UTC week over the window (zeros included).
-- `steps_per_week` is joins × 7 divided by the days from the later of the
-  window's start and the day the window's first trunk step was first tested,
-  to today. On a young instance the rate is therefore over the time the
-  lineage has existed, not over an empty 90 days.
-- **First test to accepted**: for steps with a passed run, newest pass finish
-  minus the creation of the step's first run (queueing included). Median and
-  mean.
+- A step is **settled** when none of its runs is still running or pending.
+  Only settled trunk steps count below: a step that passed STC while its LTC
+  confirmation runs is not accepted yet.
+- A settled trunk step **joins** at the finish of its newest passed run; one
+  that was built on without a pass joins at its newest finish. `weekly` counts
+  joins per UTC week over the window (zeros included).
+- `span_days` is the days from the later of the window's start and the day the
+  window's first trunk step was first tested, to today. `steps_per_week` is
+  joins × 7 / `span_days`, and `null` while the span is under seven days: two
+  steps on the first day are not "14 a week", so the tile then reads "2 steps
+  in 1 day".
+- **First test to accepted**: for settled steps with a passed run, newest pass
+  finish minus the creation of the step's first run (queueing included).
+  Median and mean.
 - **STC pass to LTC pass**: for steps passed at both, the first LTC pass that
-  finished after the first STC pass, minus that STC pass. Median.
+  finished after the first STC pass, minus that STC pass. Median, shown in the
+  same tile.
 
 ### Cost
 
 Seven queries whatever the data size (six for `all`, which needs no baseline),
 each an aggregate or a bounded row set: the usage (Results of the engine's
-runs grouped by test and host, one row per pair, summing games and the four
-counters), the runs (one row per SPRT or GAMES
+runs that have counters, grouped by test and host, one tuple per pair, summing
+games and the four counters; hosts are merged once per step and class. With
+300 tests of 300 hosts each (90,000 pairs) the uncached report takes about a
+second, half of it this query), the runs (one row per SPRT or GAMES
 test of the engine, joined to its two `Engine` rows for the SHAs and benches, with
 correlated newest- and oldest-snapshot subqueries served by the `(test, created)` index), the
 weekly outcome counts (grouped in SQL), the daily snapshot maxima (grouped by
@@ -1249,10 +1282,13 @@ estimate is `{ "lower", "value", "upper" }` (a 95% interval) or `null`.
       "trunk":  { "steps": 3, "runs": 7, "games": 157200,
                   "core_hours": 2520.2,       // search time, see Testing economics
                   "counted_games": 157200,    // games behind core_hours
-                  "games_share": 0.803, "core_share": 0.903 },   // of the three buckets; null when the total is zero
+                  "estimated_core_hours": 2520.2,   // core_hours with uncounted games filled in; null without a rate
+                  "games_share": 0.803,       // of the three buckets; null when the total is zero
+                  "core_share": 0.903 },      // share of estimated hours; null when any bucket has no estimate
       "failed": { /* as trunk: candidates with a failed verdict */ },
       "other":  { /* as trunk: the remaining candidates */ },
       "counter_coverage": 1.0,        // counted games / games, or null
+      "core_hours_estimated": false,  // true when core_share rests on estimated hours
       "classes": [                    // classes tested in the window, in class order
         { "time_class": "stc",
           "passed": 4, "failed": 1,   // decided SPRT runs
@@ -1260,8 +1296,9 @@ estimate is `{ "lower", "value", "upper" }` (a 95% interval) or `null`.
           "median_games_to_pass": 24750.0,    // or null
           "median_games_to_fail": 36800.0,    // or null
           "games": 146000, "core_hours": 1018.9,   // every run at the class
+          "finished_games": 144200,   // games of finished runs: the numerator of games_per_elo
           "chained_elo": { "lower": 7.7, "value": 12.0, "upper": 16.3 },   // the window's trunk, or null
-          "games_per_elo": 12191.8 }  // games / chained value; null unless that is positive
+          "games_per_elo": 12041.4 }  // finished_games / chained value; null unless that is positive
       ],
       "speed": {
         "points": [                   // one per step in lineage.steps
@@ -1271,12 +1308,13 @@ estimate is `{ "lower", "value", "upper" }` (a 95% interval) or `null`.
         ],
         "total": { "ratio": 0.9437, "lower": 0.9400, "upper": 0.9474 },   // whole window, or null
         "measured": 3,                // steps with a speed
-        "unbounded": 0,               // of those, steps on one host (no interval; total bounds are then null)
+        "unbounded": 0,               // of those, steps without an interval (total bounds are then null)
         "steps": 3 },
       "cadence": {
         "weekly": [ { "week_start": "2026-09-28", "steps": 2 } ],   // every week of the window
-        "joined": 3,
-        "steps_per_week": 3.5,        // or null
+        "joined": 2,                  // settled trunk steps
+        "span_days": 5,
+        "steps_per_week": null,       // null under seven days of span
         "acceptance_samples": 3,
         "median_acceptance_seconds": 77100.4,     // first test created → newest pass, or null
         "mean_acceptance_seconds": 77100.4,
@@ -1331,8 +1369,8 @@ attribute. `OpenBench/tests/test_csp.py` scans the template and the rendered
 Each lineage row carries the dev bench after the date and author, and a second
 detail line with the step's speed and cost. The **Economics & speed** section
 sits below the lineage: a tile row (speed since the window's start, the share
-spent on failed changes, games per Elo at STC and LTC, trunk velocity and the
-two latencies), two short charts (speed along the trunk, on the same step axis
+spent on failed changes, games per Elo at STC and LTC, trunk velocity, and the
+two latencies in one tile, six in all so the row has no orphan), two short charts (speed along the trunk, on the same step axis
 as the trunk chart; trunk steps per week), each with its data table, and the
 per-class table. It is absent when there is no lineage.
 

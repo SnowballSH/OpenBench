@@ -36,8 +36,8 @@ PGN_BATCH_SIZE = 128
 
 LOGGER = logging.getLogger(__name__)
 
-class PGNWatcher(threading.Thread):
 
+class PGNWatcher(threading.Thread):
     def __init__(self, stop_event, *args, **kwargs):
         self.stop_event = stop_event
         super().__init__(*args, **kwargs)
@@ -48,7 +48,7 @@ class PGNWatcher(threading.Thread):
         # scanning the entire archive on every individual write, which is very slow.
 
         # The row and its file are saved atomically, so a missing file never arrives
-        if (missing := [pgn for pgn in pgns if not storage.exists(pgn.filename())]):
+        if missing := [pgn for pgn in pgns if not storage.exists(pgn.filename())]:
             LOGGER.warning('Skipping PGNs with no file on disk: %s', ', '.join(map(str, missing)))
             PGN.objects.filter(pk__in=[pgn.pk for pgn in missing]).update(processed=True)
 
@@ -89,8 +89,7 @@ class PGNWatcher(threading.Thread):
 
         # Loop until we are shutdown by the atexit.register()
         while not self.stop_event.is_set():
-
-            try: # Never exit on errors, to keep the watcher alive
+            try:  # Never exit on errors, to keep the watcher alive
                 handled = self.process_pending()
 
             except Exception as error:

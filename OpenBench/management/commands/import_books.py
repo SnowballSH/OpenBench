@@ -33,8 +33,8 @@ from django.core.management.base import BaseCommand, CommandError
 
 from OpenBench.models import Book
 
-class Command(BaseCommand):
 
+class Command(BaseCommand):
     help = 'Create or update Books from .json files, or directories of them'
 
     def add_arguments(self, parser):
@@ -44,7 +44,6 @@ class Command(BaseCommand):
 
         for path in options['paths']:
             for fname in expand_path(path):
-
                 with open(fname) as fin:
                     conf = json.load(fin)
 
@@ -54,9 +53,11 @@ class Command(BaseCommand):
                     raise CommandError('%s must contain string "sha" and "source" fields' % (fname))
 
                 book, created = Book.objects.update_or_create(
-                    name=name, defaults={ 'source' : conf['source'], 'sha' : conf['sha'] })
+                    name=name, defaults={'source': conf['source'], 'sha': conf['sha']}
+                )
 
                 self.stdout.write('%s %s' % ('Created' if created else 'Updated', book.name))
+
 
 def expand_path(path):
 

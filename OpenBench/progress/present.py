@@ -4,7 +4,7 @@ from datetime import date
 from urllib.parse import quote, urlencode
 
 from OpenBench.insights.strength import EloInterval
-from OpenBench.progress.analysis import utc_day
+from OpenBench.progress.analysis import share, utc_day
 from OpenBench.progress.domain import (
     Author,
     Cadence,
@@ -363,7 +363,7 @@ def speed_text(speed: StepSpeed | None) -> str:
     if speed is None:
         return ''
     pooled = speed.pooled
-    spread = range_text(pooled) or 'one host, no interval'
+    spread = range_text(pooled) or ('one host, no interval' if pooled.hosts == 1 else 'one host dominates, no interval')
     by_class = ', '.join(f'{found.time_class.label} {change_text(found.speed.ratio)}' for found in speed.classes)
     return f'speed {change_text(pooled.ratio)} ({spread})' + (f'; {by_class}' if speed.classes_differ else '')
 
@@ -504,7 +504,7 @@ def speed_tile(series: SpeedSeries) -> Tile:
     if series.total is None:
         return Tile(label, DASH, coverage)
     spread = range_text(series.total)
-    unbounded = f'no interval: {plural(series.unbounded, "step")} measured on one host'
+    unbounded = f'no interval: {plural(series.unbounded, "step")} without host spread'
     return Tile(label, change_text(series.total.ratio), f'{f"95% {spread}" if spread else unbounded} · {coverage}')
 
 
@@ -515,7 +515,12 @@ def failed_tile(economics: Economics) -> Tile:
     steps = f'{count(bucket.steps)} of {plural(tested, "tested change")}'
     if bucket.core_share is None:
         return Tile(label, percent(bucket.games_share), f'of games (no node counters) · {steps}')
-    return Tile(label, percent(bucket.core_share), f'of search time; {percent(bucket.games_share)} of games · {steps}')
+    basis = (
+        f'of search time, estimated: counters cover {percent(economics.counter_coverage)} of games'
+        if economics.core_hours_estimated
+        else 'of search time'
+    )
+    return Tile(label, percent(bucket.core_share), f'{basis}; {percent(bucket.games_share)} of games · {steps}')
 
 
 def games_per_elo_tile(row: ClassEconomics | None, time_class: TimeClass) -> Tile:
@@ -526,26 +531,35 @@ def games_per_elo_tile(row: ClassEconomics | None, time_class: TimeClass) -> Til
     return Tile(
         label,
         count(round(row.games_per_elo)),
-        f'{count(row.games)} games ÷ {signed(row.chained_elo.value, 1)} chained{unsure} · optimistic',
+        f'{count(row.finished_games)} games of finished tests ÷ {signed(row.chained_elo.value, 1)} chained{unsure}'
+        ' · optimistic',
+    )
+
+
+def velocity_tile(cadence: Cadence) -> Tile:
+    label = 'Trunk velocity'
+    span = plural(cadence.span_days, 'day')
+    if cadence.steps_per_week is None:
+        value = f'{plural(cadence.joined, "step")} in {span}' if cadence.joined else DASH
+        return Tile(label, value, 'settled trunk steps; a weekly rate needs a week of history')
+    return Tile(label, f'{cadence.steps_per_week:.1f} / week', f'{plural(cadence.joined, "settled step")} in {span}')
+
+
+def latency_tile(cadence: Cadence) -> Tile:
+    confirmation = (
+        f'STC pass to LTC pass {duration_text(cadence.median_confirmation_seconds)}'
+        f' ({count(cadence.confirmation_samples)})'
+    )
+    return Tile(
+        'First test to accepted',
+        duration_text(cadence.median_acceptance_seconds),
+        f'median of {plural(cadence.acceptance_samples, "settled step")}'
+        f' · mean {duration_text(cadence.mean_acceptance_seconds)} · {confirmation}',
     )
 
 
 def cadence_tiles(cadence: Cadence) -> list[Tile]:
-    velocity = DASH if cadence.steps_per_week is None else f'{cadence.steps_per_week:.1f} / week'
-    return [
-        Tile('Trunk velocity', velocity, f'{plural(cadence.joined, "step")} joined since the first was tested'),
-        Tile(
-            'First test to accepted',
-            duration_text(cadence.median_acceptance_seconds),
-            f'median of {plural(cadence.acceptance_samples, "passed step")}'
-            f' · mean {duration_text(cadence.mean_acceptance_seconds)}',
-        ),
-        Tile(
-            'STC pass to LTC pass',
-            duration_text(cadence.median_confirmation_seconds),
-            f'median of {plural(cadence.confirmation_samples, "step")} passed at both',
-        ),
-    ]
+    return [velocity_tile(cadence), latency_tile(cadence)]
 
 
 def economics_tiles(economics: Economics) -> list[Tile]:
@@ -558,8 +572,17 @@ def economics_tiles(economics: Economics) -> list[Tile]:
     ]
 
 
+def bucket_hours(bucket: CostBucket) -> str:
+    if bucket.counted_games >= bucket.games:
+        return core_hours_text(bucket.core_hours)
+    covered = percent(share(bucket.counted_games, bucket.games))
+    if bucket.estimated_core_hours is None:
+        return f'{core_hours_text(bucket.core_hours)} counted over {covered} of its games'
+    return f'about {core_hours_text(bucket.estimated_core_hours)} (estimated; counters cover {covered} of its games)'
+
+
 def bucket_text(name: str, bucket: CostBucket) -> str:
-    return f'{plural(bucket.steps, name)}: {count(bucket.games)} games, {core_hours_text(bucket.core_hours)}'
+    return f'{plural(bucket.steps, name)}: {count(bucket.games)} games, {bucket_hours(bucket)}'
 
 
 def spending_text(economics: Economics) -> str:

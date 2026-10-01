@@ -30,35 +30,38 @@ import django.conf
 # No imports of OpenBench.* are allowed here
 
 LOCKFILE_PATH = os.path.join(django.conf.settings.DATA_DIR, 'openbench_watchers.lock')
-CONFIG_LOCK   = threading.Lock()
-IS_WINDOWS    = platform.system() == 'Windows'
+CONFIG_LOCK = threading.Lock()
+IS_WINDOWS = platform.system() == 'Windows'
+
 
 def acquire_watcher_lockfile():
 
     lockfile = None
 
-    try: # Failed to open the file entirely
+    try:  # Failed to open the file entirely
         lockfile = open(LOCKFILE_PATH, 'w')
-    except: return None
+    except:
+        return None
 
     try:
-
         if IS_WINDOWS:
             import msvcrt
+
             msvcrt.locking(lockfile.fileno(), msvcrt.LK_NBLCK, 1)
 
         else:
             import fcntl
+
             fcntl.lockf(lockfile, fcntl.LOCK_EX | fcntl.LOCK_NB)
 
-    except: # Failed to acquire the lock, but must still close the file
+    except:  # Failed to acquire the lock, but must still close the file
         lockfile.close()
         return None
 
     return lockfile
 
-class OpenBenchConfig(django.apps.AppConfig):
 
+class OpenBenchConfig(django.apps.AppConfig):
     name = 'OpenBench'
 
     def ready(self):
@@ -83,7 +86,6 @@ class OpenBenchConfig(django.apps.AppConfig):
         self.lockfile = acquire_watcher_lockfile()
 
         if self.lockfile:
-
             # Start a PGN Watcher
             self.stop_pgn_watcher = threading.Event()
             self.pgn_watcher = PGNWatcher(self.stop_pgn_watcher, daemon=True)

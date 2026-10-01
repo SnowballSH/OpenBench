@@ -185,7 +185,7 @@
                 <figure class="card chart-card">
                     <figcaption class="chart-caption">
                         <span class="card-title">Speed along the trunk</span>
-                        <span class="chart-subtitle" id="progress-speed-description">Nodes per second of dev over base on the same machines, chained step by step: the engine's search speed relative to the commit the window starts from. The band is a rough 95% interval from host-to-host scatter, drawn while every step so far ran on at least two hosts. A step without node counters leaves a gap and adds nothing.</span>
+                        <span class="chart-subtitle" id="progress-speed-description">Nodes per second of dev over base on the same machines, chained step by step: the engine's search speed relative to the commit the window starts from. The band is a rough 95% interval from host-to-host scatter, drawn while every step so far has an interval of its own (at least two hosts, none dominating). A step without node counters leaves a gap and adds nothing.</span>
                     </figcaption>
                     <div class="chart-box" data-progress-chart="speed">
                         <canvas role="img" aria-label="Speed along the trunk chart" aria-describedby="progress-speed-description" aria-details="progress-speed-table"></canvas>
@@ -224,7 +224,7 @@
                 <figure class="card chart-card">
                     <figcaption class="chart-caption">
                         <span class="card-title">Trunk steps per week</span>
-                        <span class="chart-subtitle" id="progress-cadence-description">Steps of the window's trunk by the UTC week (from Monday) their last passing test finished in; a step that was built on without a pass counts when its last test finished.</span>
+                        <span class="chart-subtitle" id="progress-cadence-description">Settled steps of the window's trunk (no test still running) by the UTC week (from Monday) their last passing test finished in; a step that was built on without a pass counts when its last test finished.</span>
                     </figcaption>
                     <div class="chart-box" data-progress-chart="cadence">
                         <canvas role="img" aria-label="Trunk steps per week chart" aria-describedby="progress-cadence-description" aria-details="progress-cadence-table"></canvas>
@@ -292,7 +292,7 @@
                         </tbody>
                     </table>
                 </div>
-                <p class="muted progress-note progress-spending">{{page.economics.spending}} Core-hours are the engines' own move times from the workers' node counters, times the thread count: search time, not machine uptime.</p>
+                <p class="muted progress-note progress-spending">{{page.economics.spending}} Core-hours are the engines' own move times from the workers' node counters, times each side's thread count: search time, not machine uptime.</p>
             </div>
         </section>
         {% endif %}

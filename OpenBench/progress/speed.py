@@ -1,7 +1,7 @@
 import math
-from collections import defaultdict
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
+from functools import lru_cache
 from itertools import combinations
 
 from scipy.stats import t as student_t
@@ -21,7 +21,12 @@ from OpenBench.progress.domain import (
 )
 
 CONFIDENCE = 0.975
+MINIMUM_FREEDOM = 0.5
+WIDEST_LOG_MARGIN = 5.0
+FREEDOM_STEPS = 100
 MS_PER_HOUR = 3_600_000
+
+type HostTotals = dict[str, list[int]]
 
 
 @dataclass(frozen=True, slots=True)
@@ -31,31 +36,45 @@ class Observation:
 
 
 def has_counters(counters: HostCounters) -> bool:
-    return min(counters.dev_nodes, counters.dev_ms, counters.base_nodes, counters.base_ms) > 0
+    return counters.dev_nodes > 0 and counters.dev_ms > 0 and counters.base_nodes > 0 and counters.base_ms > 0
 
 
-def log_speed_ratio(dev_nodes: int, dev_ms: int, base_nodes: int, base_ms: int) -> float:
-    return math.log(dev_nodes * base_ms) - math.log(base_nodes * dev_ms)
-
-
-def merge_hosts(counters: Iterable[HostCounters]) -> list[HostCounters]:
-    merged: defaultdict[str, list[int]] = defaultdict(lambda: [0] * 6)
+def merge_hosts(counters: Iterable[HostCounters]) -> HostTotals:
+    merged: dict[str, list[int]] = {}
     for found in counters:
-        totals = merged[found.host]
-        values = (found.games, found.counted_games, found.dev_nodes, found.dev_ms, found.base_nodes, found.base_ms)
-        for position, value in enumerate(values):
-            totals[position] += value
-    return [HostCounters(host, *totals) for host, totals in merged.items()]
+        if not has_counters(found):
+            continue
+        totals = merged.get(found.host)
+        if totals is None:
+            merged[found.host] = [
+                found.counted_games,
+                found.dev_nodes,
+                found.dev_ms,
+                found.base_nodes,
+                found.base_ms,
+            ]
+        else:
+            totals[0] += found.counted_games
+            totals[1] += found.dev_nodes
+            totals[2] += found.dev_ms
+            totals[3] += found.base_nodes
+            totals[4] += found.base_ms
+    return merged
 
 
-def observations(hosts: Iterable[HostCounters]) -> list[Observation]:
+def merge_totals(groups: Iterable[HostTotals]) -> HostTotals:
+    merged: dict[str, list[int]] = {}
+    for group in groups:
+        for host, totals in group.items():
+            known = merged.get(host)
+            merged[host] = list(totals) if known is None else [a + b for a, b in zip(known, totals, strict=True)]
+    return merged
+
+
+def observations(hosts: HostTotals) -> list[Observation]:
     return [
-        Observation(
-            log_speed_ratio(host.dev_nodes, host.dev_ms, host.base_nodes, host.base_ms),
-            float(host.dev_ms + host.base_ms),
-        )
-        for host in hosts
-        if has_counters(host)
+        Observation(math.log(dev_nodes * base_ms / (base_nodes * dev_ms)), float(dev_ms + base_ms))
+        for _, dev_nodes, dev_ms, base_nodes, base_ms in hosts.values()
     ]
 
 
@@ -63,19 +82,30 @@ def weighted_mean(found: Sequence[Observation]) -> float:
     return sum(item.weight * item.log_ratio for item in found) / sum(item.weight for item in found)
 
 
+def effective_freedom(found: Sequence[Observation]) -> float:
+    total = sum(item.weight for item in found)
+    return total**2 / sum(item.weight**2 for item in found) - 1
+
+
+@lru_cache(maxsize=4096)
+def quantile(freedom_steps: int) -> float:
+    # Rounding the degrees of freedom down only widens the interval
+    return float(student_t.ppf(CONFIDENCE, freedom_steps / FREEDOM_STEPS))
+
+
 def log_half_width(found: Sequence[Observation], mean: float) -> float | None:
     count = len(found)
-    if count < 2:
+    if count < 2 or (freedom := effective_freedom(found)) < MINIMUM_FREEDOM:
         return None
     total = sum(item.weight for item in found)
     scatter = sum((item.weight * (item.log_ratio - mean)) ** 2 for item in found)
     variance = count / (count - 1) * scatter / total**2
-    return float(student_t.ppf(CONFIDENCE, count - 1)) * math.sqrt(variance)
+    margin = quantile(math.floor(freedom * FREEDOM_STEPS)) * math.sqrt(variance)
+    return margin if margin < WIDEST_LOG_MARGIN else None
 
 
-def speed_of(counters: Iterable[HostCounters]) -> SpeedRatio | None:
-    hosts = [host for host in merge_hosts(counters) if has_counters(host)]
-    games = sum(host.counted_games for host in hosts)
+def pooled_speed(hosts: HostTotals) -> SpeedRatio | None:
+    games = sum(totals[0] for totals in hosts.values())
     if not hosts or games < MINIMUM_SAMPLE:
         return None
     found = observations(hosts)
@@ -88,6 +118,10 @@ def speed_of(counters: Iterable[HostCounters]) -> SpeedRatio | None:
         hosts=len(hosts),
         games=games,
     )
+
+
+def speed_of(counters: Iterable[HostCounters]) -> SpeedRatio | None:
+    return pooled_speed(merge_hosts(counters))
 
 
 def log_margin(speed: SpeedRatio | RatioInterval) -> float | None:
@@ -104,14 +138,16 @@ def disagree(first: SpeedRatio, second: SpeedRatio) -> bool:
 
 
 def step_speed(rows: Sequence[RunRow]) -> StepSpeed | None:
-    chained = [row for row in rows if row.time_class.chained]
-    pooled = speed_of(host for row in chained for host in row.hosts)
+    by_class = {
+        time_class: merge_hosts(host for row in rows if row.time_class == time_class for host in row.hosts)
+        for time_class in TimeClass
+        if time_class.chained
+    }
+    pooled = pooled_speed(merge_totals(by_class.values()))
     if pooled is None:
         return None
     classes = [
-        ClassSpeed(time_class, found)
-        for time_class in TimeClass
-        if (found := speed_of(host for row in chained if row.time_class == time_class for host in row.hosts))
+        ClassSpeed(time_class, found) for time_class, hosts in by_class.items() if (found := pooled_speed(hosts))
     ]
     return StepSpeed(
         pooled=pooled,
@@ -120,11 +156,19 @@ def step_speed(rows: Sequence[RunRow]) -> StepSpeed | None:
     )
 
 
-def core_hours(row: RunRow) -> float | None:
-    counted = [host for host in row.hosts if has_counters(host)]
-    if not counted:
-        return None
-    return sum(host.dev_ms + host.base_ms for host in counted) * row.threads / MS_PER_HOUR
+@dataclass(frozen=True, slots=True)
+class RunUsage:
+    counted_games: int
+    core_hours: float | None
+
+
+def run_usage(row: RunRow) -> RunUsage:
+    games, thought = 0, 0
+    for host in row.hosts:
+        if has_counters(host):
+            games += host.counted_games
+            thought += host.dev_ms * row.dev_threads + host.base_ms * row.base_threads
+    return RunUsage(games, thought / MS_PER_HOUR if games or thought else None)
 
 
 @dataclass(slots=True)

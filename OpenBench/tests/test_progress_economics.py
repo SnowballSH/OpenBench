@@ -1,4 +1,5 @@
 import math
+import random
 from datetime import UTC, date, datetime, timedelta
 
 from django.test import SimpleTestCase
@@ -22,7 +23,9 @@ from OpenBench.progress.present import (
     cost_text,
     duration_text,
     economics_page,
+    failed_tile,
     speed_text,
+    velocity_tile,
 )
 from OpenBench.progress.speed import speed_of, speed_series
 from OpenBench.tests.fixtures import present
@@ -30,15 +33,16 @@ from OpenBench.tests.fixtures import present
 START = datetime(2026, 9, 1, tzinfo=UTC)
 PENTA = (5, 40, 100, 45, 10)
 WEAK = (12, 50, 100, 35, 4)
+STRONG = (2, 20, 100, 60, 18)
 MS_PER_HOUR = 3_600_000
 
 
 def host(name: str, ratio: float = 1.0, ms: int = MS_PER_HOUR, games: int = 400) -> HostCounters:
-    return HostCounters(name, games, games, round(1_000_000 * ratio), ms, 1_000_000, ms)
+    return HostCounters(name, games, round(1_000_000 * ratio), ms, 1_000_000, ms)
 
 
 def uncounted(name: str, games: int = 400) -> HostCounters:
-    return HostCounters(name, games, 0, 0, 0, 0, 0)
+    return HostCounters(name, 0, 0, 0, 0, 0)
 
 
 class Rows:
@@ -56,6 +60,7 @@ class Rows:
         created: datetime | None = None,
         hours: float = 2.0,
         threads: int = 1,
+        base_threads: int | None = None,
         mode: RunMode = RunMode.SPRT,
         bench: tuple[int, int] = (0, 0),
     ) -> RunRow:
@@ -79,7 +84,8 @@ class Rows:
             finished_at=created + timedelta(hours=hours + 1) if finished else None,
             games=2 * sum(penta),
             outcomes=Outcomes((losses, 2 * sum(penta) - wins - losses, wins), penta, True),
-            threads=threads,
+            dev_threads=threads,
+            base_threads=threads if base_threads is None else base_threads,
             started_at=created + timedelta(hours=1),
             base_bench=bench[0],
             dev_bench=bench[1],
@@ -114,7 +120,7 @@ class SpeedRatioTests(SimpleTestCase):
         self.assertAlmostEqual(heavy.ratio, math.exp(0.75 * math.log(0.96)))
 
     def test_the_ratio_is_nodes_per_second_not_nodes(self):
-        slower_clock = HostCounters('a', 400, 400, 1_000_000, 2000, 1_000_000, 1000)
+        slower_clock = HostCounters('a', 400, 1_000_000, 2000, 1_000_000, 1000)
         self.assertAlmostEqual(present(speed_of([slower_clock])).ratio, 0.5)
 
     def test_one_host_seen_in_several_runs_is_one_observation(self):
@@ -123,7 +129,7 @@ class SpeedRatioTests(SimpleTestCase):
         self.assertAlmostEqual(speed.ratio, 0.95)
 
     def test_results_without_counters_or_with_zero_time_are_left_out(self):
-        zero_time = HostCounters('z', 400, 400, 1_000_000, 0, 1_000_000, 1000)
+        zero_time = HostCounters('z', 400, 1_000_000, 0, 1_000_000, 1000)
         self.assertIsNone(speed_of([uncounted('a'), zero_time]))
         self.assertIsNone(speed_of([]))
         self.assertEqual(present(speed_of([uncounted('a'), zero_time, host('b', 0.97)])).hosts, 1)
@@ -277,7 +283,7 @@ class EconomicsTests(SimpleTestCase):
         rows = Rows()
         day = timedelta(days=1)
         rows.run('a', 'b', (host('x', 0.98, games=200), host('y', 0.98, games=200)), created=START, hours=2)
-        rows.run('a', 'b', (host('x', 0.98),), time_class=TimeClass.LTC, created=START + day, hours=4)
+        rows.run('a', 'b', (host('y', 0.98),), time_class=TimeClass.LTC, created=START + day, hours=4)
         rows.run('b', 'c', (host('x', 0.99),), created=START + 8 * day, hours=6)
         rows.run('b', 'f', (host('x'),), status=RunStatus.FAILED, penta=WEAK, created=START + 2 * day)
         rows.run('b', 'g', (uncounted('x'),), status=RunStatus.RUNNING, created=START + 9 * day)
@@ -291,7 +297,12 @@ class EconomicsTests(SimpleTestCase):
         self.assertEqual((report.trunk.steps, report.failed.steps, report.other.steps), (2, 1, 1))
         self.assertEqual((report.trunk.games, report.failed.games, report.other.games), (1200, 402, 400))
         self.assertAlmostEqual(report.trunk.core_hours, 4 + 2 + 2)
-        self.assertAlmostEqual(present(report.failed.core_share), 2 / 10)
+        self.assertEqual(report.failed.core_hours, 2.0)
+        self.assertAlmostEqual(present(report.failed.estimated_core_hours), 2 * 402 / 400)
+        self.assertAlmostEqual(present(report.other.estimated_core_hours), 400 * 8 / 1200)
+        total = 8 + 2 * 402 / 400 + 400 * 8 / 1200
+        self.assertAlmostEqual(present(report.failed.core_share), (2 * 402 / 400) / total)
+        self.assertTrue(report.core_hours_estimated)
         self.assertAlmostEqual(present(report.failed.games_share), 402 / 2002)
         self.assertAlmostEqual(present(report.counter_coverage), 1600 / 2002)
         shares = [present(found.games_share) for found in (report.trunk, report.failed, report.other)]
@@ -304,7 +315,8 @@ class EconomicsTests(SimpleTestCase):
         self.assertEqual(stc.games, 1602)
         self.assertEqual((ltc.passed, ltc.failed, ltc.pass_rate, ltc.median_games_to_fail), (1, 0, 1.0, None))
         chained = present(stc.chained_elo)
-        self.assertAlmostEqual(present(stc.games_per_elo), 1602 / chained.value)
+        self.assertEqual((stc.games, stc.finished_games), (1602, 1202))
+        self.assertAlmostEqual(present(stc.games_per_elo), 1202 / chained.value)
 
     def test_games_per_elo_needs_a_positive_chain(self):
         rows = Rows()
@@ -361,13 +373,136 @@ class EconomicsTests(SimpleTestCase):
         page = economics_page(self.report)
         tiles = {tile.label: tile for tile in page.tiles}
         self.assertEqual(tiles['Speed along the trunk'].value, '−3.0%')
-        self.assertIn('no interval: 1 step measured on one host', tiles['Speed along the trunk'].meta)
-        self.assertEqual(tiles['Spent on failed changes'].value, '20%')
+        self.assertIn('no interval: 1 step without host spread', tiles['Speed along the trunk'].meta)
+        self.assertEqual(len(page.tiles), 6)
+        self.assertEqual(tiles['Spent on failed changes'].value, '16%')
+        self.assertIn('estimated: counters cover 80% of games', tiles['Spent on failed changes'].meta)
         self.assertIn('20% of games · 1 of 4 tested changes', tiles['Spent on failed changes'].meta)
         self.assertEqual(tiles['Trunk velocity'].value, '1.0 / week')
+        self.assertEqual(tiles['Trunk velocity'].meta, '2 settled steps in 14 days')
         self.assertEqual(tiles['First test to accepted'].value, '18.0 h')
-        self.assertEqual(tiles['STC pass to LTC pass'].value, '26.0 h')
+        self.assertIn('STC pass to LTC pass 26.0 h (1)', tiles['First test to accepted'].meta)
+        self.assertIn('1,202 games of finished tests', tiles['Games per Elo · STC'].meta)
         self.assertIn('optimistic', tiles['Games per Elo · STC'].meta)
+        self.assertIn('1 other candidate: 400 games, about 2.7 core-h (estimated; counters cover 0%', page.spending)
         self.assertEqual([row.label for row in page.classes], ['STC', 'LTC'])
         self.assertEqual([row.position for row in page.speed], ['2', '1'])
         self.assertIn('Node counters cover 80% of games', page.spending)
+
+
+class LiveShapeTests(SimpleTestCase):
+    def setUp(self):
+        rows = Rows()
+        hour = timedelta(hours=1)
+        hosts = (host('x', 0.99, games=200), host('y', 0.99, games=200))
+        rows.run('a', 'b', hosts, created=START, hours=2)
+        rows.run('a', 'b', hosts, time_class=TimeClass.LTC, created=START + 4 * hour, hours=5)
+        rows.run('b', 'c', hosts, created=START + 12 * hour, hours=3)
+        rows.run(
+            'b', 'c', hosts, status=RunStatus.RUNNING, time_class=TimeClass.LTC, penta=STRONG, created=START + 17 * hour
+        )
+        self.lineage = present(build_lineage(rows.steps()))
+        self.report = economics(self.lineage, None, date(2026, 9, 1), date(2026, 9, 2))
+
+    def test_a_running_confirmation_adds_neither_elo_nor_games_to_games_per_elo(self):
+        stc, ltc = self.report.classes
+        self.assertEqual((ltc.games, ltc.finished_games), (800, 400))
+        self.assertAlmostEqual(present(ltc.games_per_elo), 400 / present(ltc.chained_elo).value)
+        self.assertEqual((stc.games, stc.finished_games), (800, 800))
+
+    def test_a_failed_candidate_still_pays_into_games_per_elo(self):
+        rows = Rows()
+        rows.run('a', 'b')
+        rows.run('a', 'f', status=RunStatus.FAILED, penta=WEAK)
+        report = economics(present(build_lineage(rows.steps())), None, date(2026, 9, 1), date(2026, 9, 9))
+        self.assertEqual(report.classes[0].finished_games, 802)
+
+    def test_a_step_whose_confirmation_is_running_is_not_accepted_yet(self):
+        cadence = self.report.cadence
+        self.assertEqual((cadence.joined, cadence.acceptance_samples), (1, 1))
+        self.assertEqual(cadence.median_acceptance_seconds, 10 * 3600)
+        self.assertEqual(sum(week.steps for week in cadence.weekly), 1)
+
+    def test_a_young_lineage_has_a_count_not_a_weekly_rate(self):
+        cadence = self.report.cadence
+        self.assertEqual((cadence.span_days, cadence.steps_per_week), (2, None))
+        tile = velocity_tile(cadence)
+        self.assertEqual(tile.value, '1 step in 2 days')
+        week = economics(self.lineage, None, date(2026, 9, 1), date(2026, 9, 7)).cadence
+        self.assertEqual((week.span_days, week.steps_per_week), (7, 1.0))
+
+
+class EstimatedHoursTests(SimpleTestCase):
+    def report(self, failed_hosts: tuple[HostCounters, ...], time_class: TimeClass = TimeClass.STC):
+        rows = Rows()
+        rows.run('a', 'b', (host('x'),))
+        rows.run('a', 'f', failed_hosts, status=RunStatus.FAILED, penta=PENTA, time_class=time_class)
+        return economics(present(build_lineage(rows.steps())), None, date(2026, 9, 1), date(2026, 9, 9))
+
+    def test_a_failed_candidate_without_counters_is_estimated_at_its_class_rate(self):
+        report = self.report((uncounted('x'),))
+        self.assertEqual((report.failed.core_hours, report.failed.estimated_core_hours), (0.0, 2.0))
+        self.assertEqual(report.failed.core_share, 0.5)
+        self.assertTrue(report.core_hours_estimated)
+        tile = failed_tile(report)
+        self.assertEqual(tile.value, '50%')
+        self.assertIn('estimated', tile.meta)
+
+    def test_partial_counters_scale_to_the_run(self):
+        report = self.report((host('x', games=100, ms=MS_PER_HOUR // 4), uncounted('y', games=300)))
+        self.assertEqual((report.failed.core_hours, report.failed.estimated_core_hours), (0.5, 2.0))
+
+    def test_no_rate_for_the_class_falls_back_to_the_games_share(self):
+        report = self.report((uncounted('x'),), TimeClass.LTC)
+        self.assertIsNone(report.failed.estimated_core_hours)
+        self.assertIsNone(report.failed.core_share)
+        tile = failed_tile(report)
+        self.assertEqual((tile.value, tile.meta), ('50%', 'of games (no node counters) · 1 of 2 tested changes'))
+
+    def test_full_counters_are_not_called_an_estimate(self):
+        report = self.report((host('x'),))
+        self.assertFalse(report.core_hours_estimated)
+        self.assertEqual(failed_tile(report).meta, 'of search time; 50% of games · 1 of 2 tested changes')
+
+
+class EffectiveFreedomTests(SimpleTestCase):
+    WEIGHTS = ((1, 1, 1, 1, 1), (4, 2, 2, 1, 1, 1), (1, 2, 4, 8, 16, 32), (3, 2), (40, 1, 1, 1, 1, 1, 1, 1, 1))
+    TRIALS = 1500
+
+    def covered(self, weights: tuple[int, ...], rng: random.Random) -> bool | None:
+        hosts = [
+            host(str(index), math.exp(rng.gauss(0.0, 0.01 / math.sqrt(weight))), ms=weight * MS_PER_HOUR)
+            for index, weight in enumerate(weights)
+        ]
+        speed = present(speed_of(hosts))
+        if speed.lower is None or speed.upper is None:
+            return None
+        return speed.lower <= 1.0 <= speed.upper
+
+    def test_intervals_cover_the_truth_under_unequal_host_times(self):
+        rng = random.Random(20261001)
+        for weights in self.WEIGHTS:
+            outcomes = [self.covered(weights, rng) for _ in range(self.TRIALS)]
+            bounded = [found for found in outcomes if found is not None]
+            with self.subTest(weights=weights):
+                if bounded:
+                    self.assertGreaterEqual(sum(bounded) / len(bounded), 0.93)
+
+    def test_a_dominant_host_leaves_no_interval(self):
+        speed = present(speed_of([host('m4', 0.98, ms=40 * MS_PER_HOUR), *(host(str(i), 0.97) for i in range(8))]))
+        self.assertEqual((speed.hosts, speed.lower), (9, None))
+        rows = Rows()
+        rows.run('a', 'b', (host('m4', 0.98, ms=40 * MS_PER_HOUR), host('b', 0.97)))
+        self.assertIn('one host dominates, no interval', speed_text(rows.step().speed))
+
+    def test_unequal_hosts_widen_the_interval(self):
+        even = present(speed_of([host('a', 0.96), host('b', 1.0), host('c', 0.98)]))
+        uneven = present(speed_of([host('a', 0.96, ms=3 * MS_PER_HOUR), host('b', 1.0), host('c', 0.98)]))
+        self.assertGreater(present(uneven.upper) / present(uneven.lower), present(even.upper) / present(even.lower))
+
+
+class SideThreadsTests(SimpleTestCase):
+    def test_each_side_is_charged_its_own_threads(self):
+        rows = Rows()
+        rows.run('a', 'b', (host('x'),), time_class=TimeClass.OTHER, threads=4, base_threads=1)
+        self.assertEqual(rows.step().cost.core_hours, 4 + 1)

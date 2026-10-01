@@ -7,44 +7,44 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies: ClassVar[list[tuple[str, str]]] = [
-        ("OpenBench", "0017_workloadsnapshot"),
+        ('OpenBench', '0017_workloadsnapshot'),
     ]
 
     operations: ClassVar[list[migrations.operations.base.Operation]] = [
         migrations.AddIndex(
-            model_name="logevent",
-            index=models.Index(fields=["machine_id"], name="logevent_machine"),
+            model_name='logevent',
+            index=models.Index(fields=['machine_id'], name='logevent_machine'),
         ),
         migrations.AddIndex(
-            model_name="network",
-            index=models.Index(fields=["engine", "sha256"], name="network_engine_sha"),
+            model_name='network',
+            index=models.Index(fields=['engine', 'sha256'], name='network_engine_sha'),
         ),
         migrations.AddIndex(
-            model_name="pgn",
+            model_name='pgn',
             index=models.Index(
-                condition=models.Q(("processed", False)),
-                fields=["test_id"],
-                name="pgn_unprocessed",
+                condition=models.Q(('processed', False)),
+                fields=['test_id'],
+                name='pgn_unprocessed',
             ),
         ),
         migrations.AddIndex(
-            model_name="test",
+            model_name='test',
             index=models.Index(
-                condition=models.Q(("deleted", False), ("finished", False)),
-                fields=["approved"],
-                name="test_unfinished",
+                condition=models.Q(('deleted', False), ('finished', False)),
+                fields=['approved'],
+                name='test_unfinished',
             ),
         ),
         migrations.AddIndex(
-            model_name="test",
+            model_name='test',
             index=models.Index(
-                condition=models.Q(("deleted", False), ("finished", True)),
-                fields=["-updated"],
-                name="test_completed_updated",
+                condition=models.Q(('deleted', False), ('finished', True)),
+                fields=['-updated'],
+                name='test_completed_updated',
             ),
         ),
         migrations.AddIndex(
-            model_name="test",
-            index=models.Index(fields=["author"], name="test_author"),
+            model_name='test',
+            index=models.Index(fields=['author'], name='test_author'),
         ),
     ]

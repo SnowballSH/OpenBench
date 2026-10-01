@@ -97,7 +97,8 @@ def run_row(row: dict[str, Any], classify: Classifier, usage: Usage) -> RunRow:
         finished_at=row['finished_at'] if row['finished'] else None,
         games=row['games'],
         outcomes=outcomes_of_row(row, not row['use_tri']),
-        threads=thread_count(row['dev_options']) or 1,
+        dev_threads=thread_count(row['dev_options']) or 1,
+        base_threads=thread_count(row['base_options']) or 1,
         started_at=row['started_at'],
         dev_bench=row['dev__bench'],
         base_bench=row['base__bench'],
@@ -107,6 +108,7 @@ def run_row(row: dict[str, Any], classify: Classifier, usage: Usage) -> RunRow:
 
 def load_usage(engine: str | None) -> dict[int, list[HostCounters]]:
     results = Result.objects.order_by().filter(
+        COUNTED,
         games__gt=0,
         test__deleted=False,
         test__test_mode__in=list(RunMode),
@@ -114,27 +116,28 @@ def load_usage(engine: str | None) -> dict[int, list[HostCounters]]:
     )
     if engine is not None:
         results = results.filter(test__dev_engine=engine)
-    rows = results.values('test_id', 'machine__host_key').annotate(
-        played=Sum('games'),
-        counted_games=Coalesce(Sum('games', filter=COUNTED), 0),
-        total_dev_nodes=Coalesce(Sum('dev_nodes', filter=COUNTED), 0),
-        total_dev_time=Coalesce(Sum('dev_time', filter=COUNTED), 0),
-        total_base_nodes=Coalesce(Sum('base_nodes', filter=COUNTED), 0),
-        total_base_time=Coalesce(Sum('base_time', filter=COUNTED), 0),
+    rows = (
+        results.values('test_id', 'machine__host_key')
+        .annotate(
+            counted_games=Sum('games'),
+            total_dev_nodes=Sum('dev_nodes'),
+            total_dev_time=Sum('dev_time'),
+            total_base_nodes=Sum('base_nodes'),
+            total_base_time=Sum('base_time'),
+        )
+        .values_list(
+            'test_id',
+            'machine__host_key',
+            'counted_games',
+            'total_dev_nodes',
+            'total_dev_time',
+            'total_base_nodes',
+            'total_base_time',
+        )
     )
     usage: defaultdict[int, list[HostCounters]] = defaultdict(list)
-    for row in rows:
-        usage[row['test_id']].append(
-            HostCounters(
-                host=row['machine__host_key'],
-                games=row['played'],
-                counted_games=row['counted_games'],
-                dev_nodes=row['total_dev_nodes'],
-                dev_ms=row['total_dev_time'],
-                base_nodes=row['total_base_nodes'],
-                base_ms=row['total_base_time'],
-            )
-        )
+    for test_id, *counters in rows.iterator():
+        usage[test_id].append(HostCounters(*counters))
     return dict(usage)
 
 
