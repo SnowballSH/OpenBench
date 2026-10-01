@@ -21,6 +21,7 @@ from django.http import HttpRequest
 from django.utils import timezone
 
 import OpenBench.utils
+from OpenBench.diagnosis.listing import attach_row_reasons
 from OpenBench.insights.listing import RowTiming, SnapshotMarks, finished_row_timing, running_row_timing
 from OpenBench.insights.sources import workload_facts
 from OpenBench.insights.timing import RECENT_WINDOW, Mark
@@ -138,6 +139,11 @@ def listing_row_timing(test: Test) -> RowTiming | None:
     return running_row_timing(workload_facts(test), annotated_snapshots(test), test.listing_as_of)
 
 
+def lacks_rate(test: Test) -> bool:
+    timing = listing_row_timing(test)
+    return timing is None or timing.rate is None
+
+
 @dataclass(frozen=True)
 class FrontPage:
     pending: QuerySet[Test]
@@ -145,9 +151,11 @@ class FrontPage:
     status: Callable[[], str]
 
     def data(self) -> dict[str, Any]:
-        active = listing_tests(self.active)
+        now = timezone.now()
+        active = list(listing_tests(self.active, now))
+        attach_row_reasons([test for test in active if lacks_rate(test)], now)
         return {
-            'pending': listing_tests(self.pending),
+            'pending': listing_tests(self.pending, now),
             'active': OpenBench.utils.group_active_tests_by_priority(active),
             'status': self.status(),
         }

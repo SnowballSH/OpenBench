@@ -23,6 +23,7 @@
         <div class="row-progress row-progress-{{progress.kind}}" role="meter" aria-valuemin="0" aria-valuemax="1" aria-valuenow="{{progress.fraction|stringformat:'.3f'}}" aria-valuetext="{{progress.label}}" title="{{progress.label}}" data-fraction="{{progress.fraction|stringformat:'.4f'}}"></div>
     {% endif %}{% endwith %}{% endif %}
     {% with timing=test|listing_timing %}{% if timing %}{% include "OpenBench/Blocks/row_timing.html" %}{% endif %}{% endwith %}
+    {% with reason=test|row_reason %}{% if reason %}<div class="row-meta row-reason row-reason-{{reason.severity}}" title="{{reason.headline}}"><span class="visually-hidden">Status: </span>{{reason.brief}}</div>{% endif %}{% endwith %}
 </td>
 <td class="test-info">{% if label.info %}<div title="{{label.info}}">{{label.info}}</div>{% endif %}</td>
 {% endwith %}
