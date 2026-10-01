@@ -18,7 +18,8 @@ Code lives in `OpenBench/insights/`:
 | `series.py` | One chart point per snapshot. |
 | `listing.py` | Time taken and time left for a listing row, from a few picked snapshots; see [Listings](#listings). |
 | `grouping.py`, `contributions.py` | Per-host and per-CPU contribution; `grouping.sum_by_key` also backs `fetch_result_summaries`. |
-| `speed.py` | Nodes per second from node and millisecond counters, shared by the result summaries and the machine page. |
+| `speed.py` | Nodes per second from node and millisecond counters, shared by the result summaries and the machine page; the `SpeedCounters` a Result carries. |
+| `results/` | The Results analysis, one module per part: `breakdown.py` (pair outcomes and pair variance), `outlook.py` (SPRT forecast), `speeds.py` (dev against base search speed), `hosts.py` and `consistency.py` (CPU and host agreement, crashes, time losses), `verdict.py` (the plain-language line), `analysis.py` (assembly). See [Results](#results). |
 | `sources.py` | Reads a Workload's Test, snapshots and Results and turns them into domain values. |
 | `workload.py`, `server.py` | Assemble the two payloads; `server.py` runs its own aggregate queries over Machines, Tests, snapshots and Profiles. |
 | `serialize.py`, `api.py`, `views.py` | JSON conversion and the HTTP endpoints. |
@@ -230,6 +231,283 @@ CPU's `machines` counts hosts.
   minutes;
 - `elo` from the group's own summed counters, as above.
 
+### Results
+
+`results` reads the same Test counters and the same `Result` rows as the rest
+of the payload (the rows gain the crash, time-loss and node/time columns; the
+query count does not change). It is `null` for SPSA. PGNs are not involved:
+the live instance runs with `upload_pgns` off, so everything here comes from
+the cumulative counters.
+
+#### Outcome breakdown
+
+- `pentanomial_fractions` and `trinomial_fractions`: each bucket over the pair
+  (or game) count, in the order `[LL, LD, DD, DW, WW]` and `[L, D, W]`.
+- `decisive_game_rate = (W + L) / games`, and `games_per_decisive` its inverse.
+- `swept_pair_rate = (LL + WW) / pairs`, the pairs one side won twice;
+  `level_pair_rate = DD / pairs`. The middle bucket holds two draws and a win
+  with a loss alike. The counters cannot tell those apart, so nothing here
+  pretends to.
+- `pair_variance` compares the observed variance of a pair's mean score
+  (`observed`, on a 0 to 1 scale) with the variance the mean of two
+  independent games would have, `independent = σ²_game / 2`, where `σ²_game`
+  is the trinomial per-game variance pooled over both colours.
+  `ratio = observed / independent`. `game_correlation = ratio − 1` is the
+  correlation `ρ` between the two games of a pair under the assumption that
+  both have that same variance, since then
+  `Var(pair mean) = σ²_game (1 + ρ) / 2`. `pair_efficiency = 1 / ratio` is
+  the number of pairs of independent games that estimate the mean score as
+  precisely as one paired-opening pair does (so one such pair is worth
+  `2 / ratio` independent games). Playing each opening with both colours
+  makes the two games negatively correlated when openings are biased (one
+  side wins both ways round, the pair is level), so real tests show a ratio
+  below 1. It is `null` when either variance is zero or when
+  `games ≠ 2 · pairs`.
+
+#### SPRT outlook
+
+`outlook` is a forecast for an unfinished SPRT: `pass_probability`, and the
+median and 80% range of the games still needed. It is `null` for other modes,
+for finished tests, wherever the time-left estimate is unavailable (fewer
+than 200 games, LLR outside the bounds, no variance, an empty trinomial
+bucket), and until the games pin the strength down: the standard error of
+the normalized Elo, `(800 / ln 10) / √(2N)` over `N` pairs, must be at most
+twice the bound width `elo1 − elo0`. With `[0, 3]` that is 1,676 pairs.
+Below about 1,000 pairs at `[0, 3]` the forecast was no better than quoting
+the base rate when patches are worth about nothing (log loss 0.60 and 0.59
+against 0.57 with the chosen prior), so it is not shown, and the tables below
+start where it is.
+
+Two earlier attempts failed and explain the design. The plug-in probability
+from [the SPRT estimate](#the-sprt-estimate) treats the current Elo estimate
+as the truth, and read 0.999 next to an LOS of 0.90. Averaging over a flat
+prior instead is honest only when tests are decided by effects far larger
+than the bounds; at the live bounds `[0, 3]`, where patches are worth a few
+Elo, it read "98% to pass, 2.1k more games" after 200 games of a test whose
+Elo was +30 ± 28, and such forecasts passed about two times in three.
+
+1. **Evidence.** The LLR is modelled as Brownian motion with drift `μ` per
+   step and the per-step variance `σ²` of `sprt.llr_increment`. The drift is
+   linear in the true strength: `σ` per unit of t-value, where the t-value is
+   `(mean score − 0.5) / score sd` and one unit is `(800 / ln 10) / √2`
+   normalized Elo for pairs (`800 / ln 10` per game for a trinomial test).
+   `N` steps estimate the drift as `LLR / N` with variance `σ² / N`.
+2. **Prior.** The true normalized Elo is `Normal(0, τ²)` with
+   `τ = max(4, 4/3 · (elo1 − elo0))`: a patch is worth about nothing, give or
+   take roughly the difference the test was built to resolve. In drift terms
+   that is `n₀ = (elo per t-unit / τ)²` earlier steps that averaged exactly
+   zero Elo (3,772 pairs for `τ = 4`), so the posterior is
+   `μ ~ Normal((N · LLR/N + n₀ · μ₀) / (N + n₀), σ² / (N + n₀))`, with
+   `μ₀ = LLR/N − σ · t̂` the drift a zero-Elo patch would have. The payload's
+   `prior` reports `mean_elo` (0), `sd_elo` (`τ`) and `equivalent_games`.
+3. **Chance to pass.** For each of 61 drifts across ± 6 posterior standard
+   deviations, `sprt.expected_exit` gives the probability of reaching the upper
+   bound first from the current LLR; the weighted mean is `pass_probability`.
+4. **Games to decide.** For each drift, the survival function of the exit
+   time between two absorbing bounds a distance `L` apart is computed by the
+   method of images (the walk and its reflections in both bounds, two each
+   side, each weighted `exp(μ·shift/σ²)`) while the walk has spread less than
+   `L / 2`, and for any drift with `|μ| L / σ² > 8`; and by the eigenfunction
+   series `Σₖ cₖ · exp(−(μ²/2σ² + k²π²σ²/2L²) n)` (24 terms) otherwise. The
+   images converge when the series cancels badly and the reverse, and both
+   keep the bound behind a strong drift. The posterior-weighted mixture is
+   inverted by bisection for its 10%, 50% and 90% points
+   (`remaining_games.lower`, `.median`, `.upper`, in games; `interval` is
+   `0.8`).
+
+**Choosing `τ`.** No prior is calibrated for every population of patches, so
+`τ` was chosen against two: a narrow one, true normalized Elo `Normal(0, 2²)`,
+and a wide one, uniform from 6 below the lower bound to 6 above the upper.
+2,500 real pentanomial SPRTs (`OpenBench.stats.PentanomialSPRT`, reports of
+16 to 32 pairs) were played for each, and every forecast scored by log loss,
+at `[0, 3]`, summed over the 1k to 3k and 3k to 10k pair buckets and both
+populations:
+
+| Prior | flat | `τ = 3` | `τ = 4` | `τ = 5` | `τ = 8` |
+|---|---|---|---|---|---|
+| Summed log loss | 2.215 | 2.011 | 2.000 | 2.017 | 2.082 |
+
+The flat prior is far worse than any of them; between 3 and 5 the total
+hardly moves, and what changes is which population pays.
+`τ = 3` is the better prior for the narrow population and under-confident for
+the wide one (forecasts near 0.5 passed 0.70); `τ = 5` and above the reverse
+(forecasts near 0.7 passed 0.45 under the narrow one). `τ = 4` splits the
+error. The scaling with the bound width assumes that people choose bounds to
+match the effects they expect; the non-regression rows below check it at a
+width of 4.
+
+**Calibration at the chosen prior.** Each cell is mean forecast → share that
+passed (forecasts), for forecasts below 0.1, 0.1 to 0.4, 0.4 to 0.6, 0.6 to
+0.9 and above 0.9. "Constant" is the log loss of always quoting the bucket's
+pass rate. "Actual / median" is the median ratio of the games actually needed
+to the forecast median, and "inside" the share inside the 80% range.
+
+Bounds `[0, 3]`, narrow population (25% pass):
+
+| Pairs | Log loss (constant) | < 0.1 | 0.1–0.4 | 0.4–0.6 | 0.6–0.9 | > 0.9 | Actual / median | Inside |
+|---|---|---|---|---|---|---|---|---|
+| 1.7k–3k | 0.553 (0.567) | 0.06→0.07 (303) | 0.25→0.19 (1249) | 0.49→0.33 (605) | 0.71→0.50 (332) | 0.95→0.82 (11) | 1.42 | 0.80 |
+| 3k–10k | 0.484 (0.573) | 0.04→0.04 (1152) | 0.24→0.18 (1865) | 0.49→0.36 (855) | 0.73→0.54 (807) | 0.95→0.85 (150) | 1.34 | 0.80 |
+| 10k+ | 0.470 (0.636) | 0.05→0.05 (621) | 0.23→0.18 (1006) | 0.49→0.41 (514) | 0.74→0.64 (634) | 0.95→0.94 (175) | 1.14 | 0.80 |
+
+Bounds `[0, 3]`, wide population (48% pass):
+
+| Pairs | Log loss (constant) | < 0.1 | 0.1–0.4 | 0.4–0.6 | 0.6–0.9 | > 0.9 | Actual / median | Inside |
+|---|---|---|---|---|---|---|---|---|
+| 1.7k–3k | 0.515 (0.692) | 0.06→0.06 (312) | 0.24→0.30 (1018) | 0.49→0.61 (535) | 0.73→0.85 (571) | 0.93→0.98 (64) | 0.85 | 0.82 |
+| 3k–10k | 0.391 (0.692) | 0.04→0.03 (1066) | 0.24→0.29 (1272) | 0.50→0.57 (588) | 0.76→0.86 (988) | 0.96→0.98 (577) | 0.89 | 0.80 |
+| 10k+ | 0.450 (0.693) | 0.05→0.04 (291) | 0.24→0.29 (456) | 0.50→0.57 (263) | 0.76→0.78 (407) | 0.95→0.99 (185) | 0.96 | 0.80 |
+
+Non-regression bounds `[−3, 1]` (`τ = 5.33`), narrow population (67% pass):
+
+| Pairs | Log loss (constant) | < 0.1 | 0.1–0.4 | 0.4–0.6 | 0.6–0.9 | > 0.9 | Actual / median | Inside |
+|---|---|---|---|---|---|---|---|---|
+| 1k–3k | 0.639 (0.636) | 0.07→0.36 (78) | 0.28→0.48 (1095) | 0.51→0.65 (1274) | 0.75→0.74 (2119) | 0.94→0.87 (434) | 1.75 | 0.77 |
+| 3k–10k | 0.533 (0.648) | 0.05→0.14 (302) | 0.25→0.38 (979) | 0.51→0.63 (825) | 0.76→0.77 (1548) | 0.95→0.94 (875) | 1.47 | 0.78 |
+| 10k+ | 0.529 (0.678) | 0.06→0.08 (123) | 0.25→0.33 (526) | 0.50→0.57 (412) | 0.76→0.76 (708) | 0.95→0.96 (234) | 1.19 | 0.79 |
+
+Non-regression bounds `[−3, 1]`, wide population (49% pass):
+
+| Pairs | Log loss (constant) | < 0.1 | 0.1–0.4 | 0.4–0.6 | 0.6–0.9 | > 0.9 | Actual / median | Inside |
+|---|---|---|---|---|---|---|---|---|
+| 1k–3k | 0.536 (0.693) | 0.05→0.03 (274) | 0.26→0.21 (1387) | 0.50→0.44 (1184) | 0.75→0.71 (1727) | 0.95→0.95 (423) | 0.99 | 0.84 |
+| 3k–10k | 0.393 (0.693) | 0.04→0.03 (633) | 0.24→0.20 (981) | 0.50→0.45 (507) | 0.77→0.77 (929) | 0.96→0.96 (754) | 0.96 | 0.83 |
+| 10k+ | 0.476 (0.693) | 0.05→0.04 (85) | 0.25→0.21 (265) | 0.50→0.48 (164) | 0.76→0.74 (301) | 0.95→0.95 (107) | 0.99 | 0.81 |
+
+For comparison the flat prior at `[0, 3]`, narrow population, 1k to 3k pairs:
+log loss 0.726, forecasts averaging 0.95 passed 0.52, actual / median 2.92.
+
+What the tables say, plainly:
+
+- The forecast is a compromise. When patches really are worth about nothing
+  it is still too optimistic in the middle (a 0.7 passes about half the
+  time) and tests take about 1.4 times the forecast median early on; when
+  effects are large it is too cautious by about 0.1. Forecasts below 0.1 and,
+  from 10k pairs, above 0.9 are reliable under both.
+- At `[−3, 1]` with patches worth about nothing, most tests pass, and the
+  forecast is too pessimistic at the low end and no better than the pass rate
+  until about 3k pairs.
+- Workers report in batches and the LLR is checked per report, so a test runs
+  a little past its bound and lasts a few percent longer than a
+  continuous-time model says.
+- It assumes the test keeps drawing from one distribution: no worker joining
+  with a different speed, no change of book.
+
+`OutlookCalibrationTests` replays a small version of the first two tables in
+the suite (real SPRTs at `[0, 3]`, both populations, forecasts at 1.7k, 4k
+and 10k pairs) and fails if the forecast is not better than the flat prior
+early on. `ExitTimeLawTests` checks the exit-time law against simulated walks
+on both sides of the series/image switch, including a strong drift starting
+next to the bound behind it.
+
+#### Search speed
+
+Workers report, per Result, the nodes searched and the time used by dev and
+base (`dev_nodes`, `dev_time`, …), once at the end of each stint on a
+Workload, so the counters cover completed stints only. `speed` is `null` until
+one arrives.
+
+- `speed.dev_nps`, `speed.base_nps`: `1000 · nodes / time`, pooled over the
+  group; `speed.difference = dev_nps / base_nps − 1` is that pooled ratio, in
+  which a host counts in proportion to its playing time.
+- `speed.dev_nps_scaled`, `speed.base_nps_scaled` use `dev_time_scaled` /
+  `base_time_scaled`. The Client divides each move time by the machine's scale
+  factor (`scale_nps / benchmarked nps`), so these are nodes per second of
+  reference-machine time and can be compared across machines. Dev and base
+  share one factor within a Result, so the difference is the same either way.
+- `spread` asks whether the difference is beyond the noise across hosts: the
+  95% Student-t interval of the mean of `ln(dev_nps / base_nps)` over the
+  hosts that reported counters (`hosts`), every host counting once, given
+  back as relative differences (`mean`, `lower`, `upper`). `beyond_noise` is
+  true when the interval excludes zero; hosts that agree exactly (no spread at
+  all) prove nothing and are never beyond noise. It needs two hosts, and is
+  `null` with one.
+- `difference` on the reading is the headline, and is the estimate the test
+  is about: `spread.mean` when there is a spread, else the pooled ratio. The
+  pooled and per-host figures can differ in sign when one long-running host
+  dominates the playing time.
+- `overall` is the whole Workload; `cpus` repeats the reading per CPU model,
+  largest first.
+
+#### Consistency
+
+A host is `ResultRow.host`, the `Machine.host_key` of
+[the fleet pages](#fleet-pages): one physical host registers many `Machine`
+rows, and an AWS Batch job is a host of its own that plays one Workload for a
+few hundred pairs and never returns. A Workload therefore has many small
+hosts, so the CPU model is the primary grouping and hosts are only screened
+for outliers. A flagged host carries its `machine_label` (long ids
+shortened) and its `pool` label.
+
+- **Per CPU** (`cpus`, largest first): games, pairs, Elo, crashes, time losses
+  and speed, and `deviation`: the z-score of the group's mean score per pair
+  (per game for trinomial) against every other result of the Workload,
+  `z = (m − m_rest) / √(s² (1/n + 1/n_rest))` with the Workload's pooled score
+  variance `s²`. It is `null` unless both the group and the rest hold at least
+  `min_samples` (200) pairs, where the normal approximation of a five-valued
+  score is safe. `p_value` is two-sided; `adjusted_p_value` is Bonferroni,
+  `min(1, p · groups tested)`; `flagged` is `adjusted_p_value < alpha`.
+- **`heterogeneity`**: a chi-square test that every CPU shares one mean score,
+  `Q = Σ nᵢ (mᵢ − m)² / s²` with `groups − 1` degrees of freedom. CPUs below
+  `min_samples` are pooled into one group (`pooled_small_groups` says how
+  many) and dropped if even their pool is too small. `null` with fewer than
+  two groups. `flagged` is `p_value < alpha`.
+- **Hosts** (`hosts`): `total` hosts, `tested` of them large enough for the
+  same z-test against the rest (Bonferroni across the hosts tested), and
+  `flagged`, the hosts that deviate, crash or lose on time too often, largest
+  first. Statistics are built only for the flagged ones.
+- **False flags.** `alpha` is 0.001 per family, and there are three families
+  (CPUs, the chi-square, hosts), each looked at again on every refresh. In a
+  simulation of honest Workloads (four new hosts of 100 to 600 pairs per
+  look, two CPU models, 30 looks) some deviation flag was up on 0.4% of looks
+  and on 1.5% of Workloads at some point in their life. With `alpha = 0.01`
+  those were 1.5% and 8.8%, which is why it is not 0.01.
+- **Crashes and time losses**: `crash_rate` and `timeloss_rate` are per game.
+  `crash_flagged` needs at least 2 crashes and a rate above 1 in 1,000;
+  `timeloss_flagged` at least 2 time losses and a rate above 1 in 200. A
+  single crash never earns a flag: on a host with a few hundred games it says
+  nothing about a rate.
+
+A flag is a reason to look, not a verdict. A patch can genuinely be worth more
+on one CPU (a speed-up that depends on the instruction set), and a deviating
+host can be a broken build, a throttled machine or chance.
+
+#### Verdict
+
+`verdict.text` is one or two sentences built from fixed templates
+(`verdict.py`), no model involved; `kind` and `tone` classify it.
+
+| `kind` | When | `tone` |
+|---|---|---|
+| `too_early` | fewer than 200 games, or every result identical (no variance) | `neutral` |
+| `passed`, `failed` | an SPRT that passed or failed | `positive`, `negative` |
+| `very_likely_gain` / `_loss` | LOS prints as ≥ 98% / ≤ 2% | `positive` / `negative` |
+| `likely_gain` / `_loss` | LOS prints as ≥ 90% / ≤ 10% | `positive` / `negative` |
+| `possible_gain` / `_loss` | LOS prints as ≥ 70% / ≤ 30% | `neutral` |
+| `inconclusive` | anything between | `neutral` |
+
+The class is decided on the rounded percentage that is printed, so a headline
+never contradicts the number beside it. The headline's confidence is about
+the sign only. A size word is added only when the whole 95% interval is on
+one side of zero, and it describes the end nearest zero: small below 5 Elo,
+moderate below 20, large above. "+29.6 ± 28.1" is therefore "a small gain",
+and "+2.9 ± 4.4" is "a gain" with no size. The measurement is always
+`Elo ± half-width, LOS` in logistic Elo; probabilities beyond 99% or below 1%
+are worded "above 99%" and "below 1%", never as certainty. Then:
+
+- an unfinished SPRT adds the outlook ("Forecast: 68% chance to pass, with
+  roughly 38k more games needed (80% range 13k to 132k)."), or says there are
+  too few games to forecast;
+- other unfinished Workloads with a target add "N of M games played";
+- finished ones add "Based on N games";
+- a decided SPRT says which bound it favoured and what that rules out, naming
+  the scale of the bounds, which is normalized Elo for a pentanomial test and
+  BayesElo for a trinomial one and not the logistic Elo of the measurement
+  ("dev is very unlikely to be worth less than 0 normalized Elo"). It then
+  gives the measurement with the warning that an SPRT stops the moment it is
+  convinced, so the estimate is biased towards the bound it stopped at. That
+  holds whichever side of zero the estimate lies.
+
 ### Server
 
 - `fleet`: hosts with a heartbeat within the last 2 minutes, the `concurrency`
@@ -335,6 +613,68 @@ queries: status 401 or 404 with `{ "error": "..." }`.
           "stats": { "games": 3296, "pairs": 1648, "share": 0.317,
                      "pairs_per_hour": 28.1, "elo": Elo } }
       ]
+    },
+    "results": {                      // null for SPSA
+      "verdict": {
+        "kind": "likely_gain",        // see the Verdict table
+        "tone": "positive",           // positive | negative | neutral
+        "text": "Likely a gain: +2.9 ± 4.4 Elo, LOS 90%. Forecast: 68% chance to pass, ..."
+      },
+      "outcomes": {
+        "trinomial_fractions": [0.168, 0.655, 0.177],                 // [L, D, W], or null
+        "pentanomial_fractions": [0.049, 0.239, 0.406, 0.258, 0.048], // or null
+        "decisive_game_rate": 0.345, "games_per_decisive": 2.9,       // or null
+        "swept_pair_rate": 0.096, "level_pair_rate": 0.406,           // or null
+        "pair_variance": {            // or null
+          "observed": 0.0552, "independent": 0.0431, "ratio": 1.28,
+          "game_correlation": 0.28, "pair_efficiency": 0.78
+        }
+      },
+      "outlook": {                    // null unless an unfinished SPRT with enough data
+        "pass_probability": 0.684,
+        "remaining_games": { "lower": 12820, "median": 38292, "upper": 132442 },
+        "interval": 0.8,
+        "prior": { "mean_elo": 0.0, "sd_elo": 4.0, "equivalent_games": 7544 }   // normalized Elo
+      },
+      "speed": {                      // null until a worker has reported node counters
+        "overall": {
+          "difference": 0.0101,       // spread.mean when there is a spread, else speed.difference
+          "speed": { "dev_nps": 2071000, "base_nps": 2050000,
+                     "dev_nps_scaled": 2071000, "base_nps_scaled": 2050000,   // each or null
+                     "difference": 0.0102 },                                  // or null
+          "spread": { "hosts": 5, "mean": 0.0101, "lower": -0.014, "upper": 0.035,
+                      "beyond_noise": false }                                 // or null
+        },
+        "cpus": [ { "cpu_name": "Apple M4", "reading": { "difference": 0.02, "speed": { ... }, "spread": null } } ]
+      },
+      "consistency": {
+        "min_samples": 200, "alpha": 0.001,
+        "cpus": [
+          { "cpu_name": "AMD Ryzen 9 7950X 16-Core Processor", "hosts": 2,
+            "stats": {
+              "games": 3296, "pairs": 1648, "elo": Elo,
+              "deviation": { "z_score": -1.31, "p_value": 0.19,
+                             "adjusted_p_value": 0.76, "flagged": false },    // or null
+              "crashes": 4, "timelosses": 19,
+              "crash_rate": 0.0012, "timeloss_rate": 0.0058,                  // or null
+              "crash_flagged": true, "timeloss_flagged": true,
+              "speed": { ... }        // as speed.overall.speed
+            } }
+        ],
+        "heterogeneity": { "statistic": 3.0, "degrees_of_freedom": 3, "p_value": 0.392,
+                           "pooled_small_groups": 0, "flagged": false },      // or null
+        "hosts": {
+          "total": 5, "tested": 5,
+          "flagged": [
+            { "owner": "home-worker", "machine_name": "demo-2",  // null when the Client sent none
+              "machine_label": "demo-2", "pool": "demo-*",
+              "cpu_name": "AMD Ryzen 9 7950X 16-Core Processor",
+              "machine_id": 2,        // the newest Machine row of the host
+              "machines": 1,          // Machine rows merged into it
+              "stats": { ... } }      // as a cpu's stats
+          ]
+        }
+      }
     }
   }
 }
@@ -388,7 +728,10 @@ Returns status 401 with `{ "error": "..." }` when authentication fails.
 
 Cost: the workload endpoint reads the Test, its snapshots and its Results once
 each, and computes one Elo interval per history point (about 25 ms for 150
-points; `OpenBench.stats.Elo` dominates). The server endpoint runs a fixed
+points; `OpenBench.stats.Elo` dominates). The results add 9 to 39 ms as first
+measured, about 12 ms after trimming, for the outlook of an unfinished SPRT
+(numpy over 61 drifts, about 60 survival evaluations), and one Elo interval
+per CPU and per flagged host. The server endpoint runs a fixed
 number of aggregate queries.
 
 ### `GET|POST /api/workload/<id>/history.csv`
@@ -737,6 +1080,27 @@ and leaves it hidden until a report with games arrives:
     Elo with its 95% band against games (not SPSA), and cumulative games
     against elapsed time with the target line where there is one. Fewer than
     two points show a single notice instead.
+  - Results, between the tiles and the charts, when `results` is not null:
+    the verdict line with its tone on the left edge; tiles for the forecast
+    chance to pass (with a meter) and games to decide (both labelled
+    "forecast", stating the prior, and absent when `outlook` is null), pair
+    variance against independent games with what one pair is worth in
+    independent pairs, decisive games, and dev search speed with whether it is
+    beyond noise; an "About the forecast" disclosure under the tiles holding
+    the caveat in plain text, so it does not depend on hovering; a pair
+    outcome table whose share column carries a bar per bucket, coloured from
+    loss through level to win (game outcomes for a trinomial Workload); a
+    "Consistency by CPU" table with Elo, the z-score against the rest with its adjusted
+    p-value printed under it, crashes, time losses and dev speed with its
+    noise verdict, flags as labelled badges; and a "Hosts that stand out"
+    table that appears only when a host is flagged. The header note states the
+    heterogeneity test's result and how many hosts were flagged.
+    When the [Games](#games) section is showing (the Workload uploads PGNs and
+    a report has arrived), the pair outcome table is left out and a line links
+    to Games instead: its pair table is the same distribution with the level
+    bucket split into `DD` and `WL`, and two tables of pair outcomes on one
+    page, one over every pair and one over the archived pairs, would read as
+    a contradiction. The tiles keep using the Workload's own counters.
   - Contributions: per-CPU and per-machine tables with a share bar, games,
     pairs per hour and Elo (not SPSA).
   - A **Download history (CSV)** link beside the Insights heading.

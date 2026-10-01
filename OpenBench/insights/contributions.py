@@ -5,6 +5,7 @@ from OpenBench.fleet.hosts import HostKey
 from OpenBench.fleet.pools import pool_label, short_name
 from OpenBench.insights.domain import Outcomes
 from OpenBench.insights.grouping import sum_by_key
+from OpenBench.insights.speed import SpeedCounters
 from OpenBench.insights.strength import EloInterval, elo_interval
 
 UNKNOWN_CPU = 'Unknown'
@@ -18,6 +19,9 @@ class ResultRow:
     owner: str
     cpu_name: str | None
     outcomes: Outcomes
+    crashes: int = 0
+    timelosses: int = 0
+    speed: SpeedCounters = SpeedCounters()
 
 
 @dataclass(frozen=True, slots=True)
