@@ -25,6 +25,7 @@ import tarfile
 import threading
 import traceback
 
+from OpenBench.games.service import refresh_after_archiving
 from OpenBench.models import PGN
 
 from django.core.files.storage import FileSystemStorage
@@ -69,6 +70,9 @@ class PGNWatcher(threading.Thread):
         # Only delete the files after flagging; in case something goes wrong
         for pgn in present:
             storage.delete(pgn.filename())
+
+        # Fold the new batches into the game insights; it logs its own failures
+        refresh_after_archiving(test_id)
 
         return len(pgns)
 
