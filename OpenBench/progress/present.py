@@ -4,21 +4,42 @@ from datetime import date
 from urllib.parse import quote, urlencode
 
 from OpenBench.insights.strength import EloInterval
+from OpenBench.listing_rows import short_name
 from OpenBench.progress.analysis import utc_day
 from OpenBench.progress.domain import (
     Author,
+    Candidate,
+    ChainSeries,
+    Commit,
     Contributor,
     DailyGames,
-    GreenTest,
+    DirectCheck,
+    LineageReport,
+    Measurement,
     ProgressReport,
+    Run,
+    RunStatus,
+    Step,
     Summary,
+    TimeClass,
     WeeklyOutcomes,
     Window,
 )
+from OpenBench.progress.lineage import half_width
 
-GREENS_LISTED = 100
+STEPS_LISTED = 100
+HEADLINE_CLASSES = (TimeClass.STC, TimeClass.LTC)
+VERDICT_TONES: dict[RunStatus, str | None] = {
+    RunStatus.PASSED: 'pass',
+    RunStatus.FAILED: 'fail',
+    RunStatus.RUNNING: 'info',
+    RunStatus.PENDING: 'warn',
+    RunStatus.COMPLETED: None,
+    RunStatus.STOPPED: None,
+}
 DASH = '—'
 MINUS = '−'
+DEEPEST_INDENT = 3
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,14 +58,76 @@ class WindowOption:
 
 
 @dataclass(frozen=True, slots=True)
-class GreenLine:
+class RunLink:
     url: str
-    name: str
-    finished_on: date
+    label: str
+    primary: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class CommitLink:
+    label: str
+    url: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class Cell:
+    label: str
     elo: str
-    bounds: str
-    games: str
-    cumulative: str
+    detail: str
+    provisional: bool
+    verdict: str
+    tone: str | None
+    runs: list[RunLink]
+
+
+@dataclass(frozen=True, slots=True)
+class StepLine:
+    on_trunk: bool
+    position: str
+    depth: int
+    base: CommitLink
+    dev: CommitLink
+    compare_url: str | None
+    subject: str
+    tested_on: date
+    author: str
+    cells: list[Cell | None]
+    row_url: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class CheckLine:
+    label: str
+    base: CommitLink
+    dev: CommitLink
+    span: str
+    direct: Cell
+    chained: str
+    coverage: str
+    difference: str
+    row_url: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class LineagePage:
+    engine: str
+    classes: list[str]
+    columns: int
+    lines: list[StepLine]
+    origin: CommitLink
+    steps_hidden: int
+    candidates_hidden: int
+    checks: list[CheckLine]
+    detached: list[StepLine]
+    detached_hidden: int
+    others: str
+
+
+@dataclass(frozen=True, slots=True)
+class EngineLink:
+    name: str
+    url: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -81,8 +164,8 @@ class ProgressPage:
     tiles: list[Tile]
     windows: list[WindowOption]
     engines: list[str]
-    greens: list[GreenLine]
-    greens_hidden: int
+    lineage: LineagePage | None
+    lineage_engines: list[EngineLink]
     weekly: list[OutcomeLine]
     daily: list[DayLine]
     contributors: list[ShareLine]
@@ -108,11 +191,10 @@ def percent(fraction: float | None, digits: int = 0) -> str:
     return DASH if fraction is None else f'{100 * fraction:.{digits}f}%'
 
 
-def elo_text(interval: EloInterval | None) -> str:
+def elo_text(interval: EloInterval | None, digits: int = 2) -> str:
     if interval is None:
         return DASH
-    half = max(interval.upper - interval.value, interval.value - interval.lower)
-    return f'{signed(interval.value)} ± {fixed(half)}'
+    return f'{signed(interval.value, digits)} ± {fixed(half_width(interval), digits)}'
 
 
 def path_safe(engine: str) -> bool:
@@ -131,52 +213,181 @@ def plural(value: int, noun: str) -> str:
     return f'{count(value)} {noun}{"" if value == 1 else "s"}'
 
 
-def summary_tiles(summary: Summary) -> list[Tile]:
+def chained_tone(total: EloInterval) -> str | None:
+    if total.value > 0:
+        return 'pass'
+    return 'fail' if total.value < 0 else None
+
+
+def chained_tile(time_class: TimeClass, series: ChainSeries | None) -> Tile:
+    label = f'Chained Elo · {time_class.label}'
+    if series is None:
+        return Tile(label, DASH, f'no trunk step measured at {time_class.label}')
+    running = f' · {count(series.provisional)} running' if series.provisional else ''
+    meta = f'{count(series.measured)} of {plural(series.steps, "trunk step")} measured{running}'
+    if series.total is None:
+        return Tile(label, DASH, meta)
+    return Tile(label, elo_text(series.total, 1), meta, chained_tone(series.total))
+
+
+def summary_tiles(summary: Summary, series: Iterable[ChainSeries] = ()) -> list[Tile]:
     sprt = summary.sprt
+    lineage = summary.lineage
     decided = sprt.passed + sprt.failed
-    unrated = f' · {count(summary.greens_without_elo)} without an estimate' if summary.greens_without_elo else ''
     per_day = f'≈ {count(round(summary.games_per_day))} per day' if summary.games_per_day is not None else DASH
+    by_class = {found.time_class: found for found in series}
     return [
+        *(chained_tile(time_class, by_class.get(time_class)) for time_class in HEADLINE_CLASSES),
         Tile(
-            'Elo gained (estimate)',
-            signed(summary.elo_gained, 1) if summary.greens else DASH,
-            f'sum over {plural(summary.greens, "green")}{unrated}',
-            'pass',
+            'Trunk steps',
+            count(lineage.trunk_steps),
+            f'{plural(lineage.candidates, "candidate")} off the trunk',
         ),
-        Tile(
-            'SPRTs finished',
-            count(sprt.total),
-            f'{count(sprt.passed)} passed · {count(sprt.failed)} failed · {count(sprt.stopped)} stopped',
-        ),
+        Tile('Measurements', count(lineage.measurements), f'pooled from {plural(lineage.runs, "run")}'),
         Tile(
             'SPRT pass rate',
             percent(summary.sprt_pass_rate),
-            f'of {plural(decided, "decided test")}',
+            f'{count(sprt.passed)} of {plural(decided, "decided test")} · {count(sprt.stopped)} stopped',
             'info',
         ),
         Tile('Games played', count(summary.games), per_day),
-        Tile(
-            'Tests created',
-            count(summary.tests_created),
-            f'by {plural(summary.authors, "author")}',
-        ),
-        Tile('Contributors', count(summary.contributors), 'users whose machines played'),
     ]
 
 
-def green_lines(greens: list[GreenTest]) -> list[GreenLine]:
+def repo_url(repo: str) -> str | None:
+    return repo.rstrip('/') if repo.startswith('https://') else None
+
+
+def commit_link(commit: Commit, repo: str, with_network: bool = False) -> CommitLink:
+    label = short_name(commit.sha)
+    if with_network and commit.network:
+        label = f'{label} · {commit.network}'
+    root = repo_url(repo)
+    return CommitLink(label, f'{root}/commit/{quote(commit.sha, safe="")}' if root else None)
+
+
+def compare_url(step: Step) -> str | None:
+    root = repo_url(step.repo)
+    if root is None or step.base.sha == step.dev.sha:
+        return None
+    return f'{root}/compare/{quote(step.base.sha, safe="")}...{quote(step.dev.sha, safe="")}'
+
+
+def run_url(run: Run) -> str:
+    return f'/test/{run.id}/'
+
+
+def sole_run(measurements: Iterable[Measurement]) -> Run | None:
+    runs = [run for measurement in measurements for run in measurement.runs]
+    return runs[0] if len(runs) == 1 else None
+
+
+def measurement_cell(measurement: Measurement, primary: Run | None = None) -> Cell:
+    runs = measurement.runs
+    controls = sorted({run.time_control for run in runs})
+    return Cell(
+        label=measurement.time_class.label,
+        elo=elo_text(measurement.elo),
+        detail=' · '.join([f'{count(measurement.games)} games', *controls]),
+        provisional=measurement.provisional,
+        verdict=measurement.verdict.value,
+        tone=VERDICT_TONES[measurement.verdict],
+        runs=[RunLink(run_url(run), f'#{run.id}', run is primary) for run in runs],
+    )
+
+
+def step_cells(step: Step, classes: Iterable[TimeClass], primary: Run | None) -> list[Cell | None]:
     return [
-        GreenLine(
-            url=f'/test/{green.id}/',
-            name=green.name,
-            finished_on=utc_day(green.finished_at),
-            elo=elo_text(green.elo),
-            bounds=f'[{fixed(green.elo_bounds[0])}, {fixed(green.elo_bounds[1])}]',
-            games=count(green.games),
-            cumulative=signed(green.cumulative_elo, 1),
-        )
-        for green in reversed(greens[-GREENS_LISTED:])
+        measurement_cell(found, primary) if (found := step.measurement(time_class)) else None for time_class in classes
     ]
+
+
+def step_line(step: Step, classes: Iterable[TimeClass], position: str = '', depth: int = 0) -> StepLine:
+    with_network = step.base.network != step.dev.network
+    shown = [found for time_class in classes if (found := step.measurement(time_class))]
+    primary = sole_run(shown) if len(shown) == len(step.measurements) else None
+    return StepLine(
+        on_trunk=bool(position),
+        position=position,
+        depth=min(depth, DEEPEST_INDENT),
+        base=commit_link(step.base, step.repo, with_network),
+        dev=commit_link(step.dev, step.repo, with_network),
+        compare_url=compare_url(step),
+        subject=step.subject,
+        tested_on=utc_day(step.measured_at),
+        author=step.author,
+        cells=step_cells(step, classes, primary),
+        row_url=run_url(primary) if primary else None,
+    )
+
+
+def candidate_lines(candidates: Iterable[Candidate], classes: Iterable[TimeClass]) -> list[StepLine]:
+    return [step_line(found.step, classes, depth=found.depth) for found in candidates]
+
+
+def lineage_lines(lineage: LineageReport) -> list[StepLine]:
+    lines: list[StepLine] = []
+    for row in reversed(lineage.steps[-STEPS_LISTED:]):
+        lines.extend(candidate_lines(row.candidates, lineage.classes))
+        lines.append(step_line(row.step, lineage.classes, position=str(row.index)))
+    if len(lineage.steps) <= STEPS_LISTED and not lineage.steps_omitted:
+        lines.extend(candidate_lines(lineage.origin_candidates, lineage.classes))
+    return lines
+
+
+def difference_text(check: DirectCheck) -> str:
+    if check.direct.elo is None or check.direct.provisional or check.chained is None:
+        return DASH
+    margin = (half_width(check.direct.elo) ** 2 + half_width(check.chained) ** 2) ** 0.5
+    return f'{signed(check.direct.elo.value - check.chained.value)} ± {fixed(margin)}'
+
+
+def check_line(check: DirectCheck) -> CheckLine:
+    primary = sole_run([check.direct])
+    return CheckLine(
+        label=check.time_class.label,
+        base=commit_link(check.base, check.repo),
+        dev=commit_link(check.dev, check.repo),
+        span=f'steps {check.first_index}–{check.last_index}',
+        direct=measurement_cell(check.direct, primary),
+        chained=elo_text(check.chained),
+        coverage=f'{count(check.measured)} of {plural(check.steps, "step")} measured',
+        difference=difference_text(check),
+        row_url=run_url(primary) if primary else None,
+    )
+
+
+def network_changes(lineage: LineageReport) -> bool:
+    return any(row.step.base.network != row.step.dev.network for row in lineage.steps)
+
+
+def others_note(lineage: LineageReport) -> str:
+    if not lineage.others:
+        return ''
+    steps = sum(other.steps for other in lineage.others)
+    return f'{plural(steps, "step")} in {plural(len(lineage.others), "other lineage")}'
+
+
+def repo_of(lineage: LineageReport) -> str:
+    steps = [row.step for row in lineage.steps] + [found.step for found in lineage.origin_candidates]
+    return steps[0].repo if steps else ''
+
+
+def lineage_page(lineage: LineageReport) -> LineagePage:
+    listed = lineage.steps[-STEPS_LISTED:]
+    return LineagePage(
+        engine=lineage.engine,
+        classes=[time_class.label for time_class in lineage.classes],
+        columns=2 + len(lineage.classes),
+        lines=lineage_lines(lineage),
+        origin=commit_link(lineage.origin, repo_of(lineage), with_network=network_changes(lineage)),
+        steps_hidden=lineage.steps_omitted + len(lineage.steps) - len(listed),
+        candidates_hidden=lineage.origin_candidates_omitted + sum(row.candidates_omitted for row in listed),
+        checks=[check_line(check) for check in lineage.direct],
+        detached=[step_line(step, [found.time_class for found in step.measurements]) for step in lineage.detached],
+        detached_hidden=lineage.detached_omitted,
+        others=others_note(lineage),
+    )
 
 
 def outcome_lines(weeks: list[WeeklyOutcomes]) -> list[OutcomeLine]:
@@ -228,7 +439,7 @@ def progress_page(report: ProgressReport, configured: Iterable[str]) -> Progress
         window=report.window,
         start=report.start,
         end=report.end,
-        tiles=summary_tiles(report.summary),
+        tiles=summary_tiles(report.summary, report.lineage.series if report.lineage else ()),
         windows=[
             WindowOption(
                 window.label,
@@ -238,8 +449,8 @@ def progress_page(report: ProgressReport, configured: Iterable[str]) -> Progress
             for window in Window
         ],
         engines=engine_choices(configured, report.engine),
-        greens=green_lines(report.greens),
-        greens_hidden=max(0, report.summary.greens - GREENS_LISTED),
+        lineage=lineage_page(report.lineage) if report.lineage else None,
+        lineage_engines=[EngineLink(name, progress_url(name, report.window)) for name in report.lineage_engines],
         weekly=outcome_lines(report.weekly_outcomes),
         daily=day_lines(report.daily_games),
         contributors=contributor_lines(report.top_contributors),
