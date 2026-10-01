@@ -244,6 +244,7 @@ class RenderedPageTests(TestCase):
             '/index/',
             '/greens/',
             '/search/?go=1&keywords=x',
+            '/search/?q=dev',
             f'/test/{self.test.id}/',
             f'/tune/{self.tune.id}/',
             f'/datagen/{self.datagen.id}/',

@@ -6,12 +6,13 @@ from typing import Any, ClassVar
 from django.test import SimpleTestCase, TestCase
 from django.utils import timezone
 
-from OpenBench.listing_rows import is_commit_name, listing_moment, short_name, workload_label
+from OpenBench.listing_rows import listing_moment, workload_label
 from OpenBench.models import LogEvent, Test, WorkloadSnapshot
 from OpenBench.page_queries import listing_tests
 from OpenBench.templatetags.mytags import prettyDevName, prettyName
 from OpenBench.tests.datasets import SMALL, Dataset, build_dataset
 from OpenBench.tests.fixtures import create_engine_config, create_test, create_user, ensure_book, present
+from OpenBench.workload_names import is_commit_name, short_name
 
 DEV_SHA = '76f2da3c0b1e4f5a9d8c7b6a5e4f3d2c1b0a9f8e'
 BASE_SHA = '8c308d43aa11bb22cc33dd44ee55ff6677889900'
