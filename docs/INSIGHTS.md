@@ -339,6 +339,27 @@ queries: status 401 or 404 with `{ "error": "..." }`.
 }
 ```
 
+`diagnosis` is the verdict described under
+[Workload diagnosis](#workload-diagnosis):
+
+```jsonc
+"diagnosis": {
+  "state": "outranked",
+  "severity": "warning",
+  "headline": "Outranked: workers take the highest priority first, and 1 workload at priority 5 is ahead of this one at priority 0.",
+  "brief": "outranked by priority 5",
+  "evidence": [
+    { "kind": "higher_priority",
+      "text": "#12 (Pawn corrhist, LTC) has priority 5, 5 above this workload's 0.",
+      "link": { "href": "/test/12/", "label": "Workload 12" } }
+  ]
+}
+```
+
+`evidence[].kind` is one of `workers`, `last_result`, `assignment`,
+`last_worker`, `eligible`, `ineligible`, `higher_priority`, `focus`,
+`throughput_share`, `error`, `limit`.
+
 `history.points` is in time order, holds at most 401 entries (400 snapshots and
 the tail point), and ends at the current counters. `machines`
 and `cpus` are sorted by games, largest first. `share` and `pairs_per_hour` are
@@ -427,6 +448,141 @@ begin a spreadsheet formula: a leading `-` only ever starts a negative number.
   template filter: the LLR's position between the SPRT bounds, or games over
   `max_games` for GAMES and DATAGEN. It reads only the Test's fields; SPSA rows
   have none, since their stat block already states iterations.
+
+## Workload diagnosis
+
+A workload can sit approved with no games, or stop part-way, with nothing on
+the page saying why. `OpenBench/diagnosis/` answers "what is this workload
+waiting for" as one structured verdict, built from the scheduler's own rules
+and from what the server has recorded. It never guesses: a verdict is a fixed
+template filled from evidence, and `unknown` when the evidence is not there.
+
+### The verdict
+
+| Field | Meaning |
+|---|---|
+| `state` | One of the states below |
+| `severity` | `ok` (running, finished), `info` (pending, starting, queued, unknown) or `warning` (blocked or stalled) |
+| `headline` | One sentence, for the workload page's banner |
+| `brief` | A few words, for a listing row |
+| `evidence` | `[{ "kind", "text", "link": { "href", "label" } \| null }]`, each a fact the verdict rests on |
+
+States, in the order they are decided:
+
+| State | When |
+|---|---|
+| `finished` | Finished, stopped or deleted: no worker will take it. A stopped workload cites its last worker error, since a bench mismatch stops a test. |
+| `awaiting_approval` | Not approved yet. |
+| `running` | A machine seen in the last 2 minutes holds it. Evidence: the machines, and when the last result arrived. |
+| `stalled` | Such machines still check in, but nothing has been reported for longer than the stall limit. |
+| `starting` | No holder is checking in, but a machine took it in the last 10 minutes and has reported no game and no error. A worker sends no heartbeat while it builds and benchmarks. |
+| `no_workers` | No machine has been seen in the last 10 minutes, and the fleet of the last 24 hours includes one that could take it (or there is no such fleet). Says when the last worker was seen. |
+| `no_eligible_workers` | Workers were seen, but none that could take it; each kind is listed with every rule that excludes it. Also when the only kinds that could take it have gone quiet while others are online. |
+| `outranked` | An eligible worker is online, but for every such worker a higher-priority workload it can play comes first, or its `--focus` / `--only` engine has work waiting. Evidence: those workloads and the priority gap. |
+| `low_share` | It is among the candidates, but other candidates have fewer threads for their throughput, so they are served first. |
+| `failing` | It is next in line for an online worker, yet workers have reported errors for it since its last result. Evidence: the last three, linked to their logs. |
+| `waiting` | It is next in line for an online worker and nothing is wrong: a busy worker asks again only when its batch ends. |
+| `unknown` | The workload or every registration seen cannot be evaluated (a missing `Threads` option, a registration without the fields the scheduler reads). |
+
+Worker errors newer than the last result are attached to every active state,
+so a `no_workers` verdict still shows that the last workers failed.
+
+### Same rules as the scheduler
+
+`clientGetWorkload` decides in `OpenBench/workloads/get_workload.py`. The
+diagnosis calls the same functions rather than restating them, through the
+typed wrappers in `diagnosis/scheduler.py`:
+
+- `unmet_syzygy_requirements`, `valid_hardware_assignment`,
+  `workload_uses_time_based_tc` and the Machine's stored `supported` and `only`
+  lists decide whether a machine may play a workload
+  (`diagnosis/eligibility.py`). Every failing rule is reported, in the
+  scheduler's order: engine unsupported, `--only`, blacklist, Syzygy, `--noisy`,
+  threads.
+- `refine_candidates` keeps the highest priority among what the machine may
+  play and then applies its focus; `distribute_resources` and
+  `apply_resource_ratios` give each candidate its threads-per-throughput ratio,
+  and the lowest ratio is served next (`diagnosis/standing.py`).
+
+Three of those (`unmet_syzygy_requirements`, `refine_candidates`,
+`distribute_resources` with `apply_resource_ratios`) were extracted from
+`filter_valid_workloads`, `select_workload` and
+`compute_resource_distribution` without changing them, so the diagnosis can
+run them on machines it already loaded. An unsupported engine is explained by
+`diagnosis/engine_support.py`, which is also what `views.supported_engines`
+now calls at registration: a missing CPU flag, compiler, Git token or
+operating system.
+
+`OpenBench/tests/test_diagnosis.py` holds the agreement tests: a machine
+registers through `clientWorkerInfo`, the diagnosis names the workloads it is
+next in line for, and `clientGetWorkload` must hand out one of exactly those,
+or nothing when there are none. They cover every exclusion, priority, focus,
+throughput share, engine balancing and the blacklist after a build failure.
+
+### The fleet
+
+Live workers here are short-lived batch jobs that register a new Machine each
+time, so "the fleet" cannot be the list of Machines. `diagnosis/fleet.py`
+takes the 120 most recently seen Machines, keeps those seen in the last 24
+hours, and groups them by owner, pool (`fleet.pools.pool_label`, so
+`batch-<uuid>:0` jobs read `batch-*`), CPU and the registration fields the
+scheduler reads (threads, cores, supported engines, `--only`, `--focus`,
+Syzygy, `--noisy`, operating system). Each group is judged once, through its
+newest Machine, and reported as one line with the number of hosts
+(`Machine.host_key`) behind it and its last sighting. A group is "online" when
+its newest Machine was seen in the last 10 minutes.
+
+Registration housekeeping deletes an owner's exited `--single_workload` and
+`--fleet` registrations that never took a workload once they are 15 minutes
+old. The 24-hour fleet is therefore the Machines that played something plus
+whatever registered recently: a kind of worker that only ever registered and
+left is forgotten after a quarter of an hour.
+
+### Limits
+
+- **Idle workers are invisible.** `Machine.updated` moves when a worker
+  registers, takes a workload, reports or sends a heartbeat. A worker that
+  polls and is given nothing leaves no trace, so "last seen" can be older than
+  its last request, and `no_workers` means no recorded contact, not no polling.
+- **The blacklist is inferred.** A Client sends its blacklist with each
+  workload request and the server does not store it. The Client adds a
+  workload after a build failure, which it also reports, so a Machine with a
+  `... build failed` error for the workload is treated as refusing it for that
+  session. A `--blacklist` given on the command line cannot be seen.
+- **Next in line is not a promise.** The scheduler picks at random among equal
+  ratios and lets a machine keep its workload while the split stays within 25%
+  of fair, so `waiting` means the next free worker would be offered it or a
+  tied workload.
+- **Stall limit.** Ten minutes, or four times an estimated game
+  (`2 × (base + 80 × increment)` of the dev time control) when that is longer.
+  Tunes that report in bulk only report at the end and are never called
+  stalled.
+- **Sampling.** Only the 120 newest Machines and the 200 newest worker errors
+  of the active workloads are read. With more than 120 Machines online the
+  thread counts behind `low_share` undercount.
+- **Errors are matched by workload only.** `LogEvent` has no index on
+  `test_id`; the lookup scans the table, which stays small because only
+  worker errors and workload actions are logged.
+
+### Where it shows, and what it costs
+
+- **Workload page**: a banner above the configuration for every workload that
+  is not finished (`Blocks/diagnosis.html`): quiet with collapsed evidence for
+  `ok` and `info`, amber with the evidence open for `warning`.
+- **Listings**: an active row whose timing line has no rate shows `brief`
+  under it, amber for a warning, with the headline as its tooltip. Rows that
+  are producing games are left alone.
+- **API**: `insights.diagnosis` on `/api/workload/<id>/insights/`, and the
+  state and headline on each row of `/api/workloads/`
+  ([API.md](API.md#getpost-apiworkloads)).
+
+Every active workload is diagnosed from one shared picture of the fleet, in
+six queries whatever the number of workloads and Machines: the active
+workloads, their worker errors, the newest Machines, the engine
+configurations, the last result time per workload, and the Results still
+without a game. A pending or finished workload costs none, a stopped one a
+single query for its errors. A listing pays the six only when an active row
+has no rate.
 
 ## Comparing workloads
 

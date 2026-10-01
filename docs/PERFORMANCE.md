@@ -8,23 +8,27 @@ there first.
 
 | Page | Queries |
 |---|---|
-| `/index/` (page 1), `/user/<name>/` | 9 |
+| `/index/` (page 1), `/user/<name>/` | 9, or 15 when an active row has no rate |
 | `/index/<n>/`, `/greens/` | 6 |
 | `/search/` | 7 |
 | `/events/`, `/errors/` | 7 |
 | `/networks/` | 5 |
-| `/test/<id>/` | 11 |
+| `/test/<id>/` | 10, or 16 for an active workload |
 | `/api/workload/<id>/summary/`, `/results/` | 5 |
-| `/api/workload/<id>/insights/` | 6 |
+| `/api/workload/<id>/insights/` | 6, or 12 for an active workload |
 | `/api/workload/<id>/history.csv` | 5 |
 | `/compare/?a=<id>&b=<id>` | 7 |
 | `/api/insights/server/` | 11 |
 | `/machines/`, `/machines/?show=…` | 11 (9 before any snapshot exists in the last 24 hours, and 8 with no listed workload: empty lookups are skipped) |
 | `/machines/<id>/` | 11 |
 | `/users/` | 8 |
+| `/api/workloads/` | 4, or 10 with an active row |
 
 Budgets include the session, user and Profile lookups every logged-in page
-pays.
+pays. The six extra queries are the workload diagnosis
+([INSIGHTS.md](INSIGHTS.md#workload-diagnosis)), which judges every active
+workload from one shared read of the fleet; `test_diagnosis.py` pins that
+count at both dataset sizes.
 
 ## Where the per-row queries went
 
