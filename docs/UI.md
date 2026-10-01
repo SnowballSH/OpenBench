@@ -117,6 +117,13 @@ without relying on fill alone.
   the page's `scripts` block. Never put a click handler on a bare `<th>`.
 - **Banners**: `.error-message`, `.warning-message`, `.status-message` render
   the session messages in `base.html`.
+- **Diagnosis**: `.diagnosis` with `.diagnosis-{ok,info,warning}` is the
+  workload page's "what is this waiting for" (or "what stopped this") banner (`Blocks/diagnosis.html`):
+  a `<section>` with a hidden `<h2>`, the headline, and the evidence in a
+  `<details>` that starts open only for a warning. `.row-reason` is the same
+  verdict in a few words on a listing row's `.row-meta` line,
+  `.row-reason-warning` in `--warn-text`; its hidden "Status:" prefix and its
+  `title` carry the meaning without the colour.
 - **Error pages**: `OpenBench/security/error_pages.py` serves `404.html` and
   `403.html` in the site layout with an empty Engines list, so they run no
   query and show an anonymous visitor nothing about the server. `500.html`

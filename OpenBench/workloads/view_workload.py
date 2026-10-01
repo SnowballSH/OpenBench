@@ -32,6 +32,7 @@ from django.utils import timezone
 
 import OpenBench.views
 import OpenBench.stats
+from OpenBench.diagnosis.report import diagnose_workload
 from OpenBench.insights.grouping import sum_by_key
 from OpenBench.machine_info import text_of
 from OpenBench.insights.speed import nodes_per_second
@@ -60,6 +61,10 @@ def view_workload(request, workload, workload_type):
     if workload_type == 'DATAGEN':
         data['type'] = workload_type
         data['dev_text'] = 'Dev'
+
+    # What an unfinished Workload is waiting for, or the Worker error that stopped it; see docs/INSIGHTS.md
+    if (diagnosis := diagnose_workload(workload)).shown:
+        data['diagnosis'] = diagnosis
 
     return OpenBench.views.render(request, 'workload.html', data)
 
