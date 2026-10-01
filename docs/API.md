@@ -165,7 +165,7 @@ The read endpoints and `POST api/active/` change nothing and do not check CSRF.
 | GET, POST | `/api/spsa/<id>/<inputs\|outputs\|digest\|perturbation>/` | view | SPSA tune parameters |
 | GET, POST | `/api/pgns/<id>/` | view | The workload's PGN archive |
 | GET, POST | `/api/insights/server/` | view | Fleet and workload counters |
-| GET, POST | `/api/progress/?engine=&window=` | view | Engine progress over a time window |
+| GET, POST | `/api/progress/?engine=&window=` | view | Engine lineage and activity over a time window |
 | GET, POST | `/api/storage/` | manager | Disk usage of the data directory |
 | POST | `/api/active/` | user | Workloads a described machine could be assigned |
 | POST | `/scripts/` | user / Approver | Upload a network or create a test (HTML) |
@@ -853,13 +853,19 @@ Schema in [INSIGHTS.md](INSIGHTS.md#getpost-apiinsightsserver).
 
 ### `GET|POST /api/progress/?engine=&window=`
 
-Elo gained from greens, weekly SPRT outcomes, games per day and top
-contributors over a window. `window` is `30d`, `90d` (default), `1y` or `all`,
+The engine's commit lineage (trunk steps with one pooled Elo measurement per
+time-control class, candidates that branched off, chained estimates per class
+and direct checks), weekly SPRT outcomes, games per day and top contributors
+over a window. `window` is `30d`, `90d` (default), `1y` or `all`,
 ignoring case and surrounding whitespace; `engine` filters by the workloads'
 dev engine. Authentication is the same as `api/insights/server/`: a failed
 login is 401, an unknown `window` is 400 `{"error": ...}`, and an `engine`
 with no Engine configuration is 404 `{"error": ...}`. Reports are cached
-for 60 seconds per window and configured engine. The JSON schema, formulas and caveats are
+for 60 seconds per window and configured engine. `progress.lineage` is `null`
+when there is nothing to chain, or when no engine is chosen and several have
+steps (`progress.lineage_engines` names them). The earlier `greens`,
+`elo_steps` and `summary.elo_gained` fields are gone. The JSON schema, the
+model, formulas and caveats are
 in [INSIGHTS.md](INSIGHTS.md#engine-progress).
 
 ### `GET|POST /api/storage/`
