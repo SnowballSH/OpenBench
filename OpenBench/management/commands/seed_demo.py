@@ -7,7 +7,9 @@
 # Results and a WorkloadSnapshot history. Two tests that upload PGNs get a small
 # synthetic archive, formatted by the Client's own code. COMMIT_CHAIN adds commit-pinned
 # tests like a lab agent creates: both branch names are 40-hex SHAs, each
-# commit is tested at STC then LTC, and an accepted commit is the next base. Refuses to run without DEBUG, or
+# commit is tested at STC then LTC, and an accepted commit is the next base. The engine gets a release
+# through the operator override (no network), fixed-games runs of default-branch commits against it,
+# and candidates whose base is a merge commit no test ever had as its dev. Refuses to run without DEBUG, or
 # against a database that already holds Workloads.
 
 import datetime
@@ -46,6 +48,8 @@ from OpenBench.models import (
     Test,
     WorkloadSnapshot,
 )
+from OpenBench.releases import store as release_store
+from OpenBench.releases.domain import NO_NETWORK, BranchStanding, Release
 from OpenBench.stats import PentanomialSPRT
 from OpenBench.triage.demo import (
     BUILD_LOG,
@@ -318,6 +322,58 @@ PROGRESS_CHECK_DAYS_AGO = 1.0
 
 COMMIT_TAG_LENGTH = 12
 
+RELEASE_TAG = 'v4.0.0'
+
+RELEASE_DAYS_AGO = 55.0
+
+DEFAULT_BRANCH = 'master'
+
+
+@dataclass(frozen=True)
+class DemoAnchorRun:
+    merge: str
+    tc: str
+    elo: float
+    games: int
+    days_ago: float
+    state: str = 'finished'
+    named_branch: bool = False
+    on_default_branch: bool = True
+
+
+# Fixed-games runs of a default-branch merge commit against the release, oldest first. The same merge
+# measured twice at one class is pooled; the last is a feature branch, which the page keeps apart.
+ANCHOR_RUNS = (
+    DemoAnchorRun('Merge #101: null-move verification', STC, 11.0, 6000, 44.0),
+    DemoAnchorRun('Merge #101: null-move verification', LTC, 9.0, 3000, 43.0),
+    DemoAnchorRun('Merge #108: continuation history', STC, 24.0, 6000, 27.0),
+    DemoAnchorRun('Merge #108: continuation history', STC, 24.0, 4000, 26.0),
+    DemoAnchorRun('Merge #115: correction history', STC, 33.0, 8000, 9.0),
+    DemoAnchorRun('Merge #115: correction history', LTC, 27.0, 4000, 8.0),
+    DemoAnchorRun('Merge #121: singular extensions', STC, 39.0, 10000, 0.6, state='active', named_branch=True),
+    DemoAnchorRun('Feature: razoring rewrite', STC, 30.0, 4000, 6.0, on_default_branch=False),
+)
+
+
+@dataclass(frozen=True)
+class DemoMergeCandidate:
+    subject: str
+    merge: str
+    elo: float
+    state: str
+    days_ago: float
+    author: int = 1
+
+
+# The live shape: each candidate is a feature commit tested against the default branch's head, a merge
+# commit that was never any test's dev, so these steps cannot join a chain
+MERGE_CANDIDATES = (
+    DemoMergeCandidate('Futility margin by improving', 'Merge #117: history pruning', 9.0, 'passed', 6.4),
+    DemoMergeCandidate('Late move pruning at PV nodes', 'Merge #117: history pruning', -8.0, 'failed', 6.1),
+    DemoMergeCandidate('Double extensions cap', 'Merge #119: futility margin', -9.0, 'failed', 5.5, author=2),
+    DemoMergeCandidate('Capture history gravity', 'Merge #119: futility margin', 10.0, 'passed', 5.2),
+)
+
 SEARCH_PARAMETERS = (
     DemoParameter('LmrBase', True, 0.75, 0.25, 1.50, 0.08, 0.002, 0.92),
     DemoParameter('LmrDivisor', True, 2.25, 1.50, 3.50, 0.15, 0.002, 2.05),
@@ -366,6 +422,7 @@ class Command(BaseCommand):
         with transaction.atomic():
             users = create_users()
             create_engine_config()
+            create_release()
             create_book()
             machines = create_machines(users)
             for spec in seeded_workloads():
@@ -484,8 +541,76 @@ def progress_checks(commits: Sequence[DemoCommit], root: str = CHAIN_ROOT) -> li
     ]
 
 
+def release_sha() -> str:
+    return commit_sha(f'Release {RELEASE_TAG}')
+
+
+def anchor_workloads(runs: Sequence[DemoAnchorRun] = ANCHOR_RUNS) -> list[DemoWorkload]:
+    return [
+        DemoWorkload(
+            name=DEFAULT_BRANCH if run.named_branch else commit_sha(run.merge),
+            mode='GAMES',
+            elo=run.elo,
+            pairs=run.games // 2 if run.state in FINISHED_STATES else run.games // 6,
+            state=run.state,
+            max_games=run.games,
+            tc=run.tc,
+            days_ago=run.days_ago,
+            duration_hours=8.0 if run.state in FINISHED_STATES else 24 * run.days_ago,
+            base_name=RELEASE_TAG,
+            dev_sha=commit_sha(run.merge),
+            base_sha=release_sha(),
+            info=run.merge,
+            hash_mb=LTC_HASH_MB if run.tc == LTC else 0,
+        )
+        for run in runs
+    ]
+
+
+def merge_candidate_workloads(candidates: Sequence[DemoMergeCandidate] = MERGE_CANDIDATES) -> list[DemoWorkload]:
+    return [
+        DemoWorkload(
+            name=(dev := commit_sha(candidate.subject)),
+            mode='SPRT',
+            elo=candidate.elo,
+            pairs=0,
+            state=candidate.state,
+            days_ago=candidate.days_ago,
+            duration_hours=5.0,
+            author=candidate.author,
+            base_name=(base := commit_sha(candidate.merge)),
+            dev_sha=dev,
+            base_sha=base,
+            info=f'{candidate.subject}\n{COMMIT_TAG}:{dev[:COMMIT_TAG_LENGTH]}',
+        )
+        for candidate in candidates
+    ]
+
+
+def create_release() -> None:
+    now = timezone.now()
+    published = now - datetime.timedelta(days=RELEASE_DAYS_AGO)
+    release_store.pin_release('Avalanche', Release(RELEASE_TAG, release_sha(), published), DEFAULT_BRANCH, now)
+    release_store.set_metadata('Avalanche', pinned_bench(release_sha()), NO_NETWORK)
+    merged = {run.merge: run.days_ago for run in ANCHOR_RUNS if run.on_default_branch and not run.named_branch}
+    for merge, days_ago in merged.items():
+        committed = now - datetime.timedelta(days=days_ago, hours=3)
+        release_store.record_standing('Avalanche', BranchStanding(commit_sha(merge), True, committed), now)
+    for run in ANCHOR_RUNS:
+        if not run.on_default_branch:
+            # Settled for good, so a local server never asks GitHub about a commit that does not exist
+            release_store.record_standing('Avalanche', BranchStanding(commit_sha(run.merge), False, None), now, True)
+
+
 def seeded_workloads() -> list[DemoWorkload]:
-    return [*WORKLOADS, *PAST_SPRTS, *chain_workloads(COMMIT_CHAIN), *progress_checks(COMMIT_CHAIN)]
+    return [
+        *WORKLOADS,
+        *PAST_SPRTS,
+        *chain_workloads(COMMIT_CHAIN),
+        *progress_checks(COMMIT_CHAIN),
+        *anchor_workloads(),
+        *merge_candidate_workloads(),
+    ]
 
 
 def create_users() -> list[User]:
@@ -758,10 +883,14 @@ def past_schedule(days_ago: float, rng: random.Random) -> Schedule:
     return Schedule(created, started, ended)
 
 
+def pinned_bench(sha: str) -> int:
+    # A pinned commit benches the same in every Workload that builds it
+    return 2_000_000 + int(sha[:8], 16) % 2_000_000
+
+
 def create_engine(name: str, rng: random.Random, sha: str = '') -> Engine:
     if sha:
-        # A pinned commit benches the same in every Workload that builds it
-        bench = 2_000_000 + int(sha[:8], 16) % 2_000_000
+        bench = pinned_bench(sha)
     else:
         sha = f'{rng.getrandbits(160):040x}'
         bench = rng.randint(2_000_000, 4_000_000)

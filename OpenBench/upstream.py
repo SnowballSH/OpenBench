@@ -48,6 +48,11 @@ def api_authenticate(request: HttpRequest) -> bool:
     return authenticated
 
 
+def git_credentials(engine: str) -> dict[str, str]:
+    headers: dict[str, str] | None = OpenBench.utils.read_git_credentials(engine)
+    return headers or {}
+
+
 def workload_label(test: Test) -> WorkloadLabel:
     label: WorkloadLabel = mytags.workload_label(test)
     return label

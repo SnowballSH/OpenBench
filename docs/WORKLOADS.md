@@ -58,6 +58,14 @@ tune and datagen info, SPSA and datagen settings) is copied as stored.
 
 ## Confirming at LTC
 
+The progress page's **Measure against the release** links open the same form
+through `/test/new/?release=<engine>&preset=<name>`
+(`OpenBench/workloads/release_measurement.py`): dev is the engine's default
+branch, base its latest release tag, the run settings are the named preset's,
+and the test is fixed games rather than an SPRT; see
+[INSIGHTS.md](INSIGHTS.md#since-the-latest-release). An unknown engine, preset
+or release fills nothing in and says so.
+
 A finished, passed STC SPRT shows a **Confirm at LTC** button on its page. It
 is a link to `/test/new/?clone=<id>&preset=<name>`: the create form opens
 filled in, and nothing exists until the operator submits it.

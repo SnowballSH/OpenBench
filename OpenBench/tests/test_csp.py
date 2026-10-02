@@ -7,9 +7,12 @@ from django.conf import settings
 from django.http import HttpResponse
 from django.middleware.csrf import REASON_NO_CSRF_COOKIE
 from django.test import Client, RequestFactory, TestCase, override_settings
+from django.utils import timezone
 
 from OpenBench.config import OPENBENCH_CONFIG
-from OpenBench.models import Machine, Network, SPSARun
+from OpenBench.models import Engine, Machine, Network, SPSARun
+from OpenBench.releases import store
+from OpenBench.releases.domain import BranchStanding, Release
 from OpenBench.security.csp import (
     HEADER,
     ContentSecurityPolicyMiddleware,
@@ -236,6 +239,13 @@ class RenderedPageTests(TestCase):
         )
         self.datagen = create_test(user, test_mode='DATAGEN')
         self.passed = create_test(user, finished=True, passed=True)
+        self.measured = create_test(
+            user, test_mode='GAMES', finished=True, games=400, LL=5, LD=40, DD=100, DW=45, WW=10
+        )
+        self.branch = create_test(user, test_mode='GAMES', finished=True, games=400, LL=5, LD=40, DD=100, DW=45, WW=10)
+        Engine.objects.filter(id=self.branch.dev_id).update(sha='c' * 40)
+        store.pin_release('Avalanche', Release('v4.0.0', 'b' * 40, timezone.now()), 'master', timezone.now())
+        store.record_standing('Avalanche', BranchStanding('a' * 40, True, timezone.now()), timezone.now())
         self.uploading = create_test(user, upload_pgns='COMPACT')
         self.machine = Machine.objects.create(user=user, info={**system_info(), 'supported': ['Avalanche']})
         self.error = logged_build_failure(self, self.test, self.machine)
@@ -282,6 +292,7 @@ class RenderedPageTests(TestCase):
             '/manage/storage/',
             '/progress/',
             '/progress/Avalanche/?window=all',
+            '/test/new/?release=Avalanche&preset=LTC',
             '/digest/',
             '/digest/?since=7d',
             '/compare/',

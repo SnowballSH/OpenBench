@@ -7,8 +7,10 @@ from django.core.cache import cache
 from django.test import TestCase
 from django.utils import timezone
 
-from OpenBench.models import LogEvent, Machine, Network, SPSAParameter, SPSARun, Test
+from OpenBench.models import Engine, LogEvent, Machine, Network, SPSAParameter, SPSARun, Test
 from OpenBench.page_queries import listing_tests
+from OpenBench.releases import store
+from OpenBench.releases.domain import BranchStanding, Release
 from OpenBench.templatetags.mytags import prettyDevName, shortStatBlock
 from OpenBench.tests.datasets import SMALL, Dataset, DatasetSize, build_dataset
 from OpenBench.tests.fixtures import (
@@ -81,14 +83,40 @@ DIGEST_QUERIES = {
 }
 
 
+PROGRESS_QUERIES = {
+    '/progress/Avalanche/': 17,
+    '/progress/Avalanche/?window=all': 16,
+    '/progress/': 16,
+    '/api/progress/?engine=Avalanche': 14,
+    '/api/progress/?engine=Avalanche&window=all': 13,
+}
+
+RELEASE_SHA = 'e' * 40
+
+
+def anchor_on_release(tests: list[Test]) -> int:
+    # Every other fixed-games test and some SPRTs become runs against the release, half from the default branch
+    same_engine = [test for test in tests if test.dev_engine == test.base_engine]
+    anchored = [test for test in same_engine if test.test_mode == 'GAMES'][::2]
+    anchored += [test for test in same_engine if test.test_mode == 'SPRT'][::8]
+    Engine.objects.filter(id__in=[test.base_id for test in anchored]).update(sha=RELEASE_SHA)
+    now = timezone.now()
+    store.pin_release('Avalanche', Release('v4.0.0', RELEASE_SHA, now), 'master', now)
+    for test in anchored[::2]:
+        store.record_standing('Avalanche', BranchStanding(test.dev.sha, True, now), now)
+    return len(anchored)
+
+
 class QueryBudgetTests(TestCase):
     # The same budgets hold for every size, so no page costs a query per row
     size: ClassVar[DatasetSize] = SMALL
     data: ClassVar[Dataset]
+    anchored: ClassVar[int]
 
     @classmethod
     def setUpTestData(cls) -> None:
         cls.data = build_dataset(cls.size)
+        cls.anchored = anchor_on_release(cls.data.tests)
 
     def setUp(self) -> None:
         self.client.force_login(self.data.users[0])
@@ -127,6 +155,16 @@ class QueryBudgetTests(TestCase):
         for url, queries in DIGEST_QUERIES.items():
             cache.clear()
             self.assert_page_queries(url, queries)
+
+    def test_progress(self) -> None:
+        self.assertGreaterEqual(self.anchored, self.size.tests // 10)
+        for url, queries in PROGRESS_QUERIES.items():
+            cache.clear()
+            self.assert_page_queries(url, queries)
+        release = self.client.get('/progress/Avalanche/?window=all').context['page'].release
+        self.assertTrue(release.tiles)
+        self.assertTrue(release.branches)
+        self.assertTrue(release.sprt)
 
 
 class LargerQueryBudgetTests(QueryBudgetTests):

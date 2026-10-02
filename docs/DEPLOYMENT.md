@@ -30,7 +30,8 @@ state, so pages can be seen with realistic data. Its `COMMIT_CHAIN` also seeds
 commit-pinned SPRT tests the way the lab agent creates them: both branch names
 are 40-hex SHAs, each commit is tested at STC and then LTC, an accepted commit
 becomes the next base, and rejected or still-running candidates share a base.
-`chain_workloads` turns any list of `DemoCommit` into those tests. It refuses
+`chain_workloads` turns any list of `DemoCommit` into those tests. The engine
+also gets a pinned release with fixed-games runs against it (no network). It refuses
 to run without `OPENBENCH_DEBUG`, and prints the demo login it created.
 
 The PGN watcher is started by the WSGI entrypoint (`OpenSite/wsgi.py`), which
@@ -295,6 +296,139 @@ empty key are never merged with each other, and are keyed by the first
 registration that arrives (200 per registration), by the row's own next
 heartbeat, and by the fleet pages when they meet one. `prune_machines --apply`
 keys all of them at once; the dry run reports how many there are.
+
+## Release anchor
+
+The progress page measures an engine against its latest GitHub release (see
+[INSIGHTS.md](INSIGHTS.md#since-the-latest-release)). Migration `0022` adds two
+tables: `OpenBench_enginerelease` (one row per engine: tag, commit, published
+time, default branch, when GitHub was last asked and whether that failed) and
+`OpenBench_defaultbranchcommit` (per engine and commit, whether the commit is
+on the default branch).
+
+### When the server reaches GitHub
+
+No page or API request ever waits on GitHub for this; they read the two
+tables. The watcher thread (the one that archives PGNs, one per deployment)
+does the asking, in a pass at most every 10 minutes:
+
+| Request | When | Calls |
+|---|---|---|
+| `releases/latest`, `git/ref/tags/<tag>` (and `git/tags/<sha>` for an annotated tag), the repository (for its default branch) | per enabled engine, at most once every 6 hours, counted from the last attempt whether it worked or not; never for a pinned engine | 3 or 4 |
+| `compare/<branch>...<sha>` | once for each commit tested with fixed games against the release that is not already known to be on the default branch, at most 3 per pass; a commit found off the branch is asked again every 6 hours, at most 28 times | 1 each |
+
+Every request goes to `api.github.com` only, with the engine's
+`Config/credentials.<engine>` token for a private engine and unauthenticated
+otherwise. The engine source must be `https://github.com/<owner>/<repo>` (the
+same pattern test creation accepts; `.` and `..` are refused). Unauthenticated
+requests share the host's 60 per hour with test creation; a quiet instance
+spends 3 every 6 hours per engine, and the worst hour (many new branch tests
+against the release) spends 18 on comparisons.
+
+Bounds on time: each request has a 3 second connect and a 5 second read
+timeout; redirects are not followed, except one that stays on
+`api.github.com` (a renamed repository); a pass stops making requests 45
+seconds after it began, and checks the watcher's stop flag before every
+request, so a shutdown waits for at most the one request in flight (8 seconds)
+and an interrupted release lookup is not counted as an attempt.
+
+Failures:
+
+- A failed release lookup (timeout, 5xx, no token) is recorded on the engine's
+  row and logged as a warning; the page keeps showing the release it knew and
+  says how old it is. It is tried again 6 hours later.
+- A failed `compare` is recorded on that commit, which is then left alone for
+  20 minutes, doubling with each further failure up to 6 hours.
+- A rate-limit answer ends the pass for every engine, and the next pass waits
+  until GitHub's `x-ratelimit-reset` (one hour when the header is absent, two
+  at most).
+- An unexpected error in one engine is logged with its traceback and recorded
+  as that engine's outcome; the other engines still get their turn.
+
+### Commands
+
+```bash
+python manage.py refresh_releases            # ask now for every enabled engine that is due
+python manage.py refresh_releases Avalanche --force   # ignore the 6 hour interval
+python manage.py set_release Avalanche v4.0.0 8b6fa5102a98847b7e03d82a0cb266d3cc888a86 \
+    --published 2026-08-08T19:08:13+00:00 --default-branch master
+python manage.py set_release Avalanche --unpin        # follow GitHub again
+```
+
+`set_release <engine> <tag> <sha>` is the override: it needs no network, and a
+release set this way is **pinned**, so the refresh never replaces it (the page
+says "set by the operator"). The sha must be the full 40 hexadecimal
+characters.
+
+Recording what the create form needs is separate from pinning:
+
+```bash
+python manage.py set_release Avalanche --bench 3141592 --network none
+```
+
+describes the release already known, pinned or not, and leaves it following
+GitHub if it was. `--bench` is the release commit's bench; `--network` is the
+sha of the network the release runs as listed on `/networks/`, or `none` for
+an engine with its network built in. Either can be given alone, and both can
+be given together with `<tag> <sha>`. They belong to one commit: when a
+different release replaces the stored one (by refresh or by pinning another
+sha) they are cleared, and the progress page says the bench is not recorded. `--on-default-branch SHA ...` marks tested commits as being on the
+default branch, for a host that cannot reach GitHub at all. Without
+`--default-branch` the branch already known is kept, else the default test
+preset's base branch, else `master`.
+
+The same override without Django, on the SQLite database directly (stop
+nothing; these are single-row writes):
+
+```sql
+INSERT INTO OpenBench_enginerelease
+    (engine, tag, sha, published_at, default_branch, bench, network, pinned, fetched_at, attempted_at, error)
+VALUES ('Avalanche', 'v4.0.0', '8b6fa5102a98847b7e03d82a0cb266d3cc888a86',
+        '2026-08-08 19:08:13', 'master', 0, '', 1, datetime('now'), NULL, '')
+ON CONFLICT(engine) DO UPDATE SET
+    tag = excluded.tag, sha = excluded.sha, published_at = excluded.published_at,
+    default_branch = excluded.default_branch, bench = 0, network = '',
+    pinned = 1, fetched_at = excluded.fetched_at, error = '';
+
+-- the release's bench and network ('none' for a built-in network); 0 and '' mean not recorded
+UPDATE OpenBench_enginerelease SET bench = 3141592, network = 'none' WHERE engine = 'Avalanche';
+
+INSERT INTO OpenBench_defaultbranchcommit
+    (engine, sha, on_default_branch, committed_at, checked_at, checks, failures)
+VALUES ('Avalanche', '<dev sha>', 1, NULL, datetime('now'), 1, 0)
+ON CONFLICT(engine, sha) DO UPDATE SET on_default_branch = 1;
+```
+
+The page caches a report for 60 seconds, so either route shows within a
+minute.
+
+### A first measurement
+
+1. Deploy; within ten minutes of the server starting the release is looked up
+   (or run `python manage.py refresh_releases` in the container). `/progress/<engine>/`
+   then reads "Since <tag>" and "No test of master against <tag> yet".
+2. Record the release's bench once, and its network:
+   `python manage.py set_release <engine> --bench <nodes> --network <sha or none>`.
+   The bench is what the release binary prints for `bench`.
+3. On the progress page press **STC · 10,000 games** (or LTC). The form opens
+   with both engines, both repositories, Dev Branch = the default branch, Base
+   Branch = the tag, the preset's options, time control and book, Test Mode =
+   Fixed Games, Max Games, and Base Bench and Base Network from step 2.
+4. Type **Dev Bench**, the bench of the default branch's head (unless the
+   engine's commit messages carry a `Bench:` line), check Dev Network, and
+   submit. Approve the test like any other.
+5. The run appears under "Since <tag>" as provisional while it plays and
+   becomes the headline when it finishes. A test created this way is on the
+   default branch by construction; one created from a pinned sha joins once
+   GitHub confirms the commit, within about ten minutes.
+
+### Rolling back past migration 0022
+
+Migration `0022` only creates the two tables. An image from before it does not
+know them and never touches them, so rolling the image back needs no
+`migrate OpenBench 0021`; leave the tables, and the newer image finds its data
+again. Reversing the migration drops both tables and loses nothing that the
+next refresh (or `set_release`) does not restore.
 
 ## Response compression
 

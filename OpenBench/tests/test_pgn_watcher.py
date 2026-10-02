@@ -73,8 +73,12 @@ class PGNWatcherTests(TestCase):
     def run_passes(self, handled):
         stop = mock.Mock(**{'is_set.side_effect': [False] * len(handled) + [True]})
         watcher = PGNWatcher(stop)
-        with mock.patch.object(watcher, 'process_pending', side_effect=handled):
+        with (
+            mock.patch.object(watcher, 'process_pending', side_effect=handled),
+            mock.patch('OpenBench.pgn_watcher.refresh_when_due') as refresh,
+        ):
             watcher.run()
+        self.assertEqual(refresh.call_count, len(handled))
         return stop.wait.call_count
 
     def test_watcher_sleeps_unless_a_full_batch_was_resolved(self):

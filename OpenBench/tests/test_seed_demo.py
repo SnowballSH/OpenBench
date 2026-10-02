@@ -1,5 +1,6 @@
 import io
 from datetime import timedelta
+from unittest import mock
 
 from django.core.management import call_command
 from django.core.management.base import CommandError
@@ -12,6 +13,7 @@ from OpenBench.fleet.pools import pool_label
 from OpenBench.fleet.sessions import never_used
 from OpenBench.games.service import archive_path
 from OpenBench.management.commands.seed_demo import (
+    ANCHOR_RUNS,
     BATCH_CPU,
     BATCH_IDLE_HOSTS_HOURS_AGO,
     BATCH_PLAYING_HOSTS,
@@ -21,12 +23,15 @@ from OpenBench.management.commands.seed_demo import (
     BUILD_FAILURES,
     CHAIN_ROOT,
     COMMIT_CHAIN,
+    ENGINE_SOURCE,
     GAME_ERROR_WORKLOAD,
     LTC,
+    MERGE_CANDIDATES,
     PAST_SPRTS,
     PGN_BATCHES,
     PGN_PAIRS_PER_RUNNER,
     PGN_RUNNERS_PER_BATCH,
+    RELEASE_TAG,
     SPEED_HOST_NOISE,
     STC,
     TUNES,
@@ -36,10 +41,12 @@ from OpenBench.management.commands.seed_demo import (
     chain_workloads,
     commit_sha,
     progress_checks,
+    release_sha,
 )
 from OpenBench.models import PGN, Engine, GameAnalysis, LogEvent, Machine, Profile, Result, Test, WorkloadSnapshot
 from OpenBench.progress.domain import TimeClass, Window
 from OpenBench.progress.report import progress_report
+from OpenBench.releases import service as release_service
 from OpenBench.tests.fixtures import present, use_temporary_media
 from OpenBench.triage.actions import action_rows, operator_events
 from OpenBench.triage.domain import Standing
@@ -63,7 +70,8 @@ class SeedDemoTests(TestCase):
         call_command('seed_demo', stdout=io.StringIO())
 
         chained = sum(len(commit.stages) for commit in COMMIT_CHAIN) + len(progress_checks(COMMIT_CHAIN))
-        self.assertEqual(Test.objects.count(), len(WORKLOADS) + len(PAST_SPRTS) + chained + len(TUNES))
+        anchored = len(ANCHOR_RUNS) + len(MERGE_CANDIDATES)
+        self.assertEqual(Test.objects.count(), len(WORKLOADS) + len(PAST_SPRTS) + chained + anchored + len(TUNES))
         self.assertTrue(Machine.objects.exists())
 
         for engine in Engine.objects.all():
@@ -229,8 +237,11 @@ class SeedDemoTests(TestCase):
     def test_commit_chain_is_pinned_like_the_lab_agent_pins_it(self):
         call_command('seed_demo', stdout=io.StringIO())
 
+        chain_bases = [commit_sha(CHAIN_ROOT), *(commit_sha(commit.subject) for commit in COMMIT_CHAIN)]
         pinned = list(
-            Test.objects.filter(dev__name__regex='^[0-9a-f]{40}$').select_related('dev', 'base').order_by('id')
+            Test.objects.filter(dev__name__regex='^[0-9a-f]{40}$', info__contains='\navl:', base__name__in=chain_bases)
+            .select_related('dev', 'base')
+            .order_by('id')
         )
         self.assertEqual(
             [(test.dev.sha, test.dev_time_control) for test in pinned],
@@ -372,6 +383,43 @@ class SeededLineageTests(TestCase):
         self.assertEqual((check.time_class, check.first_index, check.last_index), (TimeClass.LTC, 1, 2))
         self.assertEqual((check.measured, check.steps), (2, 2))
         self.assertTrue(lineage.detached)
+
+    @override_settings(DEBUG=True)
+    def test_the_release_is_seeded_without_the_network_and_measured(self):
+        with mock.patch('OpenBench.releases.github.requests.get') as get:
+            call_command('seed_demo', stdout=io.StringIO())
+        get.assert_not_called()
+
+        release = present(progress_report(Window.ALL, 'Avalanche').release)
+        anchor = present(release.anchor)
+        self.assertEqual((anchor.tag, anchor.sha, anchor.pinned), (RELEASE_TAG, release_sha(), True))
+
+        stc, ltc = release.series
+        self.assertEqual((stc.time_class, ltc.time_class), (TimeClass.STC, TimeClass.LTC))
+        merges = list(dict.fromkeys(run.merge for run in ANCHOR_RUNS if run.on_default_branch))
+        self.assertEqual([point.dev.sha for point in stc.points], [commit_sha(merge) for merge in merges])
+        self.assertEqual([point.measurement.provisional for point in stc.points], [False, False, False, True])
+        self.assertEqual(len(stc.points[1].measurement.runs), 2)
+        self.assertEqual(present(stc.latest).dev.sha, commit_sha(merges[2]))
+        self.assertGreater(present(present(stc.latest).measurement.elo).value, 0)
+        self.assertIsNotNone(present(stc.latest).committed_at)
+        self.assertGreater(present(stc.latest).newer_bases, 0)
+        self.assertEqual(len(ltc.points), 2)
+
+        (branch,) = release.branches
+        self.assertEqual(branch.dev.sha, commit_sha(ANCHOR_RUNS[-1].merge))
+        self.assertEqual(release_service.unresolved(anchor, ENGINE_SOURCE, timezone.now(), False), [])
+
+    @override_settings(DEBUG=True)
+    def test_merge_commit_bases_are_never_a_dev_so_their_candidates_do_not_chain(self):
+        call_command('seed_demo', stdout=io.StringIO())
+
+        bases = {commit_sha(candidate.merge) for candidate in MERGE_CANDIDATES}
+        self.assertFalse(Engine.objects.filter(dev__isnull=False, sha__in=bases).exists())
+        lineage = present(progress_report(Window.ALL, 'Avalanche').lineage)
+        on_trunk = {row.step.base.sha for row in lineage.steps} | {row.step.dev.sha for row in lineage.steps}
+        self.assertFalse(bases & on_trunk)
+        self.assertTrue(bases <= {step.base.sha for step in lineage.detached})
 
     @override_settings(DEBUG=True)
     def test_the_commit_chain_slows_down_as_seeded(self):

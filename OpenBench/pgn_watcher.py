@@ -27,6 +27,7 @@ import traceback
 
 from OpenBench.games.service import refresh_after_archiving
 from OpenBench.models import PGN
+from OpenBench.releases.service import refresh_when_due
 
 from django.core.files.storage import FileSystemStorage
 from django.db import close_old_connections
@@ -104,6 +105,9 @@ class PGNWatcher(threading.Thread):
                     traceback.print_exc()
                     sys.stdout.flush()
                     close_old_connections()
+
+            # Release anchors of the progress page; throttled, and logs its own failures
+            refresh_when_due(self.stop_event.is_set)
 
             # Sleep unless a full batch was resolved, as a backlog may remain.
             # Otherwise loop again immediately, which will check the stop_event

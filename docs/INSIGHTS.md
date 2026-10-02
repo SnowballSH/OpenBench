@@ -1521,6 +1521,14 @@ their parameters end at values the Server itself could have reached. Each
 iteration is a mini-match between the two perturbed sides, and the side nearer a
 hidden optimum plays slightly stronger, so the parameters drift towards it.
 
+`seed_demo` gives Avalanche a release through the operator override
+(`store.pin_release`, no network, with its bench recorded) and `ANCHOR_RUNS`: fixed-games runs of four
+default-branch merge commits against it at STC and LTC over six weeks, one
+commit measured twice (pooled), the newest still running and created from the
+branch name, and one feature-branch commit for the "branch vs release" list.
+`MERGE_CANDIDATES` are SPRT tests whose base is a merge commit that was never
+any test's dev, the shape that keeps the live lineage a fragment.
+
 `seed_demo` also seeds operator events for `/events/` and worker errors with
 logs for `/errors/`: a build failure repeated by fourteen ephemeral jobs in
 the last quarter of an hour (one of whose Machine rows is gone), a wrong bench
@@ -1690,7 +1698,9 @@ local-memory cache, so per process), which bounds the cost of repeated loads
 and of the API; since only configured engines reach the cache, a caller cannot
 fill it with arbitrary names.
 
-The page has three parts. The **lineage** answers "how much stronger did the
+The page has four parts. **Since the latest release** answers "how much
+stronger is the default branch than the last release", and is the only number
+on the page that is a direct measurement. The **lineage** answers "how much stronger did the
 engine get, and through which commits"; **economics & speed** answers "what
 did that cost, how fast does the trunk move, and did the engine search slower
 as it got stronger"; the **activity** charts answer "how much testing
@@ -1707,6 +1717,7 @@ Code lives in `OpenBench/progress/`:
 | `economics.py` | Pure functions over the window's trunk and candidates: cost buckets, the per-class table, games per Elo, cadence. |
 | `options.py` | Reads `Threads` out of an options string (apart from `conditions.py` so the queries can use it without importing `utils`). |
 | `analysis.py` | Pure functions for the activity half: parsing, the window scope, games per day, weekly series, rankings, the summary. |
+| `anchor.py` | Pure functions for the release section: which runs measure the default branch against the release, pooled per commit and class. |
 | `sources.py` | The queries below. |
 | `report.py` | Runs the queries and assembles a `ProgressReport`. |
 | `present.py` | Formats the report for the template (tiles, table rows, links). |
@@ -1717,6 +1728,129 @@ hand-built graphs without a database, and `test_progress_economics.py` does
 the same for speed, cost and cadence (missing counters, a single host, zero
 time); `test_progress.py` covers the activity
 functions, the queries against a small fixture, the page and the API.
+
+The release itself, and which tested commits are on the default branch, come
+from `OpenBench/releases/` (`domain.py` holds the `Release`, `ReleaseAnchor`
+and `ReleaseProvider` contracts, `github.py` the GitHub implementation,
+`store.py` the two tables, `service.py` the refresh discipline);
+`OpenBench/workloads/release_measurement.py` fills in the create form.
+`test_releases.py` covers the provider against GitHub's answer shapes with the
+HTTP layer faked, the refresh rules, the commands and the migration;
+`test_progress_release.py` covers the selection, the page, the API and the
+prefill.
+
+### Since the latest release
+
+Merges to the default branch happen often, and each one makes a new commit, so
+"dev against master" says how one change did, not how far the engine has come.
+The stable reference is the engine's **latest release**: the one GitHub itself
+calls latest (`releases/latest`, which leaves out drafts and prereleases, so a
+later-named tag on another branch is never picked), resolved to its commit
+through the tag namespace (`git/ref/tags/<tag>`, and `git/tags/<sha>` once
+more when the tag is annotated), so a branch that happens to share the tag's
+name can never be what is resolved.
+
+**Anchor run.** A fixed-games TEST workload (not deleted, the same engine on
+both sides) whose base commit is the release commit. An SPRT against the
+release is not one: it stops as soon as its bound is crossed, after a few
+hundred games against an old release, and its estimate is biased by the
+stopping rule. Such runs are listed in their own collapsed table, marked
+"stop early, biased", are never pooled with the fixed-games runs, and their
+commits are not looked up on GitHub. The base may
+have been entered as the tag or as the sha; only `Engine.sha` is compared.
+A test of the release against itself is not one.
+
+**On the default branch.** An anchor run only measures progress when its dev
+commit is a commit of the default branch, "master at that time". That holds
+when either
+
+- the test was created from the default branch's own name on the engine's own
+  repository (`Engine.name` is the branch name, so the sha is the head it had
+  then), which needs no lookup; or
+- GitHub's compare API says the commit is an ancestor of the branch
+  (`compare/<branch>...<sha>` answering `behind` or `identical`; this is the
+  direction that returns no file list for an ancestor, 10 KB instead of 1 MB).
+  A true answer is stored for good in `DefaultBranchCommit`, with the commit's
+  date; a false one is asked again every 6 hours, at most 28 times (a week),
+  because a branch may be merged later.
+
+Anchor runs whose dev is not (yet) known to be on the default branch are
+listed apart as **branch vs release** and are never in the headline or the
+chart.
+
+**Pooling.** Runs of the same commit against the release are pooled within a
+time-control class exactly as lineage steps are (`lineage.build_steps` and
+`lineage.pool`: pentanomial counts added when every run has them, finished
+runs only when any is finished). STC and LTC are never mixed. A commit whose
+runs are all still running is **provisional**: it is listed and drawn hollow,
+never the headline.
+
+**Headline.** Per class (STC and LTC), the newest default-branch commit with a
+finished measurement: its Elo and 95% interval (`insights.strength`, the same
+functions as everywhere else), games, the commit, when it was measured and its
+commit date when GitHub gave one. "Newest" is by commit date when GitHub has
+dated both commits being compared, so re-measuring an older commit does not
+take the headline back from a newer one; when either commit is undated (a test
+created from the branch name is on the branch without a lookup, so has no
+date) the one measured last wins. The tile gives the commit date and the
+measured date. Under it, how stale it is: the number of base commits (other than
+the release and the measured commit) that were first used as a test's base
+after this measurement was first created. Bases are the default branch's heads
+as the lab saw them, so this counts how far master has visibly moved since,
+without asking GitHub.
+
+**No fallback.** When there is no anchor run from the default branch the
+section says "No test of master against v4.0.0 yet" and offers the action
+below. The chained estimates of the lineage are never presented as progress
+since the release.
+
+**Measure against the release.** For users who can create tests, the section
+links to the create form filled in (`/test/new/?release=<engine>&preset=<name>`)
+with dev = the default branch, base = the release tag, the same engine and
+repository on both sides, the run settings of the engine's STC or LTC preset
+(found with the same time-class rule as "Confirm at LTC"), and a **fixed
+number of games**, not an SPRT: an SPRT of master against an old release stops
+at its bound after a few hundred games and its estimate is biased by the
+stopping rule. The count is the `test_max_games` of the preset itself when it
+states one (so an engine can define, say, a `release-ltc` preset; a
+fixed-games preset of a class is preferred over the SPRT one), else 10,000 at
+STC and 5,000 at LTC. Everything can be edited before submitting, and nothing
+is created until then.
+
+The form needs a bench for both sides, and reads it from the commit message
+when the field is empty. Engines whose commits carry no `Bench:` line need it
+typed. The release's bench (and the network it runs) never change, so they are
+recorded once on the release (`set_release <engine> --bench N --network <sha
+or none>`, see [DEPLOYMENT.md](DEPLOYMENT.md#release-anchor)) and then filled
+in as Base Bench and Base Network; a newer release starts without them. The
+notice above the form names exactly what is still to be typed: always Dev
+Bench (the head of the default branch moves, so it cannot be recorded), and
+Base Bench or Base Network while they are not recorded. The notice and
+everything typed survive a rejected submission. The progress page says under
+the links whether the release bench is recorded and the command to record it.
+
+When two measurements of the same commit ran different networks (on either
+side) they are different steps and get a row each; the rows and the chart
+tooltip then name the networks, and say nothing when every run used the same
+pair.
+
+**Caveats.**
+
+- One release at a time. When a new release is published the anchor moves to
+  it at the next refresh, the section starts empty again, and measurements
+  against the previous release are no longer shown there. Those runs are not
+  lost: they stay in the listings and in the lineage's tables as ordinary
+  tests.
+- The window selector does not apply to this section; it always covers
+  everything measured against the current release.
+- The release is at most 6 hours behind GitHub (see
+  [DEPLOYMENT.md](DEPLOYMENT.md#release-anchor)). The section header says when
+  GitHub last confirmed it, turns to the warning colour when the last lookup
+  failed or the confirmation is more than 13 hours old, and keeps showing the
+  release it knows.
+- A release measured at fixed games still depends on the book, time control
+  and hardware of the day; points months apart are comparable in sign and
+  rough size, not to the decimal.
 
 ### Why a lineage and not a sum
 
@@ -2118,6 +2252,13 @@ Window summaries (`economics`):
 ### Cost
 
 Seven queries whatever the data size (six for `all`, which needs no baseline),
+plus three when one engine is charted, for the release section: the engine's
+release row, its default-branch commits and its repository. The anchor runs
+come out of the runs query the lineage already makes. The page adds one more
+for a viewer who may create tests (the engine's presets, for the "Measure
+against" links): uncached, `/progress/<engine>/` is 17 queries (16 for `all`)
+and `/api/progress/?engine=` 14 (13), pinned at two data sizes by
+`test_query_counts.py`. The seven are
 each an aggregate or a bounded row set: the usage (Results of the engine's
 runs that have counters, grouped by test and host, one tuple per pair, summing
 games and the four counters; hosts are merged once per step and class. With
@@ -2168,7 +2309,49 @@ estimate is `{ "lower", "value", "upper" }` (a 95% interval) or `null`.
     "start": "2026-07-03",            // first day of the activity series
     "end": "2026-09-30",              // today, UTC
     "summary": {
-      "lineage": {
+      "release": {                      // null when no single engine is charted
+      "engine": "Avalanche",
+      "repo": "https://github.com/SnowballSH/Avalanche",
+      "anchor": {                     // null until GitHub was asked or set_release ran
+        "engine": "Avalanche",
+        "tag": "v4.0.0",              // "" when the repository has no release
+        "sha": "8b6fa5102a98847b7e03d82a0cb266d3cc888a86",
+        "published_at": "2026-08-08T19:08:13+00:00",   // or null
+        "default_branch": "master",
+        "pinned": false,              // true when set by set_release
+        "fetched_at": "2026-10-02T06:00:00+00:00",     // last success, or null
+        "attempted_at": "2026-10-02T12:00:00+00:00",   // last attempt, or null
+        "error": "",                  // why the last attempt failed
+        "bench": 3141592,             // the release's bench, or null until recorded
+        "network": "none"             // its network sha, "none", or "" until recorded
+      },
+      "series": [                     // one per class with a default-branch measurement
+        {
+          "time_class": "stc",
+          "latest": { /* the newest finished point, or null */ },
+          "points": [                 // oldest first, at most the newest 200
+            {
+              "time_class": "stc",
+              "base": { "sha": "8b6fa510…", "network": "" },   // the release, with the network it ran
+              "dev": { "sha": "…", "network": "" },
+              "repo": "https://github.com/SnowballSH/Avalanche",
+              "subject": "Merge #115: correction history",
+              "committed_at": "2026-09-24T09:00:00+00:00",  // or null
+              "measured_at": "2026-09-24T20:00:00+00:00",
+              "first_run": 44,
+              "newer_bases": 2,       // bases first tested after this measurement began
+              "measurement": { /* as a lineage step's measurement */ }
+            }
+          ]
+        }
+      ],
+      "branches": [ /* points, newest first, whose dev is not known to be on the default branch; at most 50 */ ],
+      "sprt": [ /* points pooled from SPRT runs against the release, newest first, never in a series; at most 50 */ ],
+      "points_omitted": 0,
+      "branches_omitted": 0,
+      "sprt_omitted": 0
+    },
+    "lineage": {
         "trunk_steps": 6,             // trunk steps in the window
         "candidates": 5,              // steps branching off them, not on the trunk
         "measurements": 17,           // pooled (step, class) cells of both
@@ -2342,6 +2525,19 @@ fields, which nothing else consumed. `economics`, and the `base_bench`,
 and `core_hours` of a run, were added later; no earlier field changed.
 
 ### The page
+
+The page opens with the release section ("Since v4.0.0"): two headline tiles
+(STC and LTC against the release), the chart of Elo against the release over
+measurement time (`data-progress-chart="release"`: one line per class in the
+class colours, each point with its 95% interval as a vertical bar drawn by the
+`error_bars` plugin, running measurements as hollow points off the line, a
+zero line for the release itself, and the measurements table as its data
+table), the "Measure against" links with the note on the release bench, and
+collapsed "Branch vs release" and "SPRT runs against" tables.
+With no anchor run it shows the plain sentence and the links instead. The
+window tiles, the trunk chart and the lineage follow under an "In this window"
+heading that says the chained Elo is a trend of the testing, not a measurement
+against a release.
 
 `Templates/OpenBench/progress.html` renders the tiles and every table on the
 server; `OpenBench/static/progress.js` only draws the charts from the data

@@ -32,6 +32,14 @@
             </div>
         {% endif %}
 
+        {% if release_measurement %}
+            <input type="hidden" name="release_of" value="{{release_measurement.engine}}">
+            <input type="hidden" name="release_preset" value="{{release_measurement.preset}}">
+            <div class="status-message" role="status" id="release-notice">
+                <span>Filled in to measure {{release_measurement.engine}}'s {{release_measurement.default_branch}} against the release {{release_measurement.tag}}: {{release_measurement.games_text}} fixed games at the {{release_measurement.preset}} preset, not an SPRT. Still to type before submitting: {{release_measurement.still_to_type|join:"; "}}. Nothing is created until you submit.</span>
+            </div>
+        {% endif %}
+
         <div class="form w-100">
             <div class="col">
 

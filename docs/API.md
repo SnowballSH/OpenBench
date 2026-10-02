@@ -1104,7 +1104,23 @@ Schema in [INSIGHTS.md](INSIGHTS.md#getpost-apiinsightsserver).
 
 ### `GET|POST /api/progress/?engine=&window=`
 
-The engine's commit lineage (trunk steps with one pooled Elo measurement per
+`progress.release` is the engine's progress against its latest release:
+`anchor` (the release's `tag`, `sha`, `published_at`, the `default_branch`,
+whether it is `pinned` by the operator, its recorded `bench` and `network`,
+and `fetched_at` / `attempted_at` / `error` of the GitHub lookup; `null` until
+one was attempted), `series` (per
+time-control class, the `points` measured directly against the release from
+default-branch commits, oldest first, and `latest`, the newest finished one:
+the headline), `branches` (the same points for commits not known to be on
+the default branch, never part of the headline) and `sprt` (SPRT runs against
+the release, which stop early and are never pooled with the fixed-games runs
+the series are made of). Each point has `base`, `dev`,
+`committed_at`, `measured_at`, `first_run`, `newer_bases` and a pooled
+`measurement` shaped like a lineage step's. `release` is `null` when no single
+engine is charted, and ignores `window`. No request to this endpoint ever
+reaches GitHub; the release is refreshed in the background.
+
+It is followed by the engine's commit lineage (trunk steps with one pooled Elo measurement per
 time-control class, candidates that branched off, chained estimates per class
 and direct checks), its economics (per-step bench, search-speed ratio and
 cost; search speed chained along the trunk; games and search core-hours spent

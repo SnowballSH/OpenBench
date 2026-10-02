@@ -24,7 +24,7 @@ from OpenBench.insights.sources import (
     TRINOMIAL_FIELDS,
     outcomes_of_row,
 )
-from OpenBench.models import Result, Test, WorkloadSnapshot
+from OpenBench.models import EngineConfig, Result, Test, WorkloadSnapshot
 from OpenBench.progress.domain import (
     Commit,
     DayMaximum,
@@ -102,6 +102,7 @@ def run_row(row: dict[str, Any], classify: Classifier, usage: Usage) -> RunRow:
         dev_bench=row['dev__bench'],
         base_bench=row['base__bench'],
         hosts=tuple(usage.get(row['id'], ())),
+        dev_name=row['dev__name'],
     )
 
 
@@ -151,6 +152,7 @@ def load_runs(engine: str | None, classify: Classifier, usage: Usage | None = No
             'id',
             'dev_engine',
             'dev_repo',
+            'dev__name',
             'dev__sha',
             'base__sha',
             'dev__bench',
@@ -251,3 +253,7 @@ def load_tests_by_author(scope: Scope) -> dict[str, int]:
         tests = tests.filter(creation__gte=scope.since)
     rows = tests.values('author').annotate(total=Count('id'))
     return {row['author']: row['total'] for row in rows}
+
+
+def load_engine_source(engine: str) -> str:
+    return EngineConfig.objects.filter(name=engine).values_list('source', flat=True).first() or ''

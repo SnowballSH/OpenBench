@@ -8,10 +8,12 @@ from django.views.decorators.csrf import csrf_exempt
 from OpenBench import upstream
 from OpenBench.insights.serialize import to_json
 from OpenBench.models import EngineConfig
+from OpenBench.page_queries import request_profile
 from OpenBench.progress.analysis import parse_engine, parse_window
 from OpenBench.progress.domain import DEFAULT_WINDOW, ProgressReport, Window
 from OpenBench.progress.present import path_safe, progress_page, progress_url
 from OpenBench.progress.report import progress_report
+from OpenBench.workloads.release_measurement import MeasurementOption, options_for
 
 TEMPLATE = 'progress.html'
 REPORT_CACHE_SECONDS = 60
@@ -38,6 +40,13 @@ def cached_report(window: Window, engine: str | None) -> ProgressReport:
     return cast(ProgressReport, cache.get_or_set(key, lambda: progress_report(window, engine), REPORT_CACHE_SECONDS))
 
 
+def measurement_options(request: HttpRequest, report: ProgressReport) -> list[MeasurementOption]:
+    profile = request_profile(request)
+    if report.release is None or profile is None or not profile.enabled:
+        return []
+    return options_for(report.release.engine, report.release.anchor)
+
+
 def progress(request: HttpRequest, engine: str | None = None) -> HttpResponse:
     if viewer_refused(request):
         return upstream.render(request, TEMPLATE)
@@ -60,7 +69,11 @@ def progress(request: HttpRequest, engine: str | None = None) -> HttpResponse:
     return upstream.render(
         request,
         TEMPLATE,
-        {'page': progress_page(report, configured), 'payload': to_json(report)},
+        {
+            'page': progress_page(report, configured),
+            'payload': to_json(report),
+            'measurements': measurement_options(request, report),
+        },
     )
 
 

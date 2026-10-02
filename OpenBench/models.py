@@ -23,7 +23,7 @@ import json
 
 from django.db.models import CharField, IntegerField, BigIntegerField, BooleanField, FloatField
 from django.db.models import JSONField, ForeignKey, DateTimeField, OneToOneField
-from django.db.models import CASCADE, PROTECT, Index, Model, Q, TextChoices
+from django.db.models import CASCADE, PROTECT, Index, Model, Q, TextChoices, UniqueConstraint
 from django.contrib.auth.models import User
 from django.utils import timezone
 
@@ -405,6 +405,41 @@ class GameAnalysis(Model):
 
     def __str__(self):
         return '{0} ({1} games)'.format(self.test_id, self.games)
+
+class EngineRelease(Model):
+
+    # The release an engine's progress is measured against; see docs/INSIGHTS.md
+    engine         = CharField(max_length=64, unique=True)
+    tag            = CharField(max_length=128, blank=True)
+    sha            = CharField(max_length=64, blank=True)
+    published_at   = DateTimeField(null=True, blank=True)
+    default_branch = CharField(max_length=128, blank=True)
+    bench          = IntegerField(default=0)
+    network        = CharField(max_length=64, blank=True)
+    pinned         = BooleanField(default=False)
+    fetched_at     = DateTimeField(null=True, blank=True)
+    attempted_at   = DateTimeField(null=True, blank=True)
+    error          = CharField(max_length=255, blank=True)
+
+    def __str__(self):
+        return '{0} {1}'.format(self.engine, self.tag)
+
+class DefaultBranchCommit(Model):
+
+    # Whether a tested commit is an ancestor of its engine's default branch
+    engine            = CharField(max_length=64)
+    sha               = CharField(max_length=64)
+    on_default_branch = BooleanField(default=False)
+    committed_at      = DateTimeField(null=True, blank=True)
+    checked_at        = DateTimeField()
+    checks            = IntegerField(default=0)
+    failures          = IntegerField(default=0)
+
+    def __str__(self):
+        return '{0} {1}'.format(self.engine, self.sha)
+
+    class Meta:
+        constraints = [UniqueConstraint(fields=['engine', 'sha'], name='default_branch_commit')]
 
 class SPSARun(Model):
 

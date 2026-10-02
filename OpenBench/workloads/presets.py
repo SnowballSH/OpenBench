@@ -41,6 +41,10 @@ def expanded(preset: Mapping[str, object]) -> Preset:
     return {name: text for key, value in shared_first for name, text in for_each_side(key, form_text(value)).items()}
 
 
+def default_base_branch(config: EngineConfig) -> str:
+    return expanded(test_presets(config).get(DEFAULT_PRESET, {})).get('base_branch', '')
+
+
 def test_preset(config: EngineConfig, name: str) -> Preset | None:
     presets = test_presets(config)
     if name == DEFAULT_PRESET or name not in presets:
