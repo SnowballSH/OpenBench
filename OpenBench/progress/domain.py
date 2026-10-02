@@ -4,12 +4,15 @@ from enum import StrEnum
 
 from OpenBench.insights.domain import Outcomes
 from OpenBench.insights.strength import EloInterval
+from OpenBench.releases.domain import ReleaseAnchor
 
 TOP_LIMIT = 10
 ENGINE_NAME_LIMIT = 64
 TRUNK_STEPS_SENT = 500
 CANDIDATES_SENT = 50
 DETACHED_SENT = 50
+ANCHOR_POINTS_SENT = 200
+ANCHOR_BRANCHES_SENT = 50
 MINIMUM_SAMPLE = 30
 
 
@@ -136,6 +139,7 @@ class RunRow:
     dev_bench: int = 0
     base_bench: int = 0
     hosts: tuple[HostCounters, ...] = ()
+    dev_name: str = ''
 
 
 @dataclass(frozen=True, slots=True)
@@ -306,6 +310,37 @@ class LineageReport:
     detached: list[Step]
     detached_omitted: int
     others: list[OtherLineage]
+
+
+@dataclass(frozen=True, slots=True)
+class AnchorPoint:
+    time_class: TimeClass
+    dev: Commit
+    repo: str
+    subject: str
+    committed_at: datetime | None
+    measured_at: datetime
+    first_run: int
+    newer_bases: int
+    measurement: Measurement
+
+
+@dataclass(frozen=True, slots=True)
+class AnchorSeries:
+    time_class: TimeClass
+    latest: AnchorPoint | None
+    points: list[AnchorPoint]
+
+
+@dataclass(frozen=True, slots=True)
+class ReleaseReport:
+    engine: str
+    repo: str
+    anchor: ReleaseAnchor | None
+    series: list[AnchorSeries]
+    branches: list[AnchorPoint]
+    points_omitted: int = 0
+    branches_omitted: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -482,6 +517,7 @@ class ProgressReport:
     start: date
     end: date
     summary: Summary
+    release: ReleaseReport | None
     lineage: LineageReport | None
     economics: Economics | None
     lineage_engines: list[str]

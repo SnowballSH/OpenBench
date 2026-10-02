@@ -90,6 +90,38 @@
         },
     };
 
+    const error_bars_plugin = {
+        id: 'error_bars',
+        afterDatasetsDraw(chart) {
+            const { ctx, chartArea, scales } = chart;
+            const cap = 3;
+            ctx.save();
+            ctx.beginPath();
+            ctx.rect(chartArea.left, chartArea.top, chartArea.right - chartArea.left, chartArea.bottom - chartArea.top);
+            ctx.clip();
+            chart.data.datasets.forEach((dataset, index) => {
+                if (!dataset.error_bars || !chart.isDatasetVisible(index)) return;
+                ctx.strokeStyle = dataset.borderColor;
+                ctx.lineWidth = 1.5;
+                dataset.data.forEach(point => {
+                    if (!point.point || !is_number(point.lower) || !is_number(point.upper)) return;
+                    const x = Math.round(scales.x.getPixelForValue(point.x)) + 0.5;
+                    const top = scales.y.getPixelForValue(point.upper);
+                    const bottom = scales.y.getPixelForValue(point.lower);
+                    ctx.beginPath();
+                    ctx.moveTo(x, top);
+                    ctx.lineTo(x, bottom);
+                    ctx.moveTo(x - cap, top);
+                    ctx.lineTo(x + cap, top);
+                    ctx.moveTo(x - cap, bottom);
+                    ctx.lineTo(x + cap, bottom);
+                    ctx.stroke();
+                });
+            });
+            ctx.restore();
+        },
+    };
+
     function axis(palette, extra) {
         const font = { family: palette.font };
         return {
@@ -297,6 +329,136 @@
                             const row = items[0] && rows.get(items[0].raw.x);
                             return row ? long_day_format.format(Date.parse(row.step.measured_at)) : '';
                         },
+                    },
+                }),
+            },
+        };
+    }
+
+    const DAY_MS = 86400000;
+
+    function release_points(series, provisional) {
+        return series.points
+            .filter(point => point.measurement.elo && point.measurement.provisional === provisional)
+            .map(point => ({
+                x: Date.parse(point.measured_at),
+                y: point.measurement.elo.value,
+                lower: point.measurement.elo.lower,
+                upper: point.measurement.elo.upper,
+                point,
+            }));
+    }
+
+    function release_datasets(series, origin, color, palette) {
+        const label = CLASS_LABELS[series.time_class];
+        const settled = release_points(series, false);
+        const running = release_points(series, true);
+        const marker = {
+            error_bars: true,
+            clip: false,
+            borderColor: color,
+            pointRadius: context => (context.raw && context.raw.point ? 4 : 0),
+            pointHoverRadius: context => (context.raw && context.raw.point ? 6 : 0),
+            pointHitRadius: 12,
+            pointBorderWidth: 2,
+        };
+        return [
+            {
+                ...marker,
+                label,
+                data: [...(is_number(origin) && settled.length ? [{ x: origin, y: 0 }] : []), ...settled],
+                backgroundColor: color,
+                borderWidth: 2,
+                borderJoinStyle: 'round',
+                borderCapStyle: 'round',
+                pointBorderColor: palette.surface,
+                pointHoverBorderColor: palette.surface,
+                tension: 0,
+            },
+            ...(running.length ? [{
+                ...marker,
+                label: `${label} running`,
+                provisional: true,
+                data: running,
+                showLine: false,
+                backgroundColor: palette.surface,
+                pointBorderColor: color,
+            }] : []),
+        ];
+    }
+
+    function release_summary(series) {
+        const label = CLASS_LABELS[series.time_class];
+        if (!series.latest) return `${label}: no finished measurement`;
+        return `${label} ${format_interval(series.latest.measurement.elo)} at ${series.latest.dev.sha.slice(0, SHORT_SHA)}`;
+    }
+
+    function release_chart(report, palette, quiet) {
+        const release = report.release;
+        if (!release || !release.anchor) return { empty: 'No release is known yet.' };
+        const charted = release.series.filter(series => CLASS_LABELS[series.time_class]);
+        const published = release.anchor.published_at ? Date.parse(release.anchor.published_at) : null;
+        const datasets = charted.flatMap(series => release_datasets(series, published, palette.classes[series.time_class], palette));
+        const marks = datasets.flatMap(dataset => dataset.data);
+        if (!marks.some(mark => mark.point)) return { empty: 'No measurement against the release has an Elo estimate yet.' };
+
+        const times = marks.map(mark => mark.x);
+        const span = Math.max(...times) - Math.min(...times);
+        const margin = Math.max(0.04 * span, DAY_MS / 2);
+        const bounds = marks.flatMap(mark => [mark.y, mark.lower, mark.upper]).filter(is_number);
+        const low = Math.min(0, ...bounds);
+        const high = Math.max(0, ...bounds);
+        const pad = 0.08 * (high - low || 1);
+        const tag = release.anchor.tag;
+
+        return {
+            label: `Elo of the default branch against ${tag}. ${charted.map(release_summary).join('. ')}.`,
+            config: {
+                type: 'line',
+                data: { datasets },
+                options: base_options(palette, {
+                    quiet,
+                    interaction: { mode: 'nearest', intersect: false },
+                    legend: {
+                        display: true,
+                        position: 'top',
+                        align: 'start',
+                        labels: {
+                            color: palette.muted,
+                            font: { family: palette.font },
+                            boxWidth: 10,
+                            boxHeight: 10,
+                            padding: 12,
+                            filter: (item, data) => !data.datasets[item.datasetIndex].provisional,
+                        },
+                        onClick: () => {},
+                    },
+                    x: axis(palette, {
+                        type: 'linear',
+                        min: Math.min(...times) - margin,
+                        max: Math.max(...times) + margin,
+                        ticks: { maxTicksLimit: 8, maxRotation: 0, callback: value => day_format.format(value) },
+                    }),
+                    y: axis(palette, {
+                        min: low - pad,
+                        max: high + pad,
+                        ticks: { callback: value => format_signed(value, Math.abs(high - low) < 10 ? 1 : 0), maxTicksLimit: MAX_TICKS },
+                    }),
+                    lines: [{ value: 0, color: palette.axis }],
+                    tooltip_filter: item => Boolean(item.raw && item.raw.point),
+                    tooltip: {
+                        title: items => {
+                            const point = items[0] && items[0].raw.point;
+                            if (!point) return '';
+                            const commit = `${point.dev.sha.slice(0, SHORT_SHA)} vs ${tag}`;
+                            return point.subject ? [commit, point.subject] : commit;
+                        },
+                        label: item => {
+                            const measurement = item.raw.point.measurement;
+                            const state = measurement.provisional ? ' so far, still running' : '';
+                            return `${item.dataset.label}: ${format_interval(measurement.elo)}${state}, ${format_count(measurement.games)} games`;
+                        },
+                        footer: items => (items[0] ? `Measured ${long_day_format.format(items[0].raw.x)}` : ''),
                     },
                 }),
             },
@@ -564,7 +726,7 @@
         };
     }
 
-    const BUILDERS = { trunk: trunk_chart, outcomes: outcome_chart, games: games_chart, speed: speed_chart, cadence: cadence_chart };
+    const BUILDERS = { release: release_chart, trunk: trunk_chart, outcomes: outcome_chart, games: games_chart, speed: speed_chart, cadence: cadence_chart };
 
     class ChartPanel {
         constructor(box) {
@@ -594,7 +756,7 @@
             this.empty.hidden = true;
             this.canvas.setAttribute('aria-label', `${this.title} chart. ${built.label}`);
             if (this.chart) this.chart.destroy();
-            this.chart = new window.Chart(this.canvas, { ...built.config, plugins: [reference_lines_plugin] });
+            this.chart = new window.Chart(this.canvas, { ...built.config, plugins: [reference_lines_plugin, error_bars_plugin] });
         }
     }
 

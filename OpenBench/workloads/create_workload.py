@@ -43,6 +43,7 @@ import OpenBench.views
 from OpenBench.config import OPENBENCH_CONFIG
 from OpenBench.models import *
 from OpenBench.workloads.clone import CloneError, load_clone_source, submitted_fields
+from OpenBench.workloads.release_measurement import MeasurementError, load_measurement
 from OpenBench.workloads.verify_workload import GITHUB_TIMEOUT_SECONDS, verify_workload
 
 def create_workload(request, workload_type):
@@ -54,6 +55,11 @@ def create_workload(request, workload_type):
 
     if not Profile.objects.get(user=request.user).enabled:
         return OpenBench.views.redirect(request, '/login/', error='Only enabled users can create tests')
+
+    if request.method in ('GET', 'HEAD') and workload_type == 'TEST' and 'release' in request.GET:
+        measurement, warning = find_release_measurement(request.GET['release'], request.GET.get('preset'))
+        fields = measurement and measurement.fields
+        return render_form(request, workload_type, None, fields, warning=warning, release_measurement=measurement)
 
     if request.method in ('GET', 'HEAD'):
         source, warning = find_clone_source(request.GET.get('clone'), workload_type, request.GET.get('preset'))
@@ -87,7 +93,7 @@ def create_workload(request, workload_type):
 
     return OpenBench.views.redirect(request, '/index/', warning=warning)
 
-def render_form(request, workload_type, clone_source, prefill_fields, error=None, warning=None):
+def render_form(request, workload_type, clone_source, prefill_fields, error=None, warning=None, release_measurement=None):
 
     engines = EngineConfig.objects.filter(enabled=True).order_by('name')
 
@@ -106,6 +112,9 @@ def render_form(request, workload_type, clone_source, prefill_fields, error=None
         'clone_source'   : clone_source,
         'prefill_fields' : prefill_fields,
         'bench_hints'    : clone_source.bench_hints if clone_source else None,
+
+        # Named above the form when it was filled in to measure the default branch against a release
+        'release_measurement' : release_measurement,
     }
 
     if workload_type == 'TEST':
@@ -138,6 +147,11 @@ def find_clone_source(raw_id, workload_type, preset=None):
 
     try: return load_clone_source(raw_id, workload_type, preset), None
     except CloneError as error: return None, str(error)
+
+def find_release_measurement(engine, preset):
+
+    try: return load_measurement(engine, preset), None
+    except MeasurementError as error: return None, str(error)
 
 def create_new_test(request):
 

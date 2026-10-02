@@ -3,10 +3,12 @@ from datetime import datetime
 from django.utils import timezone
 
 from OpenBench.progress import analysis, sources
+from OpenBench.progress.anchor import release_report
 from OpenBench.progress.conditions import time_class
-from OpenBench.progress.domain import NO_LINEAGE, Lineage, ProgressReport, RunRow, Window
+from OpenBench.progress.domain import NO_LINEAGE, Lineage, ProgressReport, ReleaseReport, RunRow, Window
 from OpenBench.progress.economics import economics
 from OpenBench.progress.lineage import build_lineage, build_steps, lineage_report, summarize_lineage
+from OpenBench.releases import store
 
 
 def engines_with_steps(runs: list[RunRow]) -> list[str]:
@@ -25,6 +27,18 @@ def engine_lineage(runs: list[RunRow], engine: str | None) -> Lineage | None:
     return build_lineage(build_steps(run for run in runs if run.engine == engine))
 
 
+def engine_release(runs: list[RunRow], engine: str | None) -> ReleaseReport | None:
+    if engine is None:
+        return None
+    return release_report(
+        engine,
+        store.load_anchor(engine),
+        [run for run in runs if run.engine == engine],
+        store.load_default_branch_commits(engine),
+        sources.load_engine_source(engine),
+    )
+
+
 def progress_report(window: Window, engine: str | None, now: datetime | None = None) -> ProgressReport:
     now = now or timezone.now()
     scope = analysis.make_scope(window, engine, now)
@@ -32,6 +46,7 @@ def progress_report(window: Window, engine: str | None, now: datetime | None = N
     runs = sources.load_runs(scope.engine, time_class, sources.load_usage(scope.engine))
     engines = engines_with_steps(runs)
     charted = lineage_engine(engine, engines)
+    release = engine_release(runs, charted)
     lineage = engine_lineage(runs, charted)
 
     outcomes = sources.load_weekly_outcomes(scope)
@@ -56,6 +71,7 @@ def progress_report(window: Window, engine: str | None, now: datetime | None = N
             tests_by_author,
             games_by_user,
         ),
+        release=release,
         lineage=lineage_report(charted, lineage, scope.since) if charted and lineage else None,
         economics=economics(lineage, scope.since, start, scope.today) if charted and lineage else None,
         lineage_engines=engines,

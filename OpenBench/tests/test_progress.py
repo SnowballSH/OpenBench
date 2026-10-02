@@ -590,6 +590,7 @@ class ProgressViewTests(TestCase):
                 'start',
                 'end',
                 'summary',
+                'release',
                 'lineage',
                 'economics',
                 'lineage_engines',

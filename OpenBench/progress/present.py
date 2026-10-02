@@ -1,11 +1,13 @@
 from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime, timedelta
 from urllib.parse import quote, urlencode
 
 from OpenBench.insights.strength import EloInterval
 from OpenBench.progress.analysis import share, utc_day
 from OpenBench.progress.domain import (
+    AnchorPoint,
+    AnchorSeries,
     Author,
     Cadence,
     Candidate,
@@ -21,6 +23,7 @@ from OpenBench.progress.domain import (
     Measurement,
     ProgressReport,
     RatioInterval,
+    ReleaseReport,
     Run,
     RunStatus,
     SpeedPoint,
@@ -35,6 +38,7 @@ from OpenBench.progress.domain import (
     Window,
 )
 from OpenBench.progress.lineage import half_width
+from OpenBench.releases.domain import REFRESH_INTERVAL, ReleaseAnchor
 from OpenBench.workload_names import short_name
 
 STEPS_LISTED = 100
@@ -55,6 +59,7 @@ SECONDS_PER_HOUR = 3600
 SECONDS_PER_DAY = 86400
 LONGEST_IN_MINUTES = 90 * SECONDS_PER_MINUTE
 LONGEST_IN_HOURS = 48 * SECONDS_PER_HOUR
+STALE_AFTER = 2 * REFRESH_INTERVAL + timedelta(hours=1)
 
 
 @dataclass(frozen=True, slots=True)
@@ -177,6 +182,48 @@ class LineagePage:
 
 
 @dataclass(frozen=True, slots=True)
+class ReleaseTile:
+    label: str
+    value: str
+    tone: str | None
+    detail: str
+    commit: CommitLink | None
+    runs: list[RunLink]
+    facts: list[str]
+
+
+@dataclass(frozen=True, slots=True)
+class ReleaseLine:
+    label: str
+    commit: CommitLink
+    compare_url: str | None
+    subject: str
+    committed_on: date | None
+    measured_on: date
+    cell: Cell
+    row_url: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class ReleasePage:
+    engine: str
+    title: str
+    known: bool
+    tag: str
+    branch: str
+    commit: CommitLink | None
+    published_on: date | None
+    status: str
+    stale: bool
+    explanation: str
+    tiles: list[ReleaseTile]
+    lines: list[ReleaseLine]
+    lines_hidden: int
+    branches: list[ReleaseLine]
+    branches_hidden: int
+
+
+@dataclass(frozen=True, slots=True)
 class EngineLink:
     name: str
     url: str
@@ -216,6 +263,7 @@ class ProgressPage:
     tiles: list[Tile]
     windows: list[WindowOption]
     engines: list[str]
+    release: ReleasePage | None
     lineage: LineagePage | None
     economics: EconomicsPage | None
     lineage_engines: list[EngineLink]
@@ -498,6 +546,137 @@ def lineage_page(lineage: LineageReport) -> LineagePage:
     )
 
 
+def day_text(day: date) -> str:
+    return f'{day:%b} {day.day}, {day.year}'
+
+
+def ago_text(moment: datetime, now: datetime) -> str:
+    return f'{duration_text(max(0.0, (now - moment).total_seconds()))} ago'
+
+
+def release_status(anchor: ReleaseAnchor | None, now: datetime) -> tuple[str, bool]:
+    if anchor is None:
+        return 'GitHub has not been asked for the latest release yet', False
+    if anchor.pinned:
+        return 'set by the operator; GitHub is not asked', False
+    attempted = f'last asked {ago_text(anchor.attempted_at, now)}' if anchor.attempted_at else 'not asked yet'
+    if anchor.error and anchor.fetched_at:
+        confirmed = f'the release shown was confirmed {ago_text(anchor.fetched_at, now)}'
+        return f'GitHub lookup failing ({anchor.error}); {confirmed}, {attempted}', True
+    if anchor.error:
+        return f'GitHub lookup failed ({anchor.error}); {attempted}', True
+    if anchor.fetched_at is None:
+        return 'GitHub has not answered yet', False
+    overdue = now - anchor.fetched_at > STALE_AFTER
+    return f'checked with GitHub {ago_text(anchor.fetched_at, now)}', overdue
+
+
+def release_explanation(anchor: ReleaseAnchor | None) -> str:
+    if anchor is None or (anchor.fetched_at is None and not anchor.error):
+        return (
+            'The latest release has not been looked up yet. The server asks GitHub shortly after it starts and '
+            'then at most every six hours; an operator can also set it with the set_release command.'
+        )
+    if anchor.error:
+        return (
+            f'The latest release could not be looked up: {anchor.error}. The server tries again within six hours; '
+            'an operator can set it with the set_release command.'
+        )
+    return 'The repository has no published release, so there is nothing to measure against yet.'
+
+
+def staleness_text(point: AnchorPoint, branch: str) -> str:
+    if not point.newer_bases:
+        return 'no newer base has been tested since'
+    return f'{branch} has moved: {plural(point.newer_bases, "newer base commit")} tested since'
+
+
+def release_tile(time_class: TimeClass, series: AnchorSeries | None, branch: str) -> ReleaseTile:
+    label = f'{time_class.label} Elo vs release'
+    running = sum(point.measurement.provisional for point in series.points) if series else 0
+    waiting = [f'{plural(running, "newer test")} still running'] if running else []
+    if series is None or series.latest is None:
+        return ReleaseTile(label, DASH, None, f'not measured at {time_class.label}', None, [], waiting)
+    point = series.latest
+    measurement = point.measurement
+    committed = f' · committed {day_text(utc_day(point.committed_at))}' if point.committed_at else ''
+    return ReleaseTile(
+        label=label,
+        value=elo_text(measurement.elo, 1),
+        tone=chained_tone(measurement.elo) if measurement.elo else None,
+        detail=f'{count(measurement.games)} games',
+        commit=commit_link(point.dev, point.repo),
+        runs=[RunLink(run_url(run), f'#{run.id}') for run in measurement.runs],
+        facts=[f'measured {day_text(utc_day(point.measured_at))}{committed}', staleness_text(point, branch), *waiting],
+    )
+
+
+def release_line(point: AnchorPoint, anchor: ReleaseAnchor) -> ReleaseLine:
+    primary = sole_run([point.measurement])
+    root = repo_url(point.repo)
+    span = f'{quote(anchor.sha, safe="")}...{quote(point.dev.sha, safe="")}'
+    return ReleaseLine(
+        label=point.time_class.label,
+        commit=commit_link(point.dev, point.repo),
+        compare_url=f'{root}/compare/{span}' if root else None,
+        subject=point.subject,
+        committed_on=utc_day(point.committed_at) if point.committed_at else None,
+        measured_on=utc_day(point.measured_at),
+        cell=measurement_cell(point.measurement, primary),
+        row_url=run_url(primary) if primary else None,
+    )
+
+
+def newest_first(points: Iterable[AnchorPoint]) -> list[AnchorPoint]:
+    return sorted(points, key=lambda point: (point.measured_at, point.first_run), reverse=True)
+
+
+def release_page(report: ReleaseReport, now: datetime) -> ReleasePage:
+    anchor = report.anchor
+    status, stale = release_status(anchor, now)
+    if anchor is None or not anchor.known:
+        return ReleasePage(
+            engine=report.engine,
+            title='Since the latest release',
+            known=False,
+            tag='',
+            branch='',
+            commit=None,
+            published_on=None,
+            status=status,
+            stale=stale,
+            explanation=release_explanation(anchor),
+            tiles=[],
+            lines=[],
+            lines_hidden=0,
+            branches=[],
+            branches_hidden=0,
+        )
+
+    by_class = {series.time_class: series for series in report.series}
+    measured = [point for series in report.series for point in series.points]
+    branch = anchor.default_branch or 'the default branch'
+    return ReleasePage(
+        engine=report.engine,
+        title=f'Since {anchor.tag}',
+        known=True,
+        tag=anchor.tag,
+        branch=branch,
+        commit=commit_link(Commit(anchor.sha), report.repo),
+        published_on=utc_day(anchor.published_at) if anchor.published_at else None,
+        status=status,
+        stale=stale,
+        explanation='',
+        tiles=[release_tile(time_class, by_class.get(time_class), branch) for time_class in HEADLINE_CLASSES]
+        if measured
+        else [],
+        lines=[release_line(point, anchor) for point in newest_first(measured)[:STEPS_LISTED]],
+        lines_hidden=report.points_omitted + max(0, len(measured) - STEPS_LISTED),
+        branches=[release_line(point, anchor) for point in report.branches],
+        branches_hidden=report.branches_omitted,
+    )
+
+
 def speed_tile(series: SpeedSeries) -> Tile:
     label = 'Speed along the trunk'
     coverage = f'{count(series.measured)} of {plural(series.steps, "step")} measured'
@@ -693,6 +872,7 @@ def progress_page(report: ProgressReport, configured: Iterable[str]) -> Progress
             for window in Window
         ],
         engines=engine_choices(configured, report.engine),
+        release=release_page(report.release, report.generated_at) if report.release else None,
         lineage=lineage_page(report.lineage) if report.lineage else None,
         economics=economics_page(report.economics) if report.economics else None,
         lineage_engines=[EngineLink(name, progress_url(name, report.window)) for name in report.lineage_engines],
