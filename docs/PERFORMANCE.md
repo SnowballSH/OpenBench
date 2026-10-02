@@ -31,6 +31,7 @@ there first.
 | `/users/` | 8 |
 | `/api/workloads/` | 4, plus 6 with an active row, plus 1 with a stopped one |
 | `/api/live/workloads/`, `/api/live/workload/<id>/` | 4 while the caller's token still matches; otherwise at most 13 and 10 |
+| `/progress/<engine>/` | 17 uncached (16 for `window=all`; 14 and 13 for `/api/progress/`), then cached for 60 seconds; never a request to GitHub; see [INSIGHTS.md](INSIGHTS.md#cost) |
 | `/digest/` | 24 uncached (23 for `/api/digest/`), fewer with no active workload or no error; see [INSIGHTS.md](INSIGHTS.md#cost) |
 
 Budgets include the session, user and Profile lookups every logged-in page

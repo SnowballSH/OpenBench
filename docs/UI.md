@@ -637,6 +637,13 @@ seconds, with duration ticks on round steps. Timestamps appear in tooltips.
 `insights.js` adds two small inline plugins: labelled horizontal reference
 lines (SPRT bounds, zero, a games target) and a vertical crosshair.
 
+The progress page's release chart (`progress.js`, `release_chart`) plots Elo
+against measurement time on a linear axis of timestamps with day ticks, one
+line per time-control class in the class colours with a legend, and adds an
+`error_bars` plugin that draws each point's 95% interval as a capped vertical
+bar in the series colour. A measurement still running is a hollow point off
+the line, named "running" in its tooltip, so it is not told by colour alone.
+
 Rules the charts follow:
 
 - Colours come from the tokens, read with `getComputedStyle` at render time:
