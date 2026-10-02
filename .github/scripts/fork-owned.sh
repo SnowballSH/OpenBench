@@ -14,6 +14,7 @@ fork_owned=(
     OpenBench/machine_info.py
     OpenBench/navigation
     OpenBench/progress
+    OpenBench/releases
     OpenBench/security
     OpenBench/storage
     OpenBench/triage
@@ -24,7 +25,10 @@ fork_owned=(
     OpenBench/workloads/confirmation.py
     OpenBench/workloads/page.py
     OpenBench/workloads/presets.py
+    OpenBench/workloads/release_measurement.py
     OpenBench/management/commands/prune_machines.py
+    OpenBench/management/commands/refresh_releases.py
     OpenBench/management/commands/seed_demo.py
+    OpenBench/management/commands/set_release.py
     OpenBench/tests
 )
