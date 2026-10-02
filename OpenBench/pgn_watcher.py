@@ -107,7 +107,7 @@ class PGNWatcher(threading.Thread):
                     close_old_connections()
 
             # Release anchors of the progress page; throttled, and logs its own failures
-            refresh_when_due()
+            refresh_when_due(self.stop_event.is_set)
 
             # Sleep unless a full batch was resolved, as a backlog may remain.
             # Otherwise loop again immediately, which will check the stop_event

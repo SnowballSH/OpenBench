@@ -1106,12 +1106,15 @@ Schema in [INSIGHTS.md](INSIGHTS.md#getpost-apiinsightsserver).
 
 `progress.release` is the engine's progress against its latest release:
 `anchor` (the release's `tag`, `sha`, `published_at`, the `default_branch`,
-whether it is `pinned` by the operator, and `fetched_at` / `attempted_at` /
-`error` of the GitHub lookup; `null` until one was attempted), `series` (per
+whether it is `pinned` by the operator, its recorded `bench` and `network`,
+and `fetched_at` / `attempted_at` / `error` of the GitHub lookup; `null` until
+one was attempted), `series` (per
 time-control class, the `points` measured directly against the release from
 default-branch commits, oldest first, and `latest`, the newest finished one:
-the headline), and `branches` (the same points for commits not known to be on
-the default branch, never part of the headline). Each point has `dev`,
+the headline), `branches` (the same points for commits not known to be on
+the default branch, never part of the headline) and `sprt` (SPRT runs against
+the release, which stop early and are never pooled with the fixed-games runs
+the series are made of). Each point has `base`, `dev`,
 `committed_at`, `measured_at`, `first_run`, `newer_bases` and a pooled
 `measurement` shaped like a lineage step's. `release` is `null` when no single
 engine is charted, and ignores `window`. No request to this endpoint ever

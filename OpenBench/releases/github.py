@@ -1,12 +1,14 @@
+import re
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import quote
 
 import requests
 
 from OpenBench.releases.domain import (
+    CONNECT_TIMEOUT_SECONDS,
     REQUEST_TIMEOUT_SECONDS,
     BranchStanding,
     ProviderError,
@@ -16,12 +18,20 @@ from OpenBench.releases.domain import (
     Unreachable,
 )
 
-API_ROOT = 'https://api.github.com/repos/'
-SITE_ROOT = 'https://github.com/'
+API_HOST = 'https://api.github.com/'
+API_ROOT = f'{API_HOST}repos/'
+SOURCE = re.compile(r'https://github\.com/([A-Za-z0-9-]+)/([A-Za-z0-9_.-]+?)(?:\.git)?/?')
+DOT_SEGMENTS = frozenset({'.', '..'})
 ANCESTOR_STATUSES = frozenset({'behind', 'identical'})
-NOT_FOUND = 404
+REDIRECTS = frozenset({301, 302, 307, 308})
 THROTTLED = frozenset({403, 429})
+NOT_FOUND = 404
 OK = 200
+COMMIT = 'commit'
+ANNOTATED_TAG = 'tag'
+
+type Timeout = tuple[float, float]
+type Fetch = Callable[[str, Mapping[str, str], Timeout], Reply]
 
 
 @dataclass(frozen=True, slots=True)
@@ -31,14 +41,21 @@ class Reply:
     headers: Mapping[str, str]
 
 
-type Fetch = Callable[[str, Mapping[str, str], float], Reply]
-
-
-def http_get(url: str, headers: Mapping[str, str], timeout: float) -> Reply:
+def single_get(url: str, headers: Mapping[str, str], timeout: Timeout) -> requests.Response:
     try:
-        response = requests.get(url, headers=dict(headers), timeout=timeout)
+        return requests.get(url, headers=dict(headers), timeout=timeout, allow_redirects=False)
     except requests.RequestException as error:
         raise Unreachable(f'GitHub did not answer: {type(error).__name__}') from error
+
+
+def http_get(url: str, headers: Mapping[str, str], timeout: Timeout) -> Reply:
+    response = single_get(url, headers, timeout)
+    if response.status_code in REDIRECTS:
+        # A renamed repository answers with one redirect; it is followed once, and only within the API host
+        target = response.headers.get('Location', '')
+        if not target.startswith(API_HOST):
+            raise Unreachable('GitHub redirected outside its API')
+        response = single_get(target, headers, timeout)
     try:
         body: object = response.json()
     except ValueError:
@@ -47,10 +64,10 @@ def http_get(url: str, headers: Mapping[str, str], timeout: float) -> Reply:
 
 
 def api_url(source: str) -> str | None:
-    if not source.startswith(SITE_ROOT):
+    found = SOURCE.fullmatch(source)
+    if found is None or found.group(2) in DOT_SEGMENTS:
         return None
-    path = source.removeprefix(SITE_ROOT).strip('/').removesuffix('.git')
-    return f'{API_ROOT}{path}' if path.count('/') == 1 else None
+    return f'{API_ROOT}{found.group(1)}/{found.group(2)}'
 
 
 def parse_time(raw: object) -> datetime | None:
@@ -60,6 +77,11 @@ def parse_time(raw: object) -> datetime | None:
         return datetime.fromisoformat(raw)
     except ValueError:
         return None
+
+
+def reset_time(headers: Mapping[str, str]) -> datetime | None:
+    raw = headers.get('x-ratelimit-reset', '')
+    return datetime.fromtimestamp(int(raw), UTC) if raw.isascii() and raw.isdigit() else None
 
 
 def rate_limited(reply: Reply) -> bool:
@@ -83,21 +105,52 @@ def found(reply: Reply, what: str) -> dict[str, Any]:
     return reply.body
 
 
+def git_object(body: Mapping[str, Any], what: str) -> tuple[str, str]:
+    target = body.get('object')
+    kind = target.get('type') if isinstance(target, dict) else None
+    sha = target.get('sha') if isinstance(target, dict) else None
+    if not isinstance(kind, str) or not isinstance(sha, str) or not sha:
+        raise ProviderError(f'GitHub named no object for {what}')
+    return kind, sha
+
+
+def unguarded() -> None:
+    return None
+
+
 class GitHubReleases:
-    def __init__(self, fetch: Fetch = http_get, timeout: float = REQUEST_TIMEOUT_SECONDS) -> None:
+    def __init__(
+        self,
+        fetch: Fetch = http_get,
+        before_call: Callable[[], None] = unguarded,
+        timeout: Timeout = (CONNECT_TIMEOUT_SECONDS, REQUEST_TIMEOUT_SECONDS),
+    ) -> None:
         self.fetch = fetch
+        self.before_call = before_call
         self.timeout = timeout
 
     def get(self, repository: Repository, *path: str, query: str = '') -> Reply:
         if not repository.api_url.startswith(API_ROOT):
             raise ProviderError('Only the GitHub API is reached')
+        self.before_call()
         url = '/'.join([repository.api_url, *path]) + query
         reply = self.fetch(url, repository.headers, self.timeout)
         if rate_limited(reply):
-            raise RateLimited('GitHub rate limit reached')
+            raise RateLimited('GitHub rate limit reached', reset_time(reply.headers))
         if reply.status not in (OK, NOT_FOUND):
             raise Unreachable(f'GitHub answered {reply.status}')
         return reply
+
+    def tag_commit(self, repository: Repository, tag: str) -> str:
+        # The tag namespace is named outright, so a branch of the same name can never be what is resolved
+        what = f'the tag {tag}'
+        ref = found(self.get(repository, 'git', 'ref', 'tags', quote(tag, safe='/')), what)
+        kind, sha = git_object(ref, what)
+        if kind == ANNOTATED_TAG:
+            kind, sha = git_object(found(self.get(repository, 'git', 'tags', sha), what), what)
+        if kind != COMMIT:
+            raise ProviderError(f'{what} does not name a commit')
+        return sha
 
     def latest_release(self, repository: Repository) -> Release | None:
         reply = self.get(repository, 'releases', 'latest')
@@ -107,10 +160,7 @@ class GitHubReleases:
         tag = release.get('tag_name')
         if not isinstance(tag, str) or not tag:
             raise ProviderError('GitHub named no tag for the latest release')
-        sha = found(self.get(repository, 'commits', quote(tag, safe='')), f'commit for the tag {tag}').get('sha')
-        if not isinstance(sha, str) or not sha:
-            raise ProviderError(f'GitHub named no commit for the tag {tag}')
-        return Release(tag, sha, parse_time(release.get('published_at')))
+        return Release(tag, self.tag_commit(repository, tag), parse_time(release.get('published_at')))
 
     def default_branch(self, repository: Repository) -> str:
         branch = found(self.get(repository), 'such repository').get('default_branch')

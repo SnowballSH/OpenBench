@@ -49,7 +49,7 @@ from OpenBench.models import (
     WorkloadSnapshot,
 )
 from OpenBench.releases import store as release_store
-from OpenBench.releases.domain import BranchStanding, Release
+from OpenBench.releases.domain import NO_NETWORK, BranchStanding, Release
 from OpenBench.stats import PentanomialSPRT
 from OpenBench.triage.demo import (
     BUILD_LOG,
@@ -591,6 +591,7 @@ def create_release() -> None:
     now = timezone.now()
     published = now - datetime.timedelta(days=RELEASE_DAYS_AGO)
     release_store.pin_release('Avalanche', Release(RELEASE_TAG, release_sha(), published), DEFAULT_BRANCH, now)
+    release_store.set_metadata('Avalanche', pinned_bench(release_sha()), NO_NETWORK)
     merged = {run.merge: run.days_ago for run in ANCHOR_RUNS if run.on_default_branch and not run.named_branch}
     for merge, days_ago in merged.items():
         committed = now - datetime.timedelta(days=days_ago, hours=3)
@@ -882,10 +883,14 @@ def past_schedule(days_ago: float, rng: random.Random) -> Schedule:
     return Schedule(created, started, ended)
 
 
+def pinned_bench(sha: str) -> int:
+    # A pinned commit benches the same in every Workload that builds it
+    return 2_000_000 + int(sha[:8], 16) % 2_000_000
+
+
 def create_engine(name: str, rng: random.Random, sha: str = '') -> Engine:
     if sha:
-        # A pinned commit benches the same in every Workload that builds it
-        bench = 2_000_000 + int(sha[:8], 16) % 2_000_000
+        bench = pinned_bench(sha)
     else:
         sha = f'{rng.getrandbits(160):040x}'
         bench = rng.randint(2_000_000, 4_000_000)

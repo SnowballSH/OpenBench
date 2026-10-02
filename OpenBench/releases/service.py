@@ -1,7 +1,8 @@
 import logging
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from django.db import close_old_connections
 from django.utils import timezone
@@ -11,14 +12,18 @@ from OpenBench.models import DefaultBranchCommit, EngineConfig, Test
 from OpenBench.releases import store
 from OpenBench.releases.domain import (
     MAX_STANDING_CHECKS,
+    PASS_DEADLINE_SECONDS,
+    RATE_LIMIT_PAUSE,
     RECHECK_INTERVAL,
     REFRESH_INTERVAL,
     STANDINGS_PER_PASS,
+    PassEnded,
     ProviderError,
     RateLimited,
     ReleaseAnchor,
     ReleaseProvider,
     Repository,
+    failure_backoff,
     same_repository,
 )
 from OpenBench.releases.github import GitHubReleases, api_url
@@ -26,7 +31,9 @@ from OpenBench.releases.github import GitHubReleases, api_url
 LOGGER = logging.getLogger(__name__)
 
 PASS_INTERVAL_SECONDS = 600.0
-TEST_MODES = ('SPRT', 'GAMES')
+MEASURING_MODE = 'GAMES'
+
+type StopCheck = Callable[[], bool]
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,6 +42,7 @@ class Outcome:
     attempted: bool
     error: str
     standings: int
+    retry_at: datetime | None = None
 
 
 @dataclass(slots=True)
@@ -47,8 +55,25 @@ class PassClock:
         self.next_pass = time.monotonic() + PASS_INTERVAL_SECONDS
         return True
 
+    def postpone(self, wait: timedelta) -> None:
+        self.next_pass = max(self.next_pass, time.monotonic() + wait.total_seconds())
+
+
+@dataclass(frozen=True, slots=True)
+class PassGuard:
+    should_stop: StopCheck
+    deadline: float
+
+    def __call__(self) -> None:
+        if self.should_stop() or time.monotonic() >= self.deadline:
+            raise PassEnded('The pass ended before this lookup')
+
 
 WATCHER_CLOCK = PassClock()
+
+
+def never_stop() -> bool:
+    return False
 
 
 def repository_of(config: EngineConfig) -> Repository:
@@ -71,11 +96,15 @@ def refresh_due(anchor: ReleaseAnchor | None, now: datetime) -> bool:
 
 def refresh_release(config: EngineConfig, provider: ReleaseProvider, now: datetime) -> str:
     # The attempt is recorded before the network is touched, so a crash cannot repeat it early
+    known = store.load_anchor(config.name)
     store.record_attempt(config.name, now)
     try:
         repository = repository_of(config)
         release = provider.latest_release(repository)
         branch = provider.default_branch(repository)
+    except PassEnded:
+        store.record_attempt(config.name, known.attempted_at if known else None)
+        raise
     except ProviderError as error:
         store.record_failure(config.name, str(error), now)
         if isinstance(error, RateLimited):
@@ -88,7 +117,7 @@ def refresh_release(config: EngineConfig, provider: ReleaseProvider, now: dateti
 def anchor_devs(anchor: ReleaseAnchor, source: str) -> list[str]:
     tests = Test.objects.filter(
         deleted=False,
-        test_mode__in=TEST_MODES,
+        test_mode=MEASURING_MODE,
         dev_engine=anchor.engine,
         base_engine=anchor.engine,
         base__sha=anchor.sha,
@@ -99,6 +128,12 @@ def anchor_devs(anchor: ReleaseAnchor, source: str) -> list[str]:
     return list(dict.fromkeys(sha for sha, _, _ in rows if sha not in named))
 
 
+def recheck_due(row: DefaultBranchCommit, now: datetime) -> bool:
+    if row.failures:
+        return now - row.checked_at >= failure_backoff(row.failures)
+    return row.checks < MAX_STANDING_CHECKS and now - row.checked_at >= RECHECK_INTERVAL
+
+
 def unresolved(anchor: ReleaseAnchor, source: str, now: datetime, force: bool) -> list[str]:
     devs = anchor_devs(anchor, source)
     checked = {row.sha: row for row in DefaultBranchCommit.objects.filter(engine=anchor.engine, sha__in=devs)}
@@ -107,25 +142,35 @@ def unresolved(anchor: ReleaseAnchor, source: str, now: datetime, force: bool) -
         row = checked.get(sha)
         if row is None:
             return True
-        if row.on_default_branch:
-            return False
-        return force or (row.checks < MAX_STANDING_CHECKS and now - row.checked_at >= RECHECK_INTERVAL)
+        return not row.on_default_branch and (force or recheck_due(row, now))
 
     return [sha for sha in devs if pending(sha)]
 
 
 def resolve_standings(
     config: EngineConfig, anchor: ReleaseAnchor, provider: ReleaseProvider, now: datetime, force: bool = False
-) -> int:
+) -> tuple[int, str]:
     if not anchor.known or not anchor.default_branch:
-        return 0
+        return 0, ''
     pending = unresolved(anchor, config.source, now, force)[:STANDINGS_PER_PASS]
     if not pending:
-        return 0
+        return 0, ''
     repository = repository_of(config)
+    resolved, failure = 0, ''
     for sha in pending:
-        store.record_standing(config.name, provider.standing(repository, anchor.default_branch, sha), now)
-    return len(pending)
+        try:
+            standing = provider.standing(repository, anchor.default_branch, sha)
+        except PassEnded:
+            raise
+        except ProviderError as error:
+            store.record_standing_failure(config.name, sha, now)
+            if isinstance(error, RateLimited):
+                raise
+            failure = str(error)
+            continue
+        store.record_standing(config.name, standing, now)
+        resolved += 1
+    return resolved, failure
 
 
 def refresh_engine(config: EngineConfig, provider: ReleaseProvider, now: datetime, force: bool = False) -> Outcome:
@@ -135,7 +180,8 @@ def refresh_engine(config: EngineConfig, provider: ReleaseProvider, now: datetim
     anchor = store.load_anchor(config.name)
     if error or anchor is None:
         return Outcome(config.name, attempted, error, 0)
-    return Outcome(config.name, attempted, '', resolve_standings(config, anchor, provider, now, force))
+    standings, failure = resolve_standings(config, anchor, provider, now, force)
+    return Outcome(config.name, attempted, failure, standings)
 
 
 def refresh_all(
@@ -148,23 +194,38 @@ def refresh_all(
     for config in configs:
         try:
             outcomes.append(refresh_engine(config, provider, now, force))
-        except RateLimited as error:
-            outcomes.append(Outcome(config.name, False, str(error), 0))
+        except PassEnded:
             break
-        except ProviderError as error:
-            outcomes.append(Outcome(config.name, False, str(error), 0))
+        except RateLimited as error:
+            outcomes.append(Outcome(config.name, False, str(error), 0, error.reset_at or now + RATE_LIMIT_PAUSE))
+            break
+        except Exception as error:
+            # One engine's failure, whatever it is, must not cost the others their turn
+            if not isinstance(error, ProviderError):
+                LOGGER.exception('Release refresh for %s failed', config.name)
+            outcomes.append(Outcome(config.name, False, str(error) or type(error).__name__, 0))
     return outcomes
 
 
-def refresh_when_due(clock: PassClock = WATCHER_CLOCK) -> None:
+def pause_after(outcomes: list[Outcome], now: datetime) -> timedelta | None:
+    waits = [outcome.retry_at - now for outcome in outcomes if outcome.retry_at is not None]
+    return min(max(waits), 2 * RATE_LIMIT_PAUSE) if waits else None
+
+
+def refresh_when_due(should_stop: StopCheck = never_stop, clock: PassClock = WATCHER_CLOCK) -> None:
     """Called by the watcher thread on every loop: never raises, and reaches the network only when due."""
 
     if not clock.due():
         return
     try:
-        for outcome in refresh_all(GitHubReleases(), timezone.now()):
+        now = timezone.now()
+        guard = PassGuard(should_stop, time.monotonic() + PASS_DEADLINE_SECONDS)
+        outcomes = refresh_all(GitHubReleases(before_call=guard), now)
+        for outcome in outcomes:
             if outcome.error:
                 LOGGER.warning('Release refresh for %s failed: %s', outcome.engine, outcome.error)
+        if (wait := pause_after(outcomes, now)) is not None:
+            clock.postpone(wait)
     except Exception:
         LOGGER.exception('Release refresh failed')
         close_old_connections()

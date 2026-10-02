@@ -95,9 +95,10 @@ RELEASE_SHA = 'e' * 40
 
 
 def anchor_on_release(tests: list[Test]) -> int:
-    # Every fourth same-engine test becomes a run against the release, half of them from the default branch
-    anchored = [test for test in tests if test.test_mode in ('SPRT', 'GAMES') and test.dev_engine == test.base_engine]
-    anchored = anchored[::4]
+    # Every other fixed-games test and some SPRTs become runs against the release, half from the default branch
+    same_engine = [test for test in tests if test.dev_engine == test.base_engine]
+    anchored = [test for test in same_engine if test.test_mode == 'GAMES'][::2]
+    anchored += [test for test in same_engine if test.test_mode == 'SPRT'][::8]
     Engine.objects.filter(id__in=[test.base_id for test in anchored]).update(sha=RELEASE_SHA)
     now = timezone.now()
     store.pin_release('Avalanche', Release('v4.0.0', RELEASE_SHA, now), 'master', now)
@@ -156,13 +157,14 @@ class QueryBudgetTests(TestCase):
             self.assert_page_queries(url, queries)
 
     def test_progress(self) -> None:
-        self.assertGreaterEqual(self.anchored, self.size.tests // 12)
+        self.assertGreaterEqual(self.anchored, self.size.tests // 10)
         for url, queries in PROGRESS_QUERIES.items():
             cache.clear()
             self.assert_page_queries(url, queries)
         release = self.client.get('/progress/Avalanche/?window=all').context['page'].release
         self.assertTrue(release.tiles)
         self.assertTrue(release.branches)
+        self.assertTrue(release.sprt)
 
 
 class LargerQueryBudgetTests(QueryBudgetTests):

@@ -1,5 +1,5 @@
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from urllib.parse import quote, urlencode
 
@@ -38,7 +38,7 @@ from OpenBench.progress.domain import (
     Window,
 )
 from OpenBench.progress.lineage import half_width
-from OpenBench.releases.domain import REFRESH_INTERVAL, ReleaseAnchor
+from OpenBench.releases.domain import NO_NETWORK, REFRESH_INTERVAL, ReleaseAnchor
 from OpenBench.workload_names import short_name
 
 STEPS_LISTED = 100
@@ -202,6 +202,7 @@ class ReleaseLine:
     measured_on: date
     cell: Cell
     row_url: str | None
+    networks: str = ''
 
 
 @dataclass(frozen=True, slots=True)
@@ -221,6 +222,10 @@ class ReleasePage:
     lines_hidden: int
     branches: list[ReleaseLine]
     branches_hidden: int
+    sprt: list[ReleaseLine] = field(default_factory=list)
+    sprt_hidden: int = 0
+    base_note: str = ''
+    base_recorded: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -599,7 +604,7 @@ def release_tile(time_class: TimeClass, series: AnchorSeries | None, branch: str
         return ReleaseTile(label, DASH, None, f'not measured at {time_class.label}', None, [], waiting)
     point = series.latest
     measurement = point.measurement
-    committed = f' · committed {day_text(utc_day(point.committed_at))}' if point.committed_at else ''
+    committed = f'committed {day_text(utc_day(point.committed_at))} · ' if point.committed_at else ''
     return ReleaseTile(
         label=label,
         value=elo_text(measurement.elo, 1),
@@ -607,11 +612,24 @@ def release_tile(time_class: TimeClass, series: AnchorSeries | None, branch: str
         detail=f'{count(measurement.games)} games',
         commit=commit_link(point.dev, point.repo),
         runs=[RunLink(run_url(run), f'#{run.id}') for run in measurement.runs],
-        facts=[f'measured {day_text(utc_day(point.measured_at))}{committed}', staleness_text(point, branch), *waiting],
+        facts=[f'{committed}measured {day_text(utc_day(point.measured_at))}', staleness_text(point, branch), *waiting],
     )
 
 
-def release_line(point: AnchorPoint, anchor: ReleaseAnchor) -> ReleaseLine:
+def network_text(network: str) -> str:
+    return network or 'no network'
+
+
+def networks_text(point: AnchorPoint) -> str:
+    return f'{network_text(point.dev.network)} against the release with {network_text(point.base.network)}'
+
+
+def networks_vary(points: Iterable[AnchorPoint]) -> bool:
+    pairs = {(point.dev.network, point.base.network) for point in points}
+    return len(pairs) > 1 or any(dev != base for dev, base in pairs)
+
+
+def release_line(point: AnchorPoint, anchor: ReleaseAnchor, with_networks: bool) -> ReleaseLine:
     primary = sole_run([point.measurement])
     root = repo_url(point.repo)
     span = f'{quote(anchor.sha, safe="")}...{quote(point.dev.sha, safe="")}'
@@ -624,7 +642,18 @@ def release_line(point: AnchorPoint, anchor: ReleaseAnchor) -> ReleaseLine:
         measured_on=utc_day(point.measured_at),
         cell=measurement_cell(point.measurement, primary),
         row_url=run_url(primary) if primary else None,
+        networks=networks_text(point) if with_networks else '',
     )
+
+
+def base_note(anchor: ReleaseAnchor) -> str:
+    if anchor.bench is None:
+        return (
+            'The release bench is not recorded, so the create form will ask for Base Bench. Record it once with: '
+            f'python manage.py set_release {anchor.engine} --bench <nodes> --network <sha or {NO_NETWORK}>'
+        )
+    network = {'': 'network not recorded', NO_NETWORK: 'no network'}.get(anchor.network, f'network {anchor.network}')
+    return f'Release bench {count(anchor.bench)} recorded, {network}; the create form fills them in.'
 
 
 def newest_first(points: Iterable[AnchorPoint]) -> list[AnchorPoint]:
@@ -656,6 +685,7 @@ def release_page(report: ReleaseReport, now: datetime) -> ReleasePage:
     by_class = {series.time_class: series for series in report.series}
     measured = [point for series in report.series for point in series.points]
     branch = anchor.default_branch or 'the default branch'
+    vary = networks_vary([*measured, *report.branches, *report.sprt])
     return ReleasePage(
         engine=report.engine,
         title=f'Since {anchor.tag}',
@@ -670,10 +700,14 @@ def release_page(report: ReleaseReport, now: datetime) -> ReleasePage:
         tiles=[release_tile(time_class, by_class.get(time_class), branch) for time_class in HEADLINE_CLASSES]
         if measured
         else [],
-        lines=[release_line(point, anchor) for point in newest_first(measured)[:STEPS_LISTED]],
+        lines=[release_line(point, anchor, vary) for point in newest_first(measured)[:STEPS_LISTED]],
         lines_hidden=report.points_omitted + max(0, len(measured) - STEPS_LISTED),
-        branches=[release_line(point, anchor) for point in report.branches],
+        branches=[release_line(point, anchor, vary) for point in report.branches],
         branches_hidden=report.branches_omitted,
+        sprt=[release_line(point, anchor, vary) for point in report.sprt],
+        sprt_hidden=report.sprt_omitted,
+        base_note=base_note(anchor),
+        base_recorded=anchor.bench is not None,
     )
 
 

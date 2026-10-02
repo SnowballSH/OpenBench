@@ -1522,7 +1522,7 @@ iteration is a mini-match between the two perturbed sides, and the side nearer a
 hidden optimum plays slightly stronger, so the parameters drift towards it.
 
 `seed_demo` gives Avalanche a release through the operator override
-(`store.pin_release`, no network) and `ANCHOR_RUNS`: fixed-games runs of four
+(`store.pin_release`, no network, with its bench recorded) and `ANCHOR_RUNS`: fixed-games runs of four
 default-branch merge commits against it at STC and LTC over six weeks, one
 commit measured twice (pooled), the newest still running and created from the
 branch name, and one feature-branch commit for the "branch vs release" list.
@@ -1745,10 +1745,18 @@ Merges to the default branch happen often, and each one makes a new commit, so
 "dev against master" says how one change did, not how far the engine has come.
 The stable reference is the engine's **latest release**: the one GitHub itself
 calls latest (`releases/latest`, which leaves out drafts and prereleases, so a
-later-named tag on another branch is never picked), resolved to its commit.
+later-named tag on another branch is never picked), resolved to its commit
+through the tag namespace (`git/ref/tags/<tag>`, and `git/tags/<sha>` once
+more when the tag is annotated), so a branch that happens to share the tag's
+name can never be what is resolved.
 
-**Anchor run.** A TEST workload (SPRT or fixed games, not deleted, the same
-engine on both sides) whose base commit is the release commit. The base may
+**Anchor run.** A fixed-games TEST workload (not deleted, the same engine on
+both sides) whose base commit is the release commit. An SPRT against the
+release is not one: it stops as soon as its bound is crossed, after a few
+hundred games against an old release, and its estimate is biased by the
+stopping rule. Such runs are listed in their own collapsed table, marked
+"stop early, biased", are never pooled with the fixed-games runs, and their
+commits are not looked up on GitHub. The base may
 have been entered as the tag or as the sha; only `Engine.sha` is compared.
 A test of the release against itself is not one.
 
@@ -1780,8 +1788,12 @@ never the headline.
 **Headline.** Per class (STC and LTC), the newest default-branch commit with a
 finished measurement: its Elo and 95% interval (`insights.strength`, the same
 functions as everywhere else), games, the commit, when it was measured and its
-commit date when GitHub gave one. "Newest" is by when the measurement
-finished. Under it, how stale it is: the number of base commits (other than
+commit date when GitHub gave one. "Newest" is by commit date when GitHub has
+dated both commits being compared, so re-measuring an older commit does not
+take the headline back from a newer one; when either commit is undated (a test
+created from the branch name is on the branch without a lookup, so has no
+date) the one measured last wins. The tile gives the commit date and the
+measured date. Under it, how stale it is: the number of base commits (other than
 the release and the measured commit) that were first used as a test's base
 after this measurement was first created. Bases are the default branch's heads
 as the lab saw them, so this counts how far master has visibly moved since,
@@ -1803,8 +1815,24 @@ stopping rule. The count is the `test_max_games` of the preset itself when it
 states one (so an engine can define, say, a `release-ltc` preset; a
 fixed-games preset of a class is preferred over the SPRT one), else 10,000 at
 STC and 5,000 at LTC. Everything can be edited before submitting, and nothing
-is created until then. The base bench is read from the release commit's
-message like any other; supply it by hand if that message has none.
+is created until then.
+
+The form needs a bench for both sides, and reads it from the commit message
+when the field is empty. Engines whose commits carry no `Bench:` line need it
+typed. The release's bench (and the network it runs) never change, so they are
+recorded once on the release (`set_release <engine> --bench N --network <sha
+or none>`, see [DEPLOYMENT.md](DEPLOYMENT.md#release-anchor)) and then filled
+in as Base Bench and Base Network; a newer release starts without them. The
+notice above the form names exactly what is still to be typed: always Dev
+Bench (the head of the default branch moves, so it cannot be recorded), and
+Base Bench or Base Network while they are not recorded. The notice and
+everything typed survive a rejected submission. The progress page says under
+the links whether the release bench is recorded and the command to record it.
+
+When two measurements of the same commit ran different networks (on either
+side) they are different steps and get a row each; the rows and the chart
+tooltip then name the networks, and say nothing when every run used the same
+pair.
 
 **Caveats.**
 
@@ -2293,7 +2321,9 @@ estimate is `{ "lower", "value", "upper" }` (a 95% interval) or `null`.
         "pinned": false,              // true when set by set_release
         "fetched_at": "2026-10-02T06:00:00+00:00",     // last success, or null
         "attempted_at": "2026-10-02T12:00:00+00:00",   // last attempt, or null
-        "error": ""                   // why the last attempt failed
+        "error": "",                  // why the last attempt failed
+        "bench": 3141592,             // the release's bench, or null until recorded
+        "network": "none"             // its network sha, "none", or "" until recorded
       },
       "series": [                     // one per class with a default-branch measurement
         {
@@ -2302,6 +2332,7 @@ estimate is `{ "lower", "value", "upper" }` (a 95% interval) or `null`.
           "points": [                 // oldest first, at most the newest 200
             {
               "time_class": "stc",
+              "base": { "sha": "8b6fa510…", "network": "" },   // the release, with the network it ran
               "dev": { "sha": "…", "network": "" },
               "repo": "https://github.com/SnowballSH/Avalanche",
               "subject": "Merge #115: correction history",
@@ -2315,8 +2346,10 @@ estimate is `{ "lower", "value", "upper" }` (a 95% interval) or `null`.
         }
       ],
       "branches": [ /* points, newest first, whose dev is not known to be on the default branch; at most 50 */ ],
+      "sprt": [ /* points pooled from SPRT runs against the release, newest first, never in a series; at most 50 */ ],
       "points_omitted": 0,
-      "branches_omitted": 0
+      "branches_omitted": 0,
+      "sprt_omitted": 0
     },
     "lineage": {
         "trunk_steps": 6,             // trunk steps in the window
@@ -2499,7 +2532,8 @@ measurement time (`data-progress-chart="release"`: one line per class in the
 class colours, each point with its 95% interval as a vertical bar drawn by the
 `error_bars` plugin, running measurements as hollow points off the line, a
 zero line for the release itself, and the measurements table as its data
-table), the "Measure against" links and a collapsed "Branch vs release" table.
+table), the "Measure against" links with the note on the release bench, and
+collapsed "Branch vs release" and "SPRT runs against" tables.
 With no anchor run it shows the plain sentence and the links instead. The
 window tiles, the trunk chart and the lineage follow under an "In this window"
 heading that says the chained Elo is a trend of the testing, not a measurement

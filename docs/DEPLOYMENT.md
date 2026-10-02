@@ -314,18 +314,36 @@ does the asking, in a pass at most every 10 minutes:
 
 | Request | When | Calls |
 |---|---|---|
-| `releases/latest`, `commits/<tag>`, the repository (for its default branch) | per enabled engine, at most once every 6 hours, counted from the last attempt whether it worked or not; never for a pinned engine | 3 |
-| `compare/<branch>...<sha>` | once for each commit tested against the release that is not already known to be on the default branch, at most 3 per pass; a commit found off the branch is asked again every 6 hours, at most 28 times | 1 each |
+| `releases/latest`, `git/ref/tags/<tag>` (and `git/tags/<sha>` for an annotated tag), the repository (for its default branch) | per enabled engine, at most once every 6 hours, counted from the last attempt whether it worked or not; never for a pinned engine | 3 or 4 |
+| `compare/<branch>...<sha>` | once for each commit tested with fixed games against the release that is not already known to be on the default branch, at most 3 per pass; a commit found off the branch is asked again every 6 hours, at most 28 times | 1 each |
 
-Every request has a 5 second timeout and goes to `api.github.com` only, with
-the engine's `Config/credentials.<engine>` token for a private engine and
-unauthenticated otherwise. Unauthenticated requests share the host's 60 per
-hour with test creation; a quiet instance spends 3 every 6 hours per engine,
-and the worst hour (many new branch tests against the release) spends 18 on
-comparisons. A failure (timeout, 5xx, rate limit, no token) is recorded on the
-engine's row and logged as a warning; the page keeps showing the release it
-knew and says how old it is. A rate-limit answer ends the pass. A lookup that
-is in flight when the server stops can delay shutdown by its timeouts.
+Every request goes to `api.github.com` only, with the engine's
+`Config/credentials.<engine>` token for a private engine and unauthenticated
+otherwise. The engine source must be `https://github.com/<owner>/<repo>` (the
+same pattern test creation accepts; `.` and `..` are refused). Unauthenticated
+requests share the host's 60 per hour with test creation; a quiet instance
+spends 3 every 6 hours per engine, and the worst hour (many new branch tests
+against the release) spends 18 on comparisons.
+
+Bounds on time: each request has a 3 second connect and a 5 second read
+timeout; redirects are not followed, except one that stays on
+`api.github.com` (a renamed repository); a pass stops making requests 45
+seconds after it began, and checks the watcher's stop flag before every
+request, so a shutdown waits for at most the one request in flight (8 seconds)
+and an interrupted release lookup is not counted as an attempt.
+
+Failures:
+
+- A failed release lookup (timeout, 5xx, no token) is recorded on the engine's
+  row and logged as a warning; the page keeps showing the release it knew and
+  says how old it is. It is tried again 6 hours later.
+- A failed `compare` is recorded on that commit, which is then left alone for
+  20 minutes, doubling with each further failure up to 6 hours.
+- A rate-limit answer ends the pass for every engine, and the next pass waits
+  until GitHub's `x-ratelimit-reset` (one hour when the header is absent, two
+  at most).
+- An unexpected error in one engine is logged with its traceback and recorded
+  as that engine's outcome; the other engines still get their turn.
 
 ### Commands
 
@@ -337,9 +355,24 @@ python manage.py set_release Avalanche v4.0.0 8b6fa5102a98847b7e03d82a0cb266d3cc
 python manage.py set_release Avalanche --unpin        # follow GitHub again
 ```
 
-`set_release` is the override: it needs no network, and a release set this way
-is **pinned**, so the refresh never replaces it (the page says "set by the
-operator"). `--on-default-branch SHA ...` marks tested commits as being on the
+`set_release <engine> <tag> <sha>` is the override: it needs no network, and a
+release set this way is **pinned**, so the refresh never replaces it (the page
+says "set by the operator"). The sha must be the full 40 hexadecimal
+characters.
+
+Recording what the create form needs is separate from pinning:
+
+```bash
+python manage.py set_release Avalanche --bench 3141592 --network none
+```
+
+describes the release already known, pinned or not, and leaves it following
+GitHub if it was. `--bench` is the release commit's bench; `--network` is the
+sha of the network the release runs as listed on `/networks/`, or `none` for
+an engine with its network built in. Either can be given alone, and both can
+be given together with `<tag> <sha>`. They belong to one commit: when a
+different release replaces the stored one (by refresh or by pinning another
+sha) they are cleared, and the progress page says the bench is not recorded. `--on-default-branch SHA ...` marks tested commits as being on the
 default branch, for a host that cannot reach GitHub at all. Without
 `--default-branch` the branch already known is kept, else the default test
 preset's base branch, else `master`.
@@ -349,20 +382,45 @@ nothing; these are single-row writes):
 
 ```sql
 INSERT INTO OpenBench_enginerelease
-    (engine, tag, sha, published_at, default_branch, pinned, fetched_at, attempted_at, error)
+    (engine, tag, sha, published_at, default_branch, bench, network, pinned, fetched_at, attempted_at, error)
 VALUES ('Avalanche', 'v4.0.0', '8b6fa5102a98847b7e03d82a0cb266d3cc888a86',
-        '2026-08-08 19:08:13', 'master', 1, datetime('now'), NULL, '')
+        '2026-08-08 19:08:13', 'master', 0, '', 1, datetime('now'), NULL, '')
 ON CONFLICT(engine) DO UPDATE SET
     tag = excluded.tag, sha = excluded.sha, published_at = excluded.published_at,
-    default_branch = excluded.default_branch, pinned = 1, fetched_at = excluded.fetched_at, error = '';
+    default_branch = excluded.default_branch, bench = 0, network = '',
+    pinned = 1, fetched_at = excluded.fetched_at, error = '';
 
-INSERT INTO OpenBench_defaultbranchcommit (engine, sha, on_default_branch, committed_at, checked_at, checks)
-VALUES ('Avalanche', '<dev sha>', 1, NULL, datetime('now'), 1)
+-- the release's bench and network ('none' for a built-in network); 0 and '' mean not recorded
+UPDATE OpenBench_enginerelease SET bench = 3141592, network = 'none' WHERE engine = 'Avalanche';
+
+INSERT INTO OpenBench_defaultbranchcommit
+    (engine, sha, on_default_branch, committed_at, checked_at, checks, failures)
+VALUES ('Avalanche', '<dev sha>', 1, NULL, datetime('now'), 1, 0)
 ON CONFLICT(engine, sha) DO UPDATE SET on_default_branch = 1;
 ```
 
 The page caches a report for 60 seconds, so either route shows within a
 minute.
+
+### A first measurement
+
+1. Deploy; within ten minutes of the server starting the release is looked up
+   (or run `python manage.py refresh_releases` in the container). `/progress/<engine>/`
+   then reads "Since <tag>" and "No test of master against <tag> yet".
+2. Record the release's bench once, and its network:
+   `python manage.py set_release <engine> --bench <nodes> --network <sha or none>`.
+   The bench is what the release binary prints for `bench`.
+3. On the progress page press **STC · 10,000 games** (or LTC). The form opens
+   with both engines, both repositories, Dev Branch = the default branch, Base
+   Branch = the tag, the preset's options, time control and book, Test Mode =
+   Fixed Games, Max Games, and Base Bench and Base Network from step 2.
+4. Type **Dev Bench**, the bench of the default branch's head (unless the
+   engine's commit messages carry a `Bench:` line), check Dev Network, and
+   submit. Approve the test like any other.
+5. The run appears under "Since <tag>" as provisional while it plays and
+   becomes the headline when it finishes. A test created this way is on the
+   default branch by construction; one created from a pinned sha joins once
+   GitHub confirms the commit, within about ten minutes.
 
 ### Rolling back past migration 0022
 

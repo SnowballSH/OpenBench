@@ -11,15 +11,19 @@ from django.db import connection
 from django.db.migrations.executor import MigrationExecutor
 from django.test import SimpleTestCase, TestCase, TransactionTestCase
 
-from OpenBench.models import DefaultBranchCommit, Engine, EngineConfig, EngineRelease
+from OpenBench.models import DefaultBranchCommit, Engine, EngineConfig, EngineRelease, Network
 from OpenBench.releases import service, store
 from OpenBench.releases.domain import (
+    CONNECT_TIMEOUT_SECONDS,
+    FAILURE_BACKOFF,
     MAX_STANDING_CHECKS,
+    RATE_LIMIT_PAUSE,
     RECHECK_INTERVAL,
     REFRESH_INTERVAL,
     REQUEST_TIMEOUT_SECONDS,
     STANDINGS_PER_PASS,
     BranchStanding,
+    PassEnded,
     ProviderError,
     RateLimited,
     Release,
@@ -53,11 +57,27 @@ LATEST_RELEASE = {
     'published_at': '2026-08-08T19:08:13Z',
     'assets': [],
 }
-TAG_COMMIT = {
-    'sha': RELEASE_SHA,
-    'node_id': 'C_kwDOGr6TqtoAKDhiNmZh',
-    'commit': {'committer': {'name': 'SnowballSH', 'date': '2026-08-08T18:28:59Z'}, 'message': 'v4.0.0'},
-    'parents': [],
+LIGHTWEIGHT_TAG = {
+    'ref': 'refs/tags/v4.0.0',
+    'node_id': 'REF_kwDOGr6TqrByZWZzL3RhZ3MvdjQuMC4w',
+    'url': f'{API}/git/refs/tags/v4.0.0',
+    'object': {'sha': RELEASE_SHA, 'type': 'commit', 'url': f'{API}/git/commits/{RELEASE_SHA}'},
+}
+TAG_OBJECT_SHA = '8be58deda2ccce7d036072ec34439f9fad88204f'
+ANNOTATED_REF = {
+    'ref': 'refs/tags/v4.0.0',
+    'node_id': 'MDM6UmVmMzY1MDI6cmVmcy90YWdzL3YyLjQ1LjA=',
+    'url': f'{API}/git/refs/tags/v4.0.0',
+    'object': {'sha': TAG_OBJECT_SHA, 'type': 'tag', 'url': f'{API}/git/tags/{TAG_OBJECT_SHA}'},
+}
+ANNOTATED_TAG = {
+    'node_id': 'TA_kwDNjpbaACg4YmU1OGRlZGEyY2NjZTdkMDM2MDcyZWMzNDQzOWY5ZmFkODgyMDRm',
+    'sha': TAG_OBJECT_SHA,
+    'url': f'{API}/git/tags/{TAG_OBJECT_SHA}',
+    'tagger': {'name': 'SnowballSH', 'email': 'someone@example.invalid', 'date': '2026-08-08T18:30:00Z'},
+    'object': {'sha': RELEASE_SHA, 'type': 'commit', 'url': f'{API}/git/commits/{RELEASE_SHA}'},
+    'tag': 'v4.0.0',
+    'message': 'Avalanche 4.0.0\n',
 }
 REPOSITORY_ANSWER = {
     'id': 448697258,
@@ -108,9 +128,9 @@ class FakeGitHub:
     def __init__(self, answers: Mapping[str, tuple[int, object]], limits: Mapping[str, str] = LIMITS) -> None:
         self.answers = answers
         self.limits = limits
-        self.calls: list[tuple[str, Mapping[str, str], float]] = []
+        self.calls: list[tuple[str, Mapping[str, str], tuple[float, float]]] = []
 
-    def __call__(self, url: str, headers: Mapping[str, str], timeout: float) -> Reply:
+    def __call__(self, url: str, headers: Mapping[str, str], timeout: tuple[float, float]) -> Reply:
         self.calls.append((url, headers, timeout))
         status, body = self.answers[url.removeprefix(API)]
         return Reply(status, body, self.limits)
@@ -122,7 +142,7 @@ class FakeGitHub:
 
 RELEASED = {
     '/releases/latest': (200, LATEST_RELEASE),
-    '/commits/v4.0.0': (200, TAG_COMMIT),
+    '/git/ref/tags/v4.0.0': (200, LIGHTWEIGHT_TAG),
     '': (200, REPOSITORY_ANSWER),
 }
 
@@ -132,9 +152,37 @@ class GitHubProviderTests(SimpleTestCase):
         github = FakeGitHub(RELEASED)
         release = present(GitHubReleases(github).latest_release(REPOSITORY))
         self.assertEqual(release, Release('v4.0.0', RELEASE_SHA, datetime(2026, 8, 8, 19, 8, 13, tzinfo=UTC)))
-        self.assertEqual(github.paths, ['/releases/latest', '/commits/v4.0.0'])
-        self.assertEqual({timeout for _, _, timeout in github.calls}, {REQUEST_TIMEOUT_SECONDS})
-        self.assertEqual(REQUEST_TIMEOUT_SECONDS, 5.0)
+        self.assertEqual(github.paths, ['/releases/latest', '/git/ref/tags/v4.0.0'])
+        self.assertEqual({timeout for _, _, timeout in github.calls}, {(3.0, 5.0)})
+        self.assertEqual((CONNECT_TIMEOUT_SECONDS, REQUEST_TIMEOUT_SECONDS), (3.0, 5.0))
+
+    def test_an_annotated_tag_is_dereferenced_once(self):
+        github = FakeGitHub(
+            {
+                '/releases/latest': (200, LATEST_RELEASE),
+                '/git/ref/tags/v4.0.0': (200, ANNOTATED_REF),
+                f'/git/tags/{TAG_OBJECT_SHA}': (200, ANNOTATED_TAG),
+            }
+        )
+        self.assertEqual(present(GitHubReleases(github).latest_release(REPOSITORY)).sha, RELEASE_SHA)
+        self.assertEqual(github.paths, ['/releases/latest', '/git/ref/tags/v4.0.0', f'/git/tags/{TAG_OBJECT_SHA}'])
+
+    def test_a_tag_of_a_tag_or_of_a_tree_is_an_error(self):
+        nested = {**ANNOTATED_TAG, 'object': {'sha': 'f' * 40, 'type': 'tag'}}
+        tree = {**LIGHTWEIGHT_TAG, 'object': {'sha': 'f' * 40, 'type': 'tree'}}
+        for answers in (
+            {'/git/ref/tags/v4.0.0': (200, ANNOTATED_REF), f'/git/tags/{TAG_OBJECT_SHA}': (200, nested)},
+            {'/git/ref/tags/v4.0.0': (200, tree)},
+            {'/git/ref/tags/v4.0.0': (200, {'ref': 'refs/tags/v4.0.0'})},
+        ):
+            github = FakeGitHub({'/releases/latest': (200, LATEST_RELEASE), **answers})
+            with self.assertRaises(ProviderError):
+                GitHubReleases(github).latest_release(REPOSITORY)
+
+    def test_a_branch_named_like_the_tag_is_never_asked_for(self):
+        github = FakeGitHub(RELEASED)
+        GitHubReleases(github).latest_release(REPOSITORY)
+        self.assertFalse([path for path in github.paths if path.startswith(('/commits/', '/branches/'))])
 
     def test_a_repository_without_releases_has_none(self):
         github = FakeGitHub({'/releases/latest': (404, NO_RELEASE)})
@@ -144,8 +192,15 @@ class GitHubProviderTests(SimpleTestCase):
     def test_a_rate_limit_is_its_own_error(self):
         exhausted = {**LIMITS, 'x-ratelimit-remaining': '0'}
         for limits in (exhausted, {}):
-            with self.subTest(limits=limits), self.assertRaises(RateLimited):
+            with self.subTest(limits=limits), self.assertRaises(RateLimited) as raised:
                 GitHubReleases(FakeGitHub({'/releases/latest': (403, RATE_LIMIT)}, limits)).latest_release(REPOSITORY)
+            self.assertIsNone(raised.exception.reset_at)
+
+    def test_a_rate_limit_carries_when_it_resets(self):
+        limits = {**LIMITS, 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': '1790975788'}
+        with self.assertRaises(RateLimited) as raised:
+            GitHubReleases(FakeGitHub({'/releases/latest': (403, RATE_LIMIT)}, limits)).latest_release(REPOSITORY)
+        self.assertEqual(raised.exception.reset_at, datetime.fromtimestamp(1790975788, UTC))
 
     def test_other_failures_are_unreachable(self):
         for status in (403, 500, 502):
@@ -160,17 +215,46 @@ class GitHubProviderTests(SimpleTestCase):
             self.assertRaises(Unreachable) as raised,
         ):
             GitHubReleases().latest_release(REPOSITORY)
-        self.assertEqual(get.call_args.kwargs['timeout'], 5.0)
+        self.assertEqual(get.call_args.kwargs['timeout'], (3.0, 5.0))
+        self.assertIs(get.call_args.kwargs['allow_redirects'], False)
         self.assertIn('Timeout', str(raised.exception))
 
     def test_the_http_layer_parses_json_and_tolerates_other_bodies(self):
         response = mock.Mock(status_code=502, headers={})
         response.json.side_effect = ValueError('not json')
         with mock.patch('OpenBench.releases.github.requests.get', return_value=response):
-            self.assertEqual(http_get(API, {}, 5.0), Reply(502, None, {}))
+            self.assertEqual(http_get(API, {}, (3.0, 5.0)), Reply(502, None, {}))
+
+    def test_one_redirect_is_followed_and_only_within_the_api(self):
+        moved = mock.Mock(status_code=301, headers={'Location': 'https://api.github.com/repositories/448697258'})
+        landed = mock.Mock(status_code=200, headers={})
+        landed.json.return_value = REPOSITORY_ANSWER
+        with mock.patch('OpenBench.releases.github.requests.get', side_effect=[moved, landed]) as get:
+            self.assertEqual(http_get(API, {}, (3.0, 5.0)).body, REPOSITORY_ANSWER)
+        self.assertEqual(get.call_args.args[0], 'https://api.github.com/repositories/448697258')
+
+        away = mock.Mock(status_code=302, headers={'Location': 'https://example.invalid/steal'})
+        with (
+            mock.patch('OpenBench.releases.github.requests.get', side_effect=[away, landed]) as get,
+            self.assertRaises(Unreachable),
+        ):
+            http_get(API, {'Authorization': 'token secret'}, (3.0, 5.0))
+        self.assertEqual(get.call_count, 1)
+
+    def test_the_guard_runs_before_every_call_and_can_end_the_pass(self):
+        github = FakeGitHub(RELEASED)
+        allowed = iter([None, PassEnded('stop')])
+
+        def guard() -> None:
+            if (verdict := next(allowed)) is not None:
+                raise verdict
+
+        with self.assertRaises(PassEnded):
+            GitHubReleases(github, before_call=guard).latest_release(REPOSITORY)
+        self.assertEqual(github.paths, ['/releases/latest'])
 
     def test_a_release_whose_tag_has_no_commit_is_an_error(self):
-        github = FakeGitHub({'/releases/latest': (200, LATEST_RELEASE), '/commits/v4.0.0': (404, NO_COMMIT)})
+        github = FakeGitHub({'/releases/latest': (200, LATEST_RELEASE), '/git/ref/tags/v4.0.0': (404, NO_COMMIT)})
         with self.assertRaises(ProviderError):
             GitHubReleases(github).latest_release(REPOSITORY)
 
@@ -209,7 +293,18 @@ class GitHubProviderTests(SimpleTestCase):
         self.assertEqual(api_url('https://github.com/SnowballSH/Avalanche'), API)
         self.assertEqual(api_url('https://github.com/SnowballSH/Avalanche/'), API)
         self.assertEqual(api_url('https://github.com/SnowballSH/Avalanche.git'), API)
-        for source in ('https://gitlab.com/a/b', 'https://github.com/a', 'https://github.com/a/b/c', ''):
+        for source in (
+            'https://gitlab.com/a/b',
+            'https://github.com/a',
+            'https://github.com/a/b/c',
+            'https://github.com/../user',
+            'https://github.com/a/..',
+            'https://github.com/a/.',
+            'https://github.com/a.b/c',
+            'https://github.com/a/b?x=1',
+            'http://github.com/a/b',
+            '',
+        ):
             self.assertIsNone(api_url(source), source)
 
 
@@ -253,7 +348,7 @@ class RefreshTests(TestCase):
         self.author = create_user('author')
 
     def anchor_test(self, dev_sha: str, dev_name: str = '', **fields: Any):
-        test = create_test(self.author, **fields)
+        test = create_test(self.author, **{'test_mode': 'GAMES', **fields})
         Engine.objects.filter(id=test.dev_id).update(sha=dev_sha, name=dev_name or dev_sha)
         Engine.objects.filter(id=test.base_id).update(sha=RELEASE_SHA, name='v4.0.0')
         return test
@@ -403,29 +498,134 @@ class RefreshTests(TestCase):
     def test_deleted_tunes_and_self_tests_are_not_anchor_runs(self):
         self.anchor_test('5' * 40, deleted=True)
         self.anchor_test('6' * 40, test_mode='SPSA')
+        self.anchor_test('9' * 40, test_mode='SPRT')
         self.anchor_test(RELEASE_SHA)
         self.anchor_test('7' * 40, base_engine='Other')
         provider = FakeProvider(V4)
         service.refresh_all(provider, NOW)
         self.assertEqual(provider.calls, ['release', 'branch'])
 
-    def test_a_failed_standing_lookup_writes_nothing_and_is_retried(self):
+    def test_a_failed_standing_lookup_backs_off_for_a_growing_bounded_interval(self):
+        sha, other = '8' * 40, '7' * 40
+        self.anchor_test(sha)
+        self.anchor_test(other)
+        provider = FakeProvider(V4, standings={sha: Unreachable('GitHub answered 502'), other: True})
+        (outcome,) = service.refresh_all(provider, NOW)
+        self.assertEqual((outcome.error, outcome.standings), ('GitHub answered 502', 1))
+        row = DefaultBranchCommit.objects.get(sha=sha)
+        self.assertEqual((row.on_default_branch, row.failures, row.checks), (False, 1, 0))
+        self.assertEqual(set(store.load_default_branch_commits('Avalanche')), {other})
+
+        service.refresh_all(provider, NOW + FAILURE_BACKOFF - timedelta(seconds=1))
+        self.assertEqual(provider.calls.count('standing 8888'), 1)
+        service.refresh_all(provider, NOW + FAILURE_BACKOFF)
+        self.assertEqual(provider.calls.count('standing 8888'), 2)
+        service.refresh_all(provider, NOW + 2 * FAILURE_BACKOFF + timedelta(minutes=1))
+        self.assertEqual(provider.calls.count('standing 8888'), 2)
+        service.refresh_all(provider, NOW + 3 * FAILURE_BACKOFF)
+        self.assertEqual(provider.calls.count('standing 8888'), 3)
+
+        DefaultBranchCommit.objects.filter(sha=sha).update(failures=40, checked_at=NOW)
+        service.refresh_all(provider, NOW + RECHECK_INTERVAL - timedelta(seconds=1))
+        self.assertEqual(provider.calls.count('standing 8888'), 3)
+        provider.standings[sha] = True
+        service.refresh_all(provider, NOW + RECHECK_INTERVAL)
+        row.refresh_from_db()
+        self.assertEqual((row.on_default_branch, row.failures), (True, 0))
+
+    def test_a_rate_limited_standing_lookup_ends_the_pass_and_names_the_reset(self):
+        create_engine_config('Other')
         sha = '8' * 40
         self.anchor_test(sha)
-        provider = FakeProvider(V4, standings={sha: Unreachable('GitHub answered 502')})
-        (outcome,) = service.refresh_all(provider, NOW)
-        self.assertEqual(outcome.error, 'GitHub answered 502')
-        self.assertFalse(DefaultBranchCommit.objects.exists())
-        provider.standings[sha] = True
-        service.refresh_all(provider, NOW + timedelta(minutes=10))
-        self.assertEqual(set(store.load_default_branch_commits('Avalanche')), {sha})
+        reset = NOW + timedelta(minutes=37)
+        provider = FakeProvider(V4, standings={sha: RateLimited('GitHub rate limit reached', reset)})
+        outcomes = service.refresh_all(provider, NOW)
+        self.assertEqual([(found.engine, found.retry_at) for found in outcomes], [('Avalanche', reset)])
+        self.assertEqual(DefaultBranchCommit.objects.get(sha=sha).failures, 1)
+        self.assertEqual(service.pause_after(outcomes, NOW), timedelta(minutes=37))
+
+        provider.standings[sha] = RateLimited('GitHub rate limit reached')
+        (unknown,) = service.refresh_all(provider, NOW + RECHECK_INTERVAL)
+        self.assertEqual(unknown.retry_at, NOW + RECHECK_INTERVAL + RATE_LIMIT_PAUSE)
+
+    def test_a_rate_limit_postpones_the_next_pass(self):
+        clock = service.PassClock()
+        limited = [service.Outcome('Avalanche', True, 'GitHub rate limit reached', 0, NOW + timedelta(days=1))]
+        with (
+            mock.patch('OpenBench.releases.service.refresh_all', return_value=limited) as refresh,
+            mock.patch('OpenBench.releases.service.timezone.now', return_value=NOW),
+            mock.patch('OpenBench.releases.service.time.monotonic', return_value=1000.0),
+            self.assertLogs('OpenBench.releases.service', 'WARNING'),
+        ):
+            service.refresh_when_due(clock=clock)
+            self.assertEqual(clock.next_pass, 1000.0 + 2 * RATE_LIMIT_PAUSE.total_seconds())
+            service.refresh_when_due(clock=clock)
+        self.assertEqual(refresh.call_count, 1)
+        self.assertIsNone(service.pause_after([service.Outcome('Avalanche', True, '', 0)], NOW))
+
+    def test_one_engine_failing_in_any_way_does_not_cost_the_others_their_turn(self):
+        create_engine_config('Other')
+        calls: list[str] = []
+
+        def refresh(config: EngineConfig, *arguments: Any) -> service.Outcome:
+            calls.append(config.name)
+            if config.name == 'Avalanche':
+                raise RuntimeError('database is locked')
+            return service.Outcome(config.name, True, '', 0)
+
+        with (
+            mock.patch('OpenBench.releases.service.refresh_engine', side_effect=refresh),
+            self.assertLogs('OpenBench.releases.service', 'ERROR'),
+        ):
+            outcomes = service.refresh_all(FakeProvider(V4), NOW)
+        self.assertEqual(calls, ['Avalanche', 'Other'])
+        self.assertEqual([found.error for found in outcomes], ['database is locked', ''])
+
+    def test_a_stopped_or_overdue_pass_makes_no_further_call_and_costs_no_attempt(self):
+        create_engine_config('Other')
+        github = FakeGitHub(RELEASED)
+        stopping = iter([False, False, False, True, True, True])
+        guard = service.PassGuard(lambda: next(stopping), deadline=float('inf'))
+        outcomes = service.refresh_all(GitHubReleases(github, before_call=guard), NOW)
+        self.assertEqual([found.engine for found in outcomes], ['Avalanche'])
+        self.assertEqual(len(github.calls), 3)
+        self.assertIsNone(present(store.load_anchor('Other')).attempted_at)
+
+        overdue = service.PassGuard(service.never_stop, deadline=0.0)
+        with self.assertRaises(PassEnded):
+            overdue()
+
+    def test_the_watcher_passes_its_stop_flag_to_the_guard(self):
+        clock = service.PassClock()
+        with mock.patch('OpenBench.releases.service.refresh_all', return_value=[]) as refresh:
+            service.refresh_when_due(lambda: True, clock)
+        guard = refresh.call_args.args[0].before_call
+        with self.assertRaises(PassEnded):
+            guard()
+
+    def test_a_new_release_drops_the_recorded_bench_and_network(self):
+        service.refresh_all(FakeProvider(V4), NOW)
+        self.assertTrue(store.set_metadata('Avalanche', 3_141_592, 'none'))
+        service.refresh_all(FakeProvider(V4), NOW + REFRESH_INTERVAL)
+        kept = present(store.load_anchor('Avalanche'))
+        self.assertEqual((kept.bench, kept.network, kept.pinned), (3_141_592, 'none', False))
+
+        service.refresh_all(FakeProvider(Release('v4.1.0', 'c' * 40, NOW)), NOW + 2 * REFRESH_INTERVAL)
+        moved = present(store.load_anchor('Avalanche'))
+        self.assertEqual((moved.tag, moved.bench, moved.network), ('v4.1.0', None, ''))
+
+        store.set_metadata('Avalanche', 5, None)
+        store.pin_release('Avalanche', Release('v4.1.0', 'c' * 40, NOW), 'master', NOW)
+        self.assertEqual(present(store.load_anchor('Avalanche')).bench, 5)
+        store.pin_release('Avalanche', V4, 'master', NOW)
+        self.assertIsNone(present(store.load_anchor('Avalanche')).bench)
 
     def test_the_watcher_hook_is_throttled_and_never_raises(self):
         clock = service.PassClock()
         with mock.patch('OpenBench.releases.service.refresh_all', side_effect=RuntimeError('boom')) as refresh:
             with self.assertLogs('OpenBench.releases.service', 'ERROR'):
-                service.refresh_when_due(clock)
-            service.refresh_when_due(clock)
+                service.refresh_when_due(clock=clock)
+            service.refresh_when_due(clock=clock)
         self.assertEqual(refresh.call_count, 1)
 
         clock.next_pass = 0.0
@@ -434,7 +634,7 @@ class RefreshTests(TestCase):
             mock.patch('OpenBench.releases.service.refresh_all', return_value=failed),
             self.assertLogs('OpenBench.releases.service', 'WARNING') as logs,
         ):
-            service.refresh_when_due(clock)
+            service.refresh_when_due(clock=clock)
         self.assertIn('rate limit', logs.output[0])
 
 
@@ -471,12 +671,45 @@ class CommandTests(TestCase):
     def test_set_release_marks_default_branch_commits(self):
         self.run_command('set_release', 'Avalanche', 'v1', 'a' * 40, on_default_branch=['C' * 40, 'd' * 40])
         self.assertEqual(set(store.load_default_branch_commits('Avalanche')), {'c' * 40, 'd' * 40})
+        self.run_command('set_release', 'Avalanche', on_default_branch=['e' * 40])
+        self.assertIn('e' * 40, store.load_default_branch_commits('Avalanche'))
+
+    def test_bench_and_network_are_recorded_without_pinning(self):
+        Network.objects.create(sha256='ABCDEF01', name='nezha', engine='Avalanche', author='admin')
+        service.refresh_all(FakeProvider(V4), NOW)
+
+        output = self.run_command('set_release', 'Avalanche', bench=3141592, network='ABCDEF01')
+        self.assertIn('bench and network recorded', output)
+        anchor = present(store.load_anchor('Avalanche'))
+        self.assertEqual((anchor.bench, anchor.network), (3141592, 'ABCDEF01'))
+        self.assertEqual((anchor.pinned, anchor.tag), (False, 'v4.0.0'))
+
+        self.run_command('set_release', 'Avalanche', network='NONE')
+        anchor = present(store.load_anchor('Avalanche'))
+        self.assertEqual((anchor.bench, anchor.network), (3141592, 'none'))
+
+        self.run_command('set_release', 'Avalanche', 'v4.0.0', RELEASE_SHA, bench=42)
+        pinned = present(store.load_anchor('Avalanche'))
+        self.assertEqual((pinned.bench, pinned.network, pinned.pinned), (42, 'none', True))
+
+    def test_bench_and_network_need_a_known_release_and_valid_values(self):
+        with self.assertRaisesRegex(CommandError, 'No release of Avalanche is known'):
+            self.run_command('set_release', 'Avalanche', bench=5)
+        service.refresh_all(FakeProvider(V4), NOW)
+        for options in ({'bench': 0}, {'bench': -3}, {'network': 'FFFFFFFF'}):
+            with self.subTest(options=options), self.assertRaises(CommandError):
+                self.run_command('set_release', 'Avalanche', **options)
 
     def test_set_release_rejects_bad_input(self):
         for arguments, options in (
             (('Missing', 'v1', 'a' * 40), {}),
             (('Avalanche',), {}),
             (('Avalanche', 'v1', 'a' * 40), {'published': 'yesterday'}),
+            (('Avalanche', 'v1'), {}),
+            (('Avalanche', 'v1', 'a' * 39), {}),
+            (('Avalanche', 'v1', 'g' * 40), {}),
+            (('Avalanche', 'v1', 'v4.0.0'), {}),
+            (('Avalanche', 'v1', 'a' * 40), {'on_default_branch': ['abc1234']}),
         ):
             with self.subTest(arguments=arguments), self.assertRaises(CommandError):
                 self.run_command('set_release', *arguments, **options)
@@ -500,7 +733,7 @@ class CommandTests(TestCase):
         self.assertIn('Avalanche: refreshed; 0 commits checked', first)
         self.assertIn('Avalanche: not due', second)
         self.assertIn('Avalanche: refreshed', forced)
-        self.assertEqual(github.paths, ['/releases/latest', '/commits/v4.0.0', ''] * 2)
+        self.assertEqual(github.paths, ['/releases/latest', '/git/ref/tags/v4.0.0', ''] * 2)
 
 
 class MigrationTests(TransactionTestCase):

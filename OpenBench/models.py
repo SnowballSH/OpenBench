@@ -414,6 +414,8 @@ class EngineRelease(Model):
     sha            = CharField(max_length=64, blank=True)
     published_at   = DateTimeField(null=True, blank=True)
     default_branch = CharField(max_length=128, blank=True)
+    bench          = IntegerField(default=0)
+    network        = CharField(max_length=64, blank=True)
     pinned         = BooleanField(default=False)
     fetched_at     = DateTimeField(null=True, blank=True)
     attempted_at   = DateTimeField(null=True, blank=True)
@@ -431,6 +433,7 @@ class DefaultBranchCommit(Model):
     committed_at      = DateTimeField(null=True, blank=True)
     checked_at        = DateTimeField()
     checks            = IntegerField(default=0)
+    failures          = IntegerField(default=0)
 
     def __str__(self):
         return '{0} {1}'.format(self.engine, self.sha)

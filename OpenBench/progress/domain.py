@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime
 from enum import StrEnum
 
@@ -315,6 +315,7 @@ class LineageReport:
 @dataclass(frozen=True, slots=True)
 class AnchorPoint:
     time_class: TimeClass
+    base: Commit
     dev: Commit
     repo: str
     subject: str
@@ -339,8 +340,10 @@ class ReleaseReport:
     anchor: ReleaseAnchor | None
     series: list[AnchorSeries]
     branches: list[AnchorPoint]
+    sprt: list[AnchorPoint] = field(default_factory=list)
     points_omitted: int = 0
     branches_omitted: int = 0
+    sprt_omitted: int = 0
 
 
 @dataclass(frozen=True, slots=True)

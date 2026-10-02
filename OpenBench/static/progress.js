@@ -393,6 +393,15 @@
         return `${label} ${format_interval(series.latest.measurement.elo)} at ${series.latest.dev.sha.slice(0, SHORT_SHA)}`;
     }
 
+    const network_name = network => network || 'no network';
+
+    const release_networks = point => `${network_name(point.dev.network)} against the release with ${network_name(point.base.network)}`;
+
+    function networks_vary(points) {
+        const pairs = new Set(points.map(point => `${point.dev.network} ${point.base.network}`));
+        return pairs.size > 1 || points.some(point => point.dev.network !== point.base.network);
+    }
+
     function release_chart(report, palette, quiet) {
         const release = report.release;
         if (!release || !release.anchor) return { empty: 'No release is known yet.' };
@@ -410,6 +419,7 @@
         const high = Math.max(0, ...bounds);
         const pad = 0.08 * (high - low || 1);
         const tag = release.anchor.tag;
+        const vary = networks_vary(charted.flatMap(series => series.points));
 
         return {
             label: `Elo of the default branch against ${tag}. ${charted.map(release_summary).join('. ')}.`,
@@ -458,7 +468,12 @@
                             const state = measurement.provisional ? ' so far, still running' : '';
                             return `${item.dataset.label}: ${format_interval(measurement.elo)}${state}, ${format_count(measurement.games)} games`;
                         },
-                        footer: items => (items[0] ? `Measured ${long_day_format.format(items[0].raw.x)}` : ''),
+                        footer: items => {
+                            const point = items[0] && items[0].raw.point;
+                            if (!point) return '';
+                            const measured = `Measured ${long_day_format.format(items[0].raw.x)}`;
+                            return vary ? [measured, release_networks(point)] : measured;
+                        },
                     },
                 }),
             },

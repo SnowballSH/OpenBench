@@ -78,7 +78,8 @@ def create_workload(request, workload_type):
     if errors != [] and errors != None:
         source = find_clone_source(request.POST.get('clone_of'), workload_type)[0]
         fields = submitted_fields(request.POST, workload_type)
-        return render_form(request, workload_type, source, fields, error='\n'.join(errors))
+        measurement = find_release_measurement(request.POST.get('release_of'), request.POST.get('release_preset'))[0]
+        return render_form(request, workload_type, source, fields, error='\n'.join(errors), release_measurement=measurement)
 
     if warning := branch_is_out_of_date(workload):
         warning = 'Consider Rebasing: Dev (%s) appears behind Base (%s)' % (workload.dev.name, workload.base.name)
@@ -149,6 +150,9 @@ def find_clone_source(raw_id, workload_type, preset=None):
     except CloneError as error: return None, str(error)
 
 def find_release_measurement(engine, preset):
+
+    if engine is None:
+        return None, None
 
     try: return load_measurement(engine, preset), None
     except MeasurementError as error: return None, str(error)

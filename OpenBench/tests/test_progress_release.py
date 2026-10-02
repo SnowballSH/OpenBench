@@ -3,6 +3,7 @@ import re
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from typing import Any
+from unittest import mock
 
 from django.core.cache import cache
 from django.test import SimpleTestCase, TestCase
@@ -159,10 +160,49 @@ class AnchorSelectionTests(SimpleTestCase):
         self.assertFalse(measurement.provisional)
         self.assertAlmostEqual(present(measurement.elo).value, Elo(PENTA)[1])
 
-    def test_an_sprt_against_the_release_still_counts(self):
-        self.graph.run(RELEASE, 'm1', RunStatus.PASSED)
-        (series,) = self.report({'m1': None}).series
-        self.assertEqual(present(series.latest).measurement.verdict, RunStatus.PASSED)
+    def test_an_sprt_against_the_release_is_listed_apart_and_never_pooled(self):
+        self.measure('m1')
+        self.graph.run(RELEASE, 'm1', RunStatus.PASSED, penta=STRONG)
+        self.graph.run(RELEASE, 'm2', RunStatus.FAILED)
+
+        report = self.report({'m1': None, 'm2': None})
+        (series,) = report.series
+        self.assertEqual([point.dev.sha for point in series.points], ['m1'])
+        pooled = present(series.latest).measurement
+        self.assertEqual(len(pooled.runs), 1)
+        self.assertAlmostEqual(present(pooled.elo).value, Elo(PENTA)[1])
+        self.assertEqual([point.dev.sha for point in report.sprt], ['m2', 'm1'])
+        self.assertEqual(report.sprt[0].measurement.verdict, RunStatus.FAILED)
+        self.assertEqual(report.branches, [])
+
+    def test_the_headline_follows_commit_order_when_both_commits_are_dated(self):
+        self.measure('newer', penta=STRONG)
+        self.measure('older')
+        dated: dict[str, datetime | None] = {'newer': START + timedelta(days=5), 'older': START + timedelta(days=2)}
+
+        (series,) = self.report(dated).series
+        self.assertEqual([point.dev.sha for point in series.points], ['newer', 'older'])
+        self.assertEqual(present(series.latest).dev.sha, 'newer')
+
+    def test_the_headline_falls_back_to_measurement_order_when_a_commit_is_undated(self):
+        self.measure('newer', penta=STRONG)
+        self.measure('older')
+        undated: tuple[dict[str, datetime | None], ...] = (
+            {'newer': START + timedelta(days=5), 'older': None},
+            {'newer': None, 'older': None},
+        )
+        for dated in undated:
+            (series,) = self.report(dated).series
+            self.assertEqual(present(series.latest).dev.sha, 'older')
+
+    def test_a_remeasured_commit_keeps_its_one_pooled_point(self):
+        self.measure('old')
+        self.measure('new', penta=STRONG)
+        self.measure('old')
+        dated: dict[str, datetime | None] = {'old': START, 'new': START + timedelta(days=1)}
+        (series,) = self.report(dated).series
+        self.assertEqual(present(series.latest).dev.sha, 'new')
+        self.assertEqual(len(series.points[-1].measurement.runs), 2)
 
     def test_newer_bases_count_the_bases_first_tested_after_the_measurement(self):
         self.graph.run('b0', 'f0')
@@ -235,6 +275,13 @@ class ReleasePageTests(SimpleTestCase):
         )
         self.assertEqual((ltc.value, ltc.detail, ltc.facts), ('—', 'not measured at LTC', []))
 
+        committed = {'m1': START - timedelta(days=3)}
+        report = release_report('Avalanche', anchor(), graph.rows[:1], committed, SOURCE)
+        dated, _ = release_page(report, NOW).tiles
+        self.assertEqual(
+            dated.facts, ['committed Aug 29, 2026 · measured Sep 2, 2026', 'no newer base has been tested since']
+        )
+
     def test_lines_are_newest_first_with_a_diff_from_the_release(self):
         graph = Graph()
         graph.run(RELEASE, 'm1', RunStatus.COMPLETED, mode=RunMode.GAMES)
@@ -245,6 +292,40 @@ class ReleasePageTests(SimpleTestCase):
         self.assertEqual(page.lines[0].compare_url, f'{SOURCE}/compare/{RELEASE}...m2')
         self.assertEqual(page.lines[0].row_url, '/test/2/')
         self.assertEqual([line.commit.label for line in page.branches], ['feature'])
+
+    def test_networks_are_named_only_when_they_tell_rows_apart(self):
+        graph = Graph()
+        graph.run(RELEASE, 'm1', RunStatus.COMPLETED, mode=RunMode.GAMES)
+        self.assertEqual(self.page(anchor(), graph, ('m1',)).lines[0].networks, '')
+
+        graph.run(RELEASE, 'm1', RunStatus.COMPLETED, mode=RunMode.GAMES)
+        same, other = graph.rows
+        graph.rows = [same, replace(other, base=replace(other.base, network='OLDNET01'))]
+        lines = self.page(anchor(), graph, ('m1',)).lines
+        self.assertEqual(
+            sorted(line.networks for line in lines),
+            ['no network against the release with OLDNET01', 'no network against the release with no network'],
+        )
+
+    def test_sprt_runs_get_their_own_lines(self):
+        graph = Graph()
+        graph.run(RELEASE, 'm1', RunStatus.PASSED)
+        page = self.page(anchor(), graph, ('m1',))
+        self.assertEqual((page.tiles, page.lines), ([], []))
+        self.assertEqual([line.cell.verdict for line in page.sprt], ['passed'])
+
+    def test_the_base_note_says_whether_the_release_bench_is_recorded(self):
+        missing = self.page(anchor())
+        self.assertFalse(missing.base_recorded)
+        self.assertIn('set_release Avalanche --bench <nodes> --network <sha or none>', missing.base_note)
+
+        recorded = self.page(anchor(bench=3141592, network='none'))
+        self.assertTrue(recorded.base_recorded)
+        self.assertEqual(
+            recorded.base_note, 'Release bench 3,141,592 recorded, no network; the create form fills them in.'
+        )
+        self.assertIn('network ABCDEF01', self.page(anchor(bench=5, network='ABCDEF01')).base_note)
+        self.assertIn('network not recorded', self.page(anchor(bench=5)).base_note)
 
     def test_status_tells_how_old_the_release_is(self):
         fresh = self.page(anchor(fetched_at=NOW - timedelta(hours=2)))
@@ -334,6 +415,40 @@ class MeasurementPrefillTests(TestCase):
                 'test_max_games': '5000',
             },
         )
+        self.assertEqual(len(prefill.still_to_type), 3)
+        self.assertIn("Dev Bench (the bench of master's head", prefill.still_to_type[0])
+        self.assertIn(
+            'Base Bench (the bench of v4.0.0; record it with set_release Avalanche --bench)', prefill.still_to_type
+        )
+
+    def test_a_recorded_bench_and_network_are_filled_in_and_no_longer_asked_for(self):
+        store.set_metadata('Avalanche', 3141592, 'ABCDEF01')
+        prefill = load_measurement('Avalanche', 'STC')
+        self.assertEqual((prefill.fields['base_bench'], prefill.fields['base_network']), ('3141592', 'ABCDEF01'))
+        self.assertNotIn('dev_bench', prefill.fields)
+        self.assertEqual(len(prefill.still_to_type), 1)
+
+        store.set_metadata('Avalanche', None, 'none')
+        self.assertEqual(load_measurement('Avalanche', 'STC').fields['base_network'], '')
+
+    def test_a_rejected_submission_keeps_the_notice_and_what_was_typed(self):
+        ensure_book()
+        create_user('creator')
+        self.client.post('/login/', {'username': 'creator', 'password': PASSWORD})
+        prefill = load_measurement('Avalanche', 'STC')
+        typed = {'dev_branch': '', 'base_branch': '', 'dev_bench': '123'}
+        submitted = {**prefill.fields, 'release_of': 'Avalanche', 'release_preset': 'STC', **typed}
+
+        with mock.patch('OpenBench.workloads.verify_workload.requests.get') as get:
+            response = self.client.post('/test/new/', submitted)
+        get.assert_not_called()
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'id="release-notice"')
+        self.assertContains(response, 'name="release_of" value="Avalanche"')
+        self.assertContains(response, 'name="release_preset" value="STC"')
+        fields = json.loads(present(PREFILL.search(response.content.decode())).group(1))
+        self.assertEqual((fields['dev_bench'], fields['test_max_games']), ('123', '10000'))
+        self.assertFalse(Test.objects.exists())
 
     def test_nothing_is_filled_in_without_an_engine_a_release_or_a_preset(self):
         for engine, preset in (
@@ -360,6 +475,8 @@ class MeasurementPrefillTests(TestCase):
         self.assertEqual((fields['test_mode'], fields['test_max_games']), ('GAMES', '10000'))
         self.assertContains(response, 'id="release-notice"')
         self.assertContains(response, '10,000 fixed games at the STC preset, not an SPRT')
+        self.assertContains(response, 'Still to type before submitting: Dev Bench')
+        self.assertContains(response, 'name="release_of" value="Avalanche"')
         self.assertNotContains(response, 'name="clone_of"')
         self.assertFalse(Test.objects.exists())
         self.assertEqual(creator.username, 'creator')
@@ -414,6 +531,7 @@ class ReleaseViewTests(TestCase):
         self.assertContains(response, 'href="/test/new/?release=Avalanche&amp;preset=STC"')
         self.assertContains(response, 'href="/test/new/?release=Avalanche&amp;preset=LTC"')
         self.assertContains(response, 'STC · 10,000 games')
+        self.assertContains(response, 'The release bench is not recorded')
         self.assertNotContains(response, 'data-progress-chart="release"')
         self.assertContains(response, 'Lineage: chained step estimates')
         self.assertLess(response.content.index(b'id="progress-release"'), response.content.index(b'Chained Elo'))
@@ -483,7 +601,18 @@ class ReleaseViewTests(TestCase):
         payload = self.client.post('/api/progress/?engine=Avalanche&window=all', credentials(self.creator)).json()
         release = payload['progress']['release']
         self.assertEqual(
-            set(release), {'engine', 'repo', 'anchor', 'series', 'branches', 'points_omitted', 'branches_omitted'}
+            set(release),
+            {
+                'engine',
+                'repo',
+                'anchor',
+                'series',
+                'branches',
+                'sprt',
+                'points_omitted',
+                'branches_omitted',
+                'sprt_omitted',
+            },
         )
         self.assertEqual(
             set(release['anchor']),
@@ -497,6 +626,8 @@ class ReleaseViewTests(TestCase):
                 'fetched_at',
                 'attempted_at',
                 'error',
+                'bench',
+                'network',
             },
         )
         self.assertEqual((release['anchor']['tag'], release['anchor']['sha']), ('v4.0.0', RELEASE))
@@ -508,6 +639,7 @@ class ReleaseViewTests(TestCase):
             set(point),
             {
                 'time_class',
+                'base',
                 'dev',
                 'repo',
                 'subject',

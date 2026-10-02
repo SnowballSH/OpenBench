@@ -4,7 +4,7 @@ from urllib.parse import urlencode
 from OpenBench.models import EngineConfig
 from OpenBench.progress.domain import TimeClass
 from OpenBench.releases import store
-from OpenBench.releases.domain import ReleaseAnchor
+from OpenBench.releases.domain import NO_NETWORK, ReleaseAnchor
 from OpenBench.workloads.clone import FORM_FIELDS, MAX_PRESET_NAME_LENGTH, NOT_APPLICABLE, FormFields
 from OpenBench.workloads.presets import (
     DEFAULT_PRESET,
@@ -48,6 +48,7 @@ class MeasurementPrefill:
     preset: str
     games: int
     fields: FormFields
+    still_to_type: tuple[str, ...] = ()
 
     @property
     def games_text(self) -> str:
@@ -120,7 +121,22 @@ def measurement_fields(config: EngineConfig, anchor: ReleaseAnchor, preset: Pres
         'test_bounds': NOT_APPLICABLE,
         'test_confidence': NOT_APPLICABLE,
         GAMES_FIELD: str(games),
+        **base_identity(anchor),
     }
+
+
+def base_identity(anchor: ReleaseAnchor) -> FormFields:
+    bench = {'base_bench': str(anchor.bench)} if anchor.bench is not None else {}
+    network = {'base_network': '' if anchor.network == NO_NETWORK else anchor.network} if anchor.network else {}
+    return bench | network
+
+
+def still_to_type(anchor: ReleaseAnchor) -> tuple[str, ...]:
+    recorded = f'record it with set_release {anchor.engine}'
+    dev = f"Dev Bench (the bench of {anchor.default_branch}'s head, unless its commit message states one)"
+    bench = f'Base Bench (the bench of {anchor.tag}; {recorded} --bench)'
+    network = f'Base Network (the network {anchor.tag} runs; {recorded} --network)'
+    return (dev, *([bench] if anchor.bench is None else []), *([] if anchor.network else [network]))
 
 
 def load_measurement(engine: str, preset_name: str | None) -> MeasurementPrefill:
@@ -145,4 +161,5 @@ def load_measurement(engine: str, preset_name: str | None) -> MeasurementPrefill
         preset=name,
         games=games,
         fields=measurement_fields(config, anchor, preset, games),
+        still_to_type=still_to_type(anchor),
     )
